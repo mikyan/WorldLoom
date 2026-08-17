@@ -24,6 +24,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 ## 文档
 
 - [项目设计文档](docs/DESIGN.md)
+- [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -45,6 +46,7 @@ SQLDelight
 ```text
 docs/
 ├── DESIGN.md
+├── PROJECT_INITIALIZATION.md
 └── decisions/
     ├── 0001-compose-multiplatform.md
     └── 0002-world-configuration-boundary.md

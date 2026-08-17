@@ -710,6 +710,8 @@ platform/
 
 实现开始后首先建立真正的 KMP 工程，按 `commonMain`、`androidMain`、`iosMain` 与 `desktopMain` 拆分；优先实现纯 Kotlin 模型、事件系统和 Design Token，再接入平台能力。
 
+工程初始化的范围、最小模块、权威竖切、验证门槛与实施顺序见[项目初始化设计](PROJECT_INITIALIZATION.md)。
+
 ## 8. 世界包格式
 
 `.worldloom` 是带版本号的 ZIP 容器，建议包含：
