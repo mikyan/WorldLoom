@@ -1,0 +1,29 @@
+# Gradle and Kotlin
+.gradle/
+.kotlin/
+**/build/
+out/
+
+# IDEs
+.idea/
+*.iml
+.fleet/
+.vscode/
+
+# Local SDK and machine configuration
+local.properties
+*.hprof
+
+# Operating systems
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Signing and credentials
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.env
+.env.*
+
