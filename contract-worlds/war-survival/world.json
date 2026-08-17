@@ -1,0 +1,48 @@
+{
+    "schemaVersion": 1,
+    "id": "contract.war-survival",
+    "title": "War Survival Contract",
+    "components": [
+        {
+            "id": "war.vitals",
+            "fields": [
+                {
+                    "id": "war.health",
+                    "valueType": "INTEGER",
+                    "required": true,
+                    "minInteger": 0,
+                    "maxInteger": 10
+                }
+            ]
+        }
+    ],
+    "initialEntities": [
+        {
+            "entityId": "player",
+            "components": [
+                {
+                    "definitionId": "war.vitals",
+                    "fields": [
+                        {
+                            "id": "war.health",
+                            "value": {
+                                "kind": "integer",
+                                "value": 7
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "presentation": [
+        {
+            "id": "war.presentation.primary-status",
+            "entityId": "player",
+            "componentId": "war.vitals",
+            "fieldId": "war.health",
+            "label": "身体状况",
+            "adjustmentStep": -1
+        }
+    ]
+}

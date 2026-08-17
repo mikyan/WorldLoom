@@ -706,9 +706,9 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库阶段产物是设计基线和架构决策。下一阶段将加入正式工程骨架与核心竖切实现。
+当前仓库已经进入工程初始化阶段，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、内存 EventStore、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
-实现开始后首先建立真正的 KMP 工程，按 `commonMain`、`androidMain`、`iosMain` 与 `desktopMain` 拆分；优先实现纯 Kotlin 模型、事件系统和 Design Token，再接入平台能力。
+`war-survival` 与 `station-ai` 两个最小 JSON 契约世界通过同一参数化测试和 Runtime 竖切，作为配置边界的首个可执行保护。SQLDelight、规则模块 Registry、Agent、正式世界包和平台安全能力仍属于后续增量。
 
 工程初始化的范围、最小模块、权威竖切、验证门槛与实施顺序见[项目初始化设计](PROJECT_INITIALIZATION.md)。
 

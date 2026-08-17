@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目当前处于设计与工程准备阶段，仓库内容聚焦产品设计基线和架构决策。
+> 项目当前处于工程初始化阶段，已经加入 KMP/Compose 骨架、确定性世界引擎最小竖切和跨题材契约测试。
 
 ## 产品方向
 
@@ -41,15 +41,50 @@ SQLDelight
 
 目标工程将共享世界规则、Agent Runtime、存档模型和主要 Compose UI，并保留 Android、iOS、Desktop 各端的安全存储与系统集成层。
 
-## 仓库结构
+## 当前工程结构
 
 ```text
+apps/
+├── androidApp
+├── desktopApp
+└── iosApp
+
+shared/
+├── definition-runtime
+├── domain-world
+├── application
+└── ui-game
+
+contract-worlds/
+├── war-survival
+└── station-ai
+
 docs/
 ├── DESIGN.md
 ├── PROJECT_INITIALIZATION.md
 └── decisions/
-    ├── 0001-compose-multiplatform.md
-    └── 0002-world-configuration-boundary.md
 ```
 
-正式工程骨架将在设计基线确认后加入。
+当前竖切从两个 JSON 契约世界加载动态 Definition，经类型和引用验证后，执行 `Command → Event → EventStore/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Android 和 Desktop 可以运行该演示；iOS 使用薄 SwiftUI 宿主链接共享 Framework。
+
+## 开发与验证
+
+需要 JDK 17 或更高版本；Android 构建还需要安装 API 36 SDK。只使用仓库提供的 Gradle Wrapper：
+
+```powershell
+./gradlew.bat check
+./gradlew.bat :apps:androidApp:assembleDebug
+./gradlew.bat :apps:desktopApp:run
+```
+
+Unix 与 macOS 使用 `./gradlew`。iOS 应用需要在安装 Xcode 的 macOS 上构建：
+
+```bash
+xcodebuild \
+  -project apps/iosApp/iosApp.xcodeproj \
+  -scheme iosApp \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```

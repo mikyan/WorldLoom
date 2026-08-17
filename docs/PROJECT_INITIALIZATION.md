@@ -1,6 +1,6 @@
 # Worldloom 项目初始化设计
 
-文档状态：Draft 0.1<br>
+文档状态：In Progress 0.2<br>
 更新日期：2026-08-17
 
 ## 1. 文档目的
@@ -14,6 +14,8 @@
 - [ADR-0002：世界配置与程序代码边界](decisions/0002-world-configuration-boundary.md)。
 
 如果初始化实现与上述文档冲突，以 Accepted ADR 为最高优先级。本文不改变既有架构决策，只把下一阶段收敛为可验收的工程范围。
+
+当前实现已建立本文定义的 Gradle/KMP 基座、权威世界竖切、双题材契约夹具、application session、共享 Compose UI 与三个平台入口。Desktop 和 Android 已在 Windows 完成编译验证；iOS 宿主需要由 macOS CI 或开发机完成最终验证。
 
 ## 2. 初始化目标
 
@@ -323,6 +325,8 @@ PresentationMapper 接收 `PresentationDefinition` 与只读领域投影，输�
 - Kotlin、Compose Multiplatform、Android Gradle Plugin、Coroutines 和 Serialization 的确切版本在实现 PR 中依据官方兼容矩阵一起锁定。
 
 版本选择必须形成一个经过验证的组合，不能分别追求每个依赖的最新版本。初始化 PR 记录选择日期、兼容依据和已验证平台。
+
+当前实现锁定的组合为 Gradle 9.6.1、Kotlin 2.4.10、Compose Multiplatform 1.11.1、Android Gradle Plugin 9.3.0、kotlinx.coroutines 1.11.0 与 kotlinx.serialization 1.11.0。Android 使用 compile/target SDK 36 和 min SDK 29；后续升级继续以整组兼容验证为单位。
 
 ### 10.2 依赖声明
 

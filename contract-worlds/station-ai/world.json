@@ -1,0 +1,48 @@
+{
+    "schemaVersion": 1,
+    "id": "contract.station-ai",
+    "title": "Station AI Contract",
+    "components": [
+        {
+            "id": "station.capacity",
+            "fields": [
+                {
+                    "id": "station.energy",
+                    "valueType": "INTEGER",
+                    "required": true,
+                    "minInteger": 0,
+                    "maxInteger": 100
+                }
+            ]
+        }
+    ],
+    "initialEntities": [
+        {
+            "entityId": "player-ai",
+            "components": [
+                {
+                    "definitionId": "station.capacity",
+                    "fields": [
+                        {
+                            "id": "station.energy",
+                            "value": {
+                                "kind": "integer",
+                                "value": 80
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "presentation": [
+        {
+            "id": "station.presentation.primary-status",
+            "entityId": "player-ai",
+            "componentId": "station.capacity",
+            "fieldId": "station.energy",
+            "label": "能源储备",
+            "adjustmentStep": -10
+        }
+    ]
+}

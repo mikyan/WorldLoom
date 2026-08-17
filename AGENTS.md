@@ -6,10 +6,10 @@
 
 Worldloom（织境）是一款面向 Android、iOS 与 Desktop、由 Agent 主持的单人数字跑团 RPG。自然语言模型负责理解、扮演和叙述；确定性的本地世界引擎负责规则裁决、随机审计和事实更新。
 
-仓库目前处于“设计基线与工程准备”阶段，尚未加入 Gradle/Kotlin 工程骨架。因此：
+仓库目前处于“工程初始化与核心竖切”阶段，已经加入 Gradle/Kotlin Multiplatform 工程骨架、Android/Desktop/iOS 入口、纯 Kotlin 世界引擎竖切与共享 Compose UI。因此：
 
-- 不要假定某个规划模块、构建任务或测试命令已经存在；
-- 新增工程骨架时应同步更新本文件中的目录和验证命令；
+- 先用 `settings.gradle.kts` 和模块构建文件确认模块与任务是否已经存在，不要假定完整目标架构已经落地；
+- 新增模块、平台入口或稳定任务时应同步更新本文件中的目录和验证命令；
 - 实现范围不明确时，优先完成最小的端到端竖切，不提前铺开全部规划模块。
 
 ## 事实来源与决策优先级
@@ -135,10 +135,19 @@ docs/       # 设计文档和 ADR
 - UI/性能测试：多尺寸、减少动态效果、长列表、后台任务竞争和目标最低设备；
 - 内容生成测试：TXT/EPUB 解析、来源映射、边界输入、取消/恢复、验证和快速试玩。
 
-当前仓库尚无可执行构建或测试命令。工程骨架加入后：
+当前稳定命令如下，要求 JDK 17 或更高版本；Android 构建还需要 API 36 SDK：
 
-- 只使用仓库提供的 Gradle Wrapper（Windows 为 `./gradlew.bat`，Unix 为 `./gradlew`）；
-- 在此处记录稳定的格式化、静态检查、单元测试和平台构建命令；
+```text
+./gradlew.bat check
+./gradlew.bat :shared:domain-world:desktopTest
+./gradlew.bat :apps:androidApp:assembleDebug
+./gradlew.bat :apps:desktopApp:run
+```
+
+Unix 与 macOS 将 `./gradlew.bat` 替换为 `./gradlew`。iOS 宿主通过 `apps/iosApp/iosApp.xcodeproj` 在 macOS/Xcode 中构建。
+
+- 只使用仓库提供的 Gradle Wrapper；
+- 新增稳定的格式化、静态检查、单元测试和平台构建任务后在此处记录；
 - 提交前运行与改动相称的检查，并在交付说明中列出实际运行的命令与未验证项；
 - 文档改动至少检查 Markdown 链接、代码块和 Mermaid 语法是否完整。
 
