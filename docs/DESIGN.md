@@ -706,13 +706,13 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成首个五轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成十五轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
-已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Tool 注册、状态更新、持久化、回放和 UI 投影，不在生产 Runtime 中引入题材分支。
+已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Tool 注册、状态更新、持久化、回放和 UI 投影，不在生产 Runtime 中引入题材分支。
 
-平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。完整 `.worldloom` ZIP/签名、Behavior AST、持久化 Agent 记忆、Anthropic Adapter、内容生成和语音仍属于后续增量。
+平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，五轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，十五轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
 
 ## 8. 世界包格式
 
@@ -849,7 +849,7 @@ Behavior Runtime ────┘
 
 ## 9. 模型供应商与安全
 
-系统采用 BYOK。当前 OpenAI Adapter 通过构造配置提供 Base URL、Model ID、输出限制和计费参数；应用基线使用一个组装层默认 Model ID。运行时 Provider/模型选择、连接测试和模型发现 UI 尚未实现。
+系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前 UI 提供 OpenAI 兼容配置的保存、切换、测试和模型发现，动态 Provider 路由在每次请求前读取选中配置。
 
 当前已实现 OpenAI Chat Completions 兼容协议，包括 SSE 文本增量、分片 `tool_calls`、工具结果和最终用量；Anthropic Messages 仍是下一 Adapter。Agent Loop、工具调度、预算、上下文构建和会话隔离属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。适配实现依据 [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling) 与 [Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)，并始终在 Tool Gateway 本地重新校验模型参数。
 
@@ -875,7 +875,7 @@ API Key 必须保存到平台凭据保险箱。目标与当前基线如下：
 
 Agent Runtime 必须有最大步骤数、工具权限、超时、费用预算、参数 Schema 校验和循环检测。
 
-当前 UI 只保存、删除并显示“已配置/未配置”状态，不读取或回显已保存密钥。Provider 每次请求在凭据边界内短暂访问密钥，只把它放入 Authorization Header；HTTP 错误不会包含上游响应正文。
+当前 UI 只保存、删除并显示密钥的“已配置/未配置”状态，不读取或回显已保存密钥。非秘密 Provider 配置与密钥引用单独持久化。Provider 每次请求在凭据边界内短暂访问密钥，只把它放入 Authorization Header；HTTP 错误不会包含上游响应正文。
 
 ## 10. 性能预算
 
@@ -1038,9 +1038,9 @@ EventLog 与原始交互归档不因记忆压缩而删除。身份、当前目�
 1. 用 `war-survival` 与 `station-ai` 两个契约世界验证 Runtime、Tool、UI 和存档不存在题材字段或 worldId 分支；
 2. 完成 Definition、TypedValue、动态组件、模块注册和 PresentationDefinition 的基础 Schema；
 3. 验证均匀分布的 300～1000 日战争在极短与极长存档中的节奏、内容密度和结局质量；
-4. 完成 `CharacterCreationProfile` Schema，验证固定角色、模板、点数分配和叙述生成四种模式；
-5. 完成 `RuleProfile` 可组合原语目录，验证不同题材生成的规则模块；
-6. 选择跨端 TXT 与 EPUB 解析实现，验证编码、阅读顺序、50 万字符处理和来源定位；
-7. 完成 Behavior AST、表达式类型系统、状态机编译和 DSL 版本迁移测试；
-8. 用真实模型和长对话调优 50%/75% 水位线、CompactionModel、召回数量和记忆衰减权重；
+4. 在真实创作样本上扩充 `CharacterCreationProfile` 与 `RuleProfile` 的可组合原语目录；
+5. 为 iOS 接入 TXT/EPUB 平台文件桥，并验证压缩 EPUB 与 GB18030；
+6. 增加 Behavior 状态机/行为图编译和 DSL 版本迁移；
+7. 用真实模型和长对话调优 50%/75% 水位线、CompactionModel、召回数量和记忆衰减权重；
+8. 为内容生成任务接入持久化 Store，验证进程崩溃后的继续执行；
 9. 在 Android、iOS 与 Windows 最低基线设备上验证帧时间、常驻内存、长存档和后台任务竞争。

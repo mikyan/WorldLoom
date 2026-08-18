@@ -22,6 +22,123 @@ CREATE TABLE state_snapshot (
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE agent_session (
+    run_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    owner_agent_id TEXT NOT NULL,
+    owner_actor_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    messages_json TEXT NOT NULL,
+    session_schema_version INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (run_id, session_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE agent_turn (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, sequence),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_memory (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    salience REAL NOT NULL,
+    confidence REAL NOT NULL,
+    tags_json TEXT NOT NULL,
+    related_entity_ids_json TEXT NOT NULL,
+    protected INTEGER NOT NULL,
+    created_sequence INTEGER NOT NULL,
+    last_accessed_sequence INTEGER NOT NULL,
+    data_version INTEGER NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_belief (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_goal (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE relationship_state (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE context_checkpoint (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    from_sequence INTEGER NOT NULL,
+    to_sequence INTEGER NOT NULL,
+    prompt_version INTEGER NOT NULL,
+    model_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    published_at_epoch_millis INTEGER NOT NULL,
+    PRIMARY KEY (run_id, agent_id, idempotency_key),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE memory_event_link (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    record_kind TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, record_id, event_id, record_kind),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE provider_configuration (
+    configuration_id TEXT NOT NULL PRIMARY KEY,
+    adapter_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    credential_key TEXT NOT NULL,
+    max_output_tokens INTEGER NOT NULL,
+    input_cost_microunits_per_million_tokens INTEGER NOT NULL,
+    output_cost_microunits_per_million_tokens INTEGER NOT NULL,
+    allow_insecure_local_transport INTEGER NOT NULL
+);
+
+CREATE TABLE provider_settings (
+    settings_id INTEGER NOT NULL PRIMARY KEY CHECK (settings_id = 1),
+    selected_configuration_id TEXT,
+    FOREIGN KEY (selected_configuration_id)
+        REFERENCES provider_configuration(configuration_id) ON DELETE SET NULL
+);
+
 insertRun:
 INSERT INTO save_run(run_id, world_definition_id, data_schema_version)
 VALUES (?, ?, ?);
@@ -59,3 +176,147 @@ selectSnapshot:
 SELECT run_id, sequence, state_schema_version, state_json
 FROM state_snapshot
 WHERE run_id = ?;
+
+selectAgentSession:
+SELECT session_id, owner_agent_id, owner_actor_id, revision, messages_json, session_schema_version
+FROM agent_session
+WHERE run_id = ? AND session_id = ?;
+
+insertAgentSession:
+INSERT INTO agent_session(
+    run_id,
+    session_id,
+    owner_agent_id,
+    owner_actor_id,
+    revision,
+    messages_json,
+    session_schema_version
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+updateAgentSession:
+UPDATE agent_session
+SET revision = ?, messages_json = ?, session_schema_version = ?
+WHERE run_id = ? AND session_id = ? AND revision = ?;
+
+
+insertAgentTurn:
+INSERT INTO agent_turn(
+    run_id, agent_id, sequence, session_id, input_text, output_text, token_count, source_event_ids_json
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAgentTurns:
+SELECT agent_id, sequence, session_id, input_text, output_text, token_count, source_event_ids_json
+FROM agent_turn
+WHERE run_id = ? AND agent_id = ? AND sequence > ? AND sequence <= ?
+ORDER BY sequence;
+
+selectAgentMemory:
+SELECT kind
+FROM agent_memory
+WHERE run_id = ? AND agent_id = ? AND memory_id = ?;
+
+upsertAgentMemory:
+INSERT OR REPLACE INTO agent_memory(
+    run_id, agent_id, memory_id, kind, content, salience, confidence, tags_json,
+    related_entity_ids_json, protected, created_sequence, last_accessed_sequence, data_version
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAgentMemories:
+SELECT memory_id, kind, content, salience, confidence, tags_json, related_entity_ids_json,
+       protected, created_sequence, last_accessed_sequence, data_version
+FROM agent_memory
+WHERE run_id = ? AND agent_id = ?
+ORDER BY memory_id;
+
+insertAgentBelief:
+INSERT OR IGNORE INTO agent_belief(run_id, agent_id, memory_id) VALUES (?, ?, ?);
+
+insertAgentGoal:
+INSERT OR IGNORE INTO agent_goal(run_id, agent_id, memory_id) VALUES (?, ?, ?);
+
+insertRelationshipState:
+INSERT OR IGNORE INTO relationship_state(run_id, agent_id, memory_id) VALUES (?, ?, ?);
+
+selectCheckpointByKey:
+SELECT idempotency_key
+FROM context_checkpoint
+WHERE run_id = ? AND agent_id = ? AND idempotency_key = ?;
+
+selectLatestContextCheckpoint:
+SELECT idempotency_key, from_sequence, to_sequence, prompt_version, model_id, summary,
+       source_event_ids_json, published_at_epoch_millis
+FROM context_checkpoint
+WHERE run_id = ? AND agent_id = ?
+ORDER BY to_sequence DESC
+LIMIT 1;
+
+insertContextCheckpoint:
+INSERT INTO context_checkpoint(
+    run_id, agent_id, idempotency_key, from_sequence, to_sequence, prompt_version, model_id,
+    summary, source_event_ids_json, published_at_epoch_millis
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteMemoryEventLinks:
+DELETE FROM memory_event_link
+WHERE run_id = ? AND agent_id = ? AND record_id = ? AND record_kind = ?;
+
+insertMemoryEventLink:
+INSERT OR IGNORE INTO memory_event_link(run_id, agent_id, record_id, event_id, record_kind)
+VALUES (?, ?, ?, ?, ?);
+
+selectMemoryEventLinks:
+SELECT event_id
+FROM memory_event_link
+WHERE run_id = ? AND agent_id = ? AND record_id = ? AND record_kind = ?
+ORDER BY event_id;
+
+countAgentTurnsInRange:
+SELECT COUNT(*)
+FROM agent_turn
+WHERE run_id = ? AND agent_id = ? AND sequence >= ? AND sequence <= ?;
+
+
+ensureProviderSettings:
+INSERT OR IGNORE INTO provider_settings(settings_id, selected_configuration_id) VALUES (1, NULL);
+
+selectProviderConfigurations:
+SELECT configuration_id, adapter_id, display_name, base_url, model_id, credential_key,
+       max_output_tokens, input_cost_microunits_per_million_tokens,
+       output_cost_microunits_per_million_tokens, allow_insecure_local_transport
+FROM provider_configuration
+ORDER BY configuration_id;
+
+selectProviderConfiguration:
+SELECT configuration_id, adapter_id, display_name, base_url, model_id, credential_key,
+       max_output_tokens, input_cost_microunits_per_million_tokens,
+       output_cost_microunits_per_million_tokens, allow_insecure_local_transport
+FROM provider_configuration
+WHERE configuration_id = ?;
+
+insertProviderConfiguration:
+INSERT INTO provider_configuration(
+    configuration_id, adapter_id, display_name, base_url, model_id, credential_key,
+    max_output_tokens, input_cost_microunits_per_million_tokens,
+    output_cost_microunits_per_million_tokens, allow_insecure_local_transport
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateProviderConfiguration:
+UPDATE provider_configuration
+SET adapter_id = ?, display_name = ?, base_url = ?, model_id = ?, credential_key = ?,
+    max_output_tokens = ?, input_cost_microunits_per_million_tokens = ?,
+    output_cost_microunits_per_million_tokens = ?, allow_insecure_local_transport = ?
+WHERE configuration_id = ?;
+
+deleteProviderConfiguration:
+DELETE FROM provider_configuration WHERE configuration_id = ?;
+
+selectSelectedProviderConfiguration:
+SELECT selected_configuration_id FROM provider_settings WHERE settings_id = 1;
+
+updateSelectedProviderConfiguration:
+UPDATE provider_settings SET selected_configuration_id = ? WHERE settings_id = 1;

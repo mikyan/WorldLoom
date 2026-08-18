@@ -38,11 +38,15 @@ class AgentRuntime(
         request: AgentRunRequest,
         onTextDelta: suspend (String) -> Unit,
     ): AgentRunResult {
-        val snapshot = when (val loaded = sessionStore.load(request.sessionId, request.identity)) {
+        val snapshot = when (val loaded = sessionStore.load(request.sessionId, request.identity, request.runId)) {
             is AgentSessionLoadResult.Success -> loaded.snapshot
             AgentSessionLoadResult.OwnershipMismatch -> return failure(
                 AgentRunErrorCode.SESSION_OWNERSHIP_MISMATCH,
                 "Agent session belongs to a different identity",
+            )
+            is AgentSessionLoadResult.StorageFailure -> return failure(
+                AgentRunErrorCode.SESSION_STORAGE_FAILURE,
+                loaded.message,
             )
         }
         val tools = toolGateway.availableTools(request.identity)
@@ -53,8 +57,11 @@ class AgentRuntime(
             )
         }
 
-        val conversation = snapshot.messages.toMutableList()
-        conversation += ProviderMessage(ProviderMessageRole.USER, request.input)
+        val archivedConversation = snapshot.messages.toMutableList()
+        val conversation = (request.contextMessages ?: snapshot.messages).toMutableList()
+        val inputMessage = ProviderMessage(ProviderMessageRole.USER, request.input)
+        archivedConversation += inputMessage
+        conversation += inputMessage
         var steps = 0
         var toolCallCount = 0
         var usage = ProviderUsage.Zero
@@ -122,10 +129,12 @@ class AgentRuntime(
                         "Provider returned neither final text nor tool calls",
                         worldChanged,
                     )
-                conversation += ProviderMessage(ProviderMessageRole.ASSISTANT, text)
+                val finalMessage = ProviderMessage(ProviderMessageRole.ASSISTANT, text)
+                conversation += finalMessage
+                archivedConversation += finalMessage
                 when (
-                    sessionStore.save(
-                        snapshot.copy(messages = conversation.toList()),
+                    val saved = sessionStore.save(
+                        snapshot.copy(messages = archivedConversation.toList()),
                         expectedRevision = snapshot.revision,
                     )
                 ) {
@@ -134,6 +143,7 @@ class AgentRuntime(
                         steps = steps,
                         toolCalls = toolCallCount,
                         usage = usage,
+                        worldChanged = worldChanged,
                     )
 
                     AgentSessionSaveResult.OwnershipMismatch -> return failure(
@@ -145,6 +155,12 @@ class AgentRuntime(
                     AgentSessionSaveResult.RevisionConflict -> return failure(
                         AgentRunErrorCode.SESSION_CONFLICT,
                         "Agent session was updated concurrently",
+                        worldChanged,
+                    )
+
+                    is AgentSessionSaveResult.StorageFailure -> return failure(
+                        AgentRunErrorCode.SESSION_STORAGE_FAILURE,
+                        saved.message,
                         worldChanged,
                     )
                 }
@@ -184,23 +200,27 @@ class AgentRuntime(
                 }
             }
 
-            conversation += ProviderMessage(
+            val assistantToolMessage = ProviderMessage(
                 role = ProviderMessageRole.ASSISTANT,
                 content = turn.text,
                 toolCalls = turn.toolCalls,
             )
+            conversation += assistantToolMessage
+            archivedConversation += assistantToolMessage
             turn.toolCalls.forEach { call ->
                 when (val invocation = toolGateway.invoke(request.identity, call)) {
                     is ToolInvocationResult.Success -> {
                         worldChanged = worldChanged || invocation.worldChanged
                         toolCallCount += 1
                         toolSignatures += call.signature()
-                        conversation += ProviderMessage(
+                        val toolMessage = ProviderMessage(
                             role = ProviderMessageRole.TOOL,
                             content = invocation.output,
                             toolCallId = call.id,
                             toolName = call.name,
                         )
+                        conversation += toolMessage
+                        archivedConversation += toolMessage
                     }
 
                     is ToolInvocationResult.Failure -> return failure(

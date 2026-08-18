@@ -1,7 +1,9 @@
 package io.worldloom.provider.api
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.Serializable
 
+@Serializable
 enum class ProviderMessageRole {
     SYSTEM,
     USER,
@@ -9,6 +11,7 @@ enum class ProviderMessageRole {
     TOOL,
 }
 
+@Serializable
 data class ProviderToolCall(
     val id: String,
     val name: String,
@@ -21,6 +24,7 @@ data class ProviderToolCall(
 }
 
 /** Vendor-neutral conversation item. Provider DTOs must remain inside provider adapters. */
+@Serializable
 data class ProviderMessage(
     val role: ProviderMessageRole,
     val content: String? = null,

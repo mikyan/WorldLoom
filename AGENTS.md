@@ -140,6 +140,9 @@ docs/       # 设计文档和 ADR
 ```text
 ./gradlew.bat check
 ./gradlew.bat :shared:domain-world:desktopTest
+./gradlew.bat :shared:world-package:desktopTest
+./gradlew.bat :shared:behavior-runtime:desktopTest
+./gradlew.bat :shared:content-generation:desktopTest
 ./gradlew.bat :shared:persistence:verifyCommonMainWorldloomDatabaseMigration
 ./gradlew.bat :shared:provider-openai:desktopTest
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64

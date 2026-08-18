@@ -48,6 +48,11 @@ import io.worldloom.application.SessionError
 import io.worldloom.application.WorldCatalogEntry
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.CredentialConfigurationState
+import io.worldloom.provider.api.ProviderConfiguration
+import io.worldloom.provider.api.ProviderConfigurationCenter
+import io.worldloom.provider.api.ProviderConfigurationId
+import io.worldloom.provider.api.ProviderConnectionTestResult
+import io.worldloom.provider.api.ProviderModelDiscoveryResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -70,6 +75,8 @@ fun WorldloomApp(
     session: GameSession,
     agentController: GameAgentController? = null,
     credentialConfiguration: CredentialConfiguration? = null,
+    providerConfigurationCenter: ProviderConfigurationCenter? = null,
+    providerConfigurationId: ProviderConfigurationId? = null,
 ) {
     val state by session.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -90,6 +97,9 @@ fun WorldloomApp(
                     },
                 )
                 credentialConfiguration?.let { CredentialPanel(it) }
+                if (providerConfigurationCenter != null && providerConfigurationId != null) {
+                    ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId)
+                }
                 when (val current = state) {
                     GameSessionUiState.Idle -> EmptyState("选择一个契约世界，开始验证权威运行管线。")
                     is GameSessionUiState.Loading -> LoadingState()
@@ -111,6 +121,115 @@ fun WorldloomApp(
                     )
 
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderConfigurationPanel(
+    center: ProviderConfigurationCenter,
+    configurationId: ProviderConfigurationId,
+) {
+    val scope = rememberCoroutineScope()
+    var configuration by remember { mutableStateOf<ProviderConfiguration?>(null) }
+    var baseUrl by remember { mutableStateOf("") }
+    var modelId by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("正在读取配置…") }
+    var models by remember { mutableStateOf(emptyList<String>()) }
+    var loading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(center, configurationId) {
+        configuration = center.configurations().firstOrNull { it.id == configurationId }
+        configuration?.let {
+            baseUrl = it.baseUrl
+            modelId = it.modelId
+            status = "当前模型：${it.modelId}"
+        } ?: run { status = "Provider 配置不存在" }
+    }
+
+    fun saveThen(block: suspend (ProviderConfiguration) -> Unit) {
+        val current = configuration ?: return
+        loading = true
+        scope.launch {
+            try {
+                val updated = current.copy(baseUrl = baseUrl.trim(), modelId = modelId.trim())
+                center.upsert(updated)
+                center.select(updated.id)
+                configuration = updated
+                block(updated)
+            } catch (error: IllegalArgumentException) {
+                status = error.message ?: "Provider 配置无效"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("模型 Provider", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Base URL") },
+                singleLine = true,
+                enabled = !loading,
+            )
+            OutlinedTextField(
+                value = modelId,
+                onValueChange = { modelId = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Model ID") },
+                singleLine = true,
+                enabled = !loading,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = !loading && configuration != null,
+                    onClick = {
+                        saveThen { updated ->
+                            status = "已保存 ${updated.modelId}"
+                        }
+                    },
+                ) { Text("保存并切换") }
+                Button(
+                    enabled = !loading && configuration != null,
+                    onClick = {
+                        saveThen { updated ->
+                            status = when (val result = center.test(updated.id)) {
+                                is ProviderConnectionTestResult.Connected -> "连接成功"
+                                is ProviderConnectionTestResult.Failed -> result.message
+                            }
+                        }
+                    },
+                ) { Text("测试连接") }
+                Button(
+                    enabled = !loading && configuration != null,
+                    onClick = {
+                        saveThen { updated ->
+                            when (val result = center.discoverModels(updated.id)) {
+                                is ProviderModelDiscoveryResult.Success -> {
+                                    models = result.models.map { it.id }
+                                    status = "发现 ${models.size} 个模型"
+                                }
+                                is ProviderModelDiscoveryResult.Failure -> status = result.message
+                            }
+                        }
+                    },
+                ) { Text("发现模型") }
+            }
+            Text(status, color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f), fontSize = 12.sp)
+            if (models.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(models, key = { it }) { model ->
+                        Button(onClick = { modelId = model }, enabled = !loading) { Text(model) }
+                    }
                 }
             }
         }

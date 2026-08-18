@@ -60,6 +60,7 @@ class GameAgentControllerTest {
                     ActorId("worldloom.actor.narrator"),
                     setOf(CommandPermission.ADJUST_NUMERIC_COMPONENT, CommandPermission.RESOLVE_CHECK),
                 ),
+                RunId("test.run"),
             ),
         )
     }

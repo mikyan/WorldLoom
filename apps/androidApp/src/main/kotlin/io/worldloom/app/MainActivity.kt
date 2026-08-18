@@ -16,11 +16,17 @@ import io.worldloom.platform.credentials.AndroidKeystoreCredentialVault
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.persistence.AndroidPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightAgentSessionStore
+import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.provider.openai.OPENAI_API_KEY
-import io.worldloom.provider.openai.OpenAiChatCompletionsConfig
-import io.worldloom.provider.openai.OpenAiChatCompletionsProvider
+import io.worldloom.provider.openai.OpenAiConfigurableAdapter
+import io.worldloom.provider.openai.OPENAI_ADAPTER_ID
 import io.worldloom.provider.openai.createOpenAiHttpClient
+import io.worldloom.provider.api.ProviderConfiguration
+import io.worldloom.provider.api.ProviderConfigurationCenter
+import io.worldloom.provider.api.ProviderConfigurationId
+import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
 
 private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
@@ -30,20 +36,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val driver = AndroidPersistenceDriverFactory(applicationContext).create()
+        val database = WorldloomDatabase(driver)
         val session = DefaultGameSession(
             catalog = loadContractWorldCatalog(),
-            eventStore = SqlDelightEventStore(WorldloomDatabase(driver)),
+            eventStore = SqlDelightEventStore(database),
         )
         val vault = AndroidKeystoreCredentialVault(applicationContext)
         val client = createOpenAiHttpClient()
         providerClient = client
-        val provider = OpenAiChatCompletionsProvider(
-            httpClient = client,
-            credentialVault = vault,
-            config = OpenAiChatCompletionsConfig(model = DEFAULT_OPENAI_MODEL),
+        val providerConfiguration = defaultProviderConfiguration()
+        val providerCenter = ProviderConfigurationCenter(
+            adapters = listOf(OpenAiConfigurableAdapter(client, vault)),
+            store = SqlDelightProviderConfigurationStore(database, providerConfiguration),
         )
         val agentController = DefaultGameAgentController(
-            runtime = AgentRuntime(provider, DefaultAgentToolGateway(session)),
+            runtime = AgentRuntime(
+                SelectedProviderLanguageModelProvider(providerCenter),
+                DefaultAgentToolGateway(session),
+                SqlDelightAgentSessionStore(database),
+            ),
             gameSession = session,
         )
         val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
@@ -52,6 +63,8 @@ class MainActivity : ComponentActivity() {
                 session = session,
                 agentController = agentController,
                 credentialConfiguration = credentialConfiguration,
+                providerConfigurationCenter = providerCenter,
+                providerConfigurationId = providerConfiguration.id,
             )
         }
     }
@@ -80,5 +93,14 @@ class MainActivity : ComponentActivity() {
     private fun readAsset(path: String): String =
         assets.open(path).bufferedReader(Charsets.UTF_8).use { it.readText() }
 }
+
+private fun defaultProviderConfiguration() = ProviderConfiguration(
+    id = ProviderConfigurationId("openai.primary"),
+    adapterId = OPENAI_ADAPTER_ID,
+    displayName = "OpenAI",
+    baseUrl = "https://api.openai.com/v1",
+    modelId = DEFAULT_OPENAI_MODEL,
+    credentialKey = OPENAI_API_KEY.value,
+)
 
 private const val DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"

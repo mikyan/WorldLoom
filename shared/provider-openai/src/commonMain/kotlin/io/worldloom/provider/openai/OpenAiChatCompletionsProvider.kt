@@ -81,6 +81,7 @@ class OpenAiChatCompletionsProvider(
     private val httpClient: HttpClient,
     private val credentialVault: CredentialVault,
     private val config: OpenAiChatCompletionsConfig,
+    private val credentialKey: CredentialKey = OPENAI_API_KEY,
 ) : StreamingLanguageModelProvider {
     override val capabilities: ProviderCapabilities = ProviderCapabilities(
         toolCalling = true,
@@ -385,7 +386,7 @@ class OpenAiChatCompletionsProvider(
     ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private suspend fun withCredential(block: suspend (String) -> ProviderResult): ProviderResult {
-        val secret: SecretValue = when (val credential = credentialVault.read(OPENAI_API_KEY)) {
+        val secret: SecretValue = when (val credential = credentialVault.read(credentialKey)) {
             is CredentialReadResult.Success -> credential.secret
             is CredentialReadResult.Failure -> return if (credential.error.code == CredentialVaultErrorCode.NOT_FOUND) {
                 failure(ProviderFailureCode.AUTHENTICATION, "API credential is not configured", false)

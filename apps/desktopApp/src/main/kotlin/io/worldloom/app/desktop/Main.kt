@@ -14,13 +14,19 @@ import io.worldloom.application.WorldPackageSource
 import io.worldloom.ui.game.WorldloomApp
 import io.worldloom.persistence.DesktopPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightAgentSessionStore
+import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.createDesktopCredentialVault
 import io.worldloom.provider.openai.OPENAI_API_KEY
-import io.worldloom.provider.openai.OpenAiChatCompletionsConfig
-import io.worldloom.provider.openai.OpenAiChatCompletionsProvider
+import io.worldloom.provider.openai.OpenAiConfigurableAdapter
+import io.worldloom.provider.openai.OPENAI_ADAPTER_ID
 import io.worldloom.provider.openai.createOpenAiHttpClient
+import io.worldloom.provider.api.ProviderConfiguration
+import io.worldloom.provider.api.ProviderConfigurationCenter
+import io.worldloom.provider.api.ProviderConfigurationId
+import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -28,17 +34,22 @@ private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
 fun main() {
     val catalog = loadContractWorldCatalog()
-    val session = DefaultGameSession(catalog, eventStore = createEventStore())
+    val database = createDatabase()
+    val session = DefaultGameSession(catalog, eventStore = SqlDelightEventStore(database))
     val dataDirectory = worldloomDataDirectory()
     val vault = createDesktopCredentialVault(dataDirectory.resolve("credentials"))
     val providerClient = createOpenAiHttpClient()
-    val provider = OpenAiChatCompletionsProvider(
-        httpClient = providerClient,
-        credentialVault = vault,
-        config = OpenAiChatCompletionsConfig(model = DEFAULT_OPENAI_MODEL),
+    val providerConfiguration = defaultProviderConfiguration()
+    val providerCenter = ProviderConfigurationCenter(
+        adapters = listOf(OpenAiConfigurableAdapter(providerClient, vault)),
+        store = SqlDelightProviderConfigurationStore(database, providerConfiguration),
     )
     val agentController = DefaultGameAgentController(
-        runtime = AgentRuntime(provider, DefaultAgentToolGateway(session)),
+        runtime = AgentRuntime(
+            SelectedProviderLanguageModelProvider(providerCenter),
+            DefaultAgentToolGateway(session),
+            SqlDelightAgentSessionStore(database),
+        ),
         gameSession = session,
     )
     val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
@@ -56,17 +67,28 @@ fun main() {
                 session = session,
                 agentController = agentController,
                 credentialConfiguration = credentialConfiguration,
+                providerConfigurationCenter = providerCenter,
+                providerConfigurationId = providerConfiguration.id,
             )
         }
     }
 }
 
-private fun createEventStore(): SqlDelightEventStore {
+private fun createDatabase(): WorldloomDatabase {
     val dataDirectory = worldloomDataDirectory()
     Files.createDirectories(dataDirectory)
     val driver = DesktopPersistenceDriverFactory(dataDirectory.resolve("worldloom.db").toString()).create()
-    return SqlDelightEventStore(WorldloomDatabase(driver))
+    return WorldloomDatabase(driver)
 }
+
+private fun defaultProviderConfiguration() = ProviderConfiguration(
+    id = ProviderConfigurationId("openai.primary"),
+    adapterId = OPENAI_ADAPTER_ID,
+    displayName = "OpenAI",
+    baseUrl = "https://api.openai.com/v1",
+    modelId = DEFAULT_OPENAI_MODEL,
+    credentialKey = OPENAI_API_KEY.value,
+)
 
 private fun worldloomDataDirectory() = Paths.get(
     System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"),

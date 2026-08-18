@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成五轮工程迭代：KMP/Compose 骨架、manifest 驱动规则模块、可审计判定、SQLDelight 存档、受限 Agent Loop，以及 OpenAI Chat Completions 自然语言竖切。
+> 项目已经完成十五轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置，以及 Brief/Corpus-to-World 内容生成管线。
 
 ## 产品方向
 
@@ -25,7 +25,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [十五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -60,6 +60,10 @@ shared/
 ├── provider-api
 ├── provider-openai
 ├── agent-runtime
+├── world-package
+├── behavior-runtime
+├── content-schema
+├── content-generation
 ├── application
 └── ui-game
 
@@ -76,7 +80,9 @@ docs/
 └── decisions/
 ```
 
-当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI 适配器支持流式文本与工具调用，但供应商 DTO 不进入领域层。
+当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool/Behavior → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI 适配器支持流式文本与工具调用，Provider 设置可在运行时切换并持久化，但供应商 DTO 不进入领域层。
+
+内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 
 BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用 Keychain，Windows 使用用户级 DPAPI 加密。已保存密钥不会回显，也不会写入模型正文、世界包、存档或 EventLog。
 
@@ -86,6 +92,7 @@ BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用
 
 ```powershell
 ./gradlew.bat check
+./gradlew.bat :shared:content-generation:desktopTest
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64

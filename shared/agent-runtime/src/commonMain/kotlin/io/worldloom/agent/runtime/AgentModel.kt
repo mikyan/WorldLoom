@@ -1,8 +1,10 @@
 package io.worldloom.agent.runtime
 
 import io.worldloom.provider.api.ProviderUsage
+import io.worldloom.provider.api.ProviderMessage
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
+import io.worldloom.world.RunId
 import kotlin.jvm.JvmInline
 
 private val AGENT_IDENTIFIER_PATTERN = Regex("^[a-zA-Z0-9][a-zA-Z0-9._:-]*$")
@@ -32,6 +34,9 @@ data class AgentRunRequest(
     val identity: AgentIdentity,
     val input: String,
     val systemPrompt: String,
+    /** Optional compacted provider view; the durable session still archives the complete turn. */
+    val contextMessages: List<ProviderMessage>? = null,
+    val runId: RunId? = null,
 ) {
     init {
         require(input.isNotBlank()) { "Agent input must not be blank" }
@@ -62,6 +67,7 @@ data class AgentRunPolicy(
 enum class AgentRunErrorCode {
     SESSION_OWNERSHIP_MISMATCH,
     SESSION_CONFLICT,
+    SESSION_STORAGE_FAILURE,
     PROVIDER_CAPABILITY_UNAVAILABLE,
     PROVIDER_FAILURE,
     INVALID_PROVIDER_RESPONSE,
@@ -88,6 +94,7 @@ sealed interface AgentRunResult {
         val steps: Int,
         val toolCalls: Int,
         val usage: ProviderUsage,
+        val worldChanged: Boolean,
     ) : AgentRunResult
 
     data class Failure(val error: AgentRunError) : AgentRunResult

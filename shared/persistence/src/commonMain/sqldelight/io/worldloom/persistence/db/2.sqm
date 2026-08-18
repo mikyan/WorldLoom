@@ -1,0 +1,116 @@
+CREATE TABLE agent_session (
+    run_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    owner_agent_id TEXT NOT NULL,
+    owner_actor_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    messages_json TEXT NOT NULL,
+    session_schema_version INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (run_id, session_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE agent_turn (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, sequence),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_memory (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    salience REAL NOT NULL,
+    confidence REAL NOT NULL,
+    tags_json TEXT NOT NULL,
+    related_entity_ids_json TEXT NOT NULL,
+    protected INTEGER NOT NULL,
+    created_sequence INTEGER NOT NULL,
+    last_accessed_sequence INTEGER NOT NULL,
+    data_version INTEGER NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_belief (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_goal (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE relationship_state (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, memory_id),
+    FOREIGN KEY (run_id, agent_id, memory_id)
+        REFERENCES agent_memory(run_id, agent_id, memory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE context_checkpoint (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    from_sequence INTEGER NOT NULL,
+    to_sequence INTEGER NOT NULL,
+    prompt_version INTEGER NOT NULL,
+    model_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    published_at_epoch_millis INTEGER NOT NULL,
+    PRIMARY KEY (run_id, agent_id, idempotency_key),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE memory_event_link (
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    record_kind TEXT NOT NULL,
+    PRIMARY KEY (run_id, agent_id, record_id, event_id, record_kind),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE provider_configuration (
+    configuration_id TEXT NOT NULL PRIMARY KEY,
+    adapter_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    credential_key TEXT NOT NULL,
+    max_output_tokens INTEGER NOT NULL,
+    input_cost_microunits_per_million_tokens INTEGER NOT NULL,
+    output_cost_microunits_per_million_tokens INTEGER NOT NULL,
+    allow_insecure_local_transport INTEGER NOT NULL
+);
+
+CREATE TABLE provider_settings (
+    settings_id INTEGER NOT NULL PRIMARY KEY CHECK (settings_id = 1),
+    selected_configuration_id TEXT,
+    FOREIGN KEY (selected_configuration_id)
+        REFERENCES provider_configuration(configuration_id) ON DELETE SET NULL
+);

@@ -66,6 +66,7 @@ class DefaultGameAgentController(
                     identity = identity,
                     input = input.trim(),
                     systemPrompt = systemPrompt(ready.presentation),
+                    runId = context.runId,
                 ),
             ) { delta ->
                 partial.append(delta)
