@@ -40,6 +40,7 @@ kotlin {
         commonMain.dependencies {
             api(projects.shared.application)
             implementation(projects.shared.agentRuntime)
+            implementation(projects.shared.contentGeneration)
             implementation(projects.shared.providerApi)
             implementation(projects.platform.secureVault)
             implementation(libs.compose.foundation)

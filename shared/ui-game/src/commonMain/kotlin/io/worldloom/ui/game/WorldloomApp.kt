@@ -62,6 +62,8 @@ import io.worldloom.application.PublicReplayResult
 import io.worldloom.application.WorldCatalogEntry
 import io.worldloom.content.schema.CharacterCreationMode
 import io.worldloom.content.schema.CharacterValueAssignment
+import io.worldloom.content.generation.RecognitionCandidatePresentation
+import io.worldloom.content.generation.RecognitionWorkspacePresentation
 import io.worldloom.rules.AdventureStatePresentation
 import io.worldloom.definition.IntegerValue
 import io.worldloom.platform.credentials.CredentialConfiguration
@@ -97,6 +99,10 @@ fun WorldloomApp(
     credentialConfiguration: CredentialConfiguration? = null,
     providerConfigurationCenter: ProviderConfigurationCenter? = null,
     providerConfigurationId: ProviderConfigurationId? = null,
+    recognitionWorkspace: RecognitionWorkspacePresentation? = null,
+    onCancelRecognition: () -> Unit = {},
+    onResumeRecognition: () -> Unit = {},
+    onSelectRecognitionCandidate: (RecognitionCandidatePresentation) -> Unit = {},
 ) {
     val state by session.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -128,6 +134,14 @@ fun WorldloomApp(
                 credentialConfiguration?.let { CredentialPanel(it) }
                 if (providerConfigurationCenter != null && providerConfigurationId != null) {
                     ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId)
+                }
+                recognitionWorkspace?.let { workspace ->
+                    RecognitionWorkspacePanel(
+                        workspace = workspace,
+                        onCancel = onCancelRecognition,
+                        onResume = onResumeRecognition,
+                        onSelectCandidate = onSelectRecognitionCandidate,
+                    )
                 }
                 when (val current = state) {
                     GameSessionUiState.Idle -> EmptyState("选择一个契约世界，开始验证权威运行管线。")

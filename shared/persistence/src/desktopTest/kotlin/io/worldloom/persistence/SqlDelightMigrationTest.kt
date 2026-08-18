@@ -31,7 +31,7 @@ class SqlDelightMigrationTest {
                 parameters = 0,
             ).value
 
-            WorldloomDatabase.Schema.migrate(driver, oldVersion = 1, newVersion = 10).value
+            WorldloomDatabase.Schema.migrate(driver, oldVersion = 1, newVersion = 11).value
             val database = WorldloomDatabase(driver)
             val run = assertNotNull(database.worldloomQueries.selectRun("run.legacy").executeAsOneOrNull())
 
@@ -54,6 +54,7 @@ class SqlDelightMigrationTest {
             )
             assertEquals(emptyList(), database.worldloomQueries.selectBehaviorWorks("run.legacy").executeAsList())
             assertEquals(emptyList(), database.worldloomQueries.selectNpcWorks("run.legacy").executeAsList())
+            assertEquals(emptyList(), database.worldloomQueries.selectRecognitionJobs().executeAsList())
         } finally {
             driver.close()
             Files.deleteIfExists(migratedFile)

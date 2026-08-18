@@ -21,9 +21,11 @@
         "playableGuidance": 1,
         "npcWork": 1,
         "npcAddress": 1,
-        "npcKnowledgeReveal": 1
+        "npcKnowledgeReveal": 1,
+        "recognitionJob": 1,
+        "recognitionDraft": 1
     },
-    "database": {"schemaVersion": 10, "latestMigration": "9.sqm"},
+    "database": {"schemaVersion": 11, "latestMigration": "10.sqm"},
     "artifacts": [
         {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": false},
         {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}

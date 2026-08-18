@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成三十三轮工程迭代并处于 `0.1.0-alpha.1` 候选：两个约 60 分钟的内置短剧本已经共用同一套主持、NPC、规则、存档和回放管线，并分别提供成功、代价成功与失败路线。
+> 项目已经完成三十四轮工程迭代并处于 `0.1.0-alpha.1` 候选：两个约 60 分钟的内置短剧本已经共用主持、NPC、规则、存档和回放管线；TXT/EPUB 资料先进入可恢复、可溯源且禁止直接安装的识别工作区。
 
 ## 产品方向
 
@@ -30,6 +30,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 - [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
 - [内置空间站短剧本说明](docs/BUILT_IN_STATION_SCENARIO.md)
 - [存档与公开回放说明](docs/SAVES_AND_PUBLIC_REPLAY.md)
+- [TXT/EPUB 剧本识别工作区](docs/SOURCE_RECOGNITION_WORKSPACE.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -113,6 +114,8 @@ NPC 知识使用世界包声明的稳定 DefinitionId 区分私有正文与可�
 存档目录还会记录最后持久化 Event 序列、终态 GM Turn、保存状态和非权威时间戳。启动页可以快速继续最近的未归档 Run，但仍会重新校验内容版本、EventLog、Snapshot 和生命周期；最近 Run 损坏时明确拒绝，不会静默改开旧存档。Event/Turn 已落盘而目录证据更新失败时，界面显示“事实已保存、目录待修复”，修复操作只重建派生目录元数据。
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
+
+TXT/EPUB 现在还可以先进入独立的识别工作区。任务用来源 SHA-256、版本化阶段和 SQLDelight 检查点支持取消、重启恢复与来源变化诊断；角色、地点、场景、目标和候选事实都携带片段 ID、字符范围和置信说明。共享 UI 只显示选中候选的局部来源上下文，未经完整可玩性验证的草稿不能试玩或安装。
 
 BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用 Keychain，Windows 使用用户级 DPAPI 加密。已保存密钥不会回显，也不会写入模型正文、世界包、存档或 EventLog。
 

@@ -188,6 +188,18 @@ CREATE TABLE provider_settings (
         REFERENCES provider_configuration(configuration_id) ON DELETE SET NULL
 );
 
+CREATE TABLE content_recognition_job (
+    job_id TEXT NOT NULL PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    source_name TEXT NOT NULL,
+    source_format TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    job_json TEXT NOT NULL
+);
+
 insertRun:
 INSERT INTO save_run(run_id, world_definition_id, data_schema_version)
 VALUES (?, ?, ?);
@@ -197,6 +209,27 @@ SELECT run_id, world_definition_id, data_schema_version, world_content_version, 
        last_persisted_event_sequence, last_persisted_turn_id, save_status, saved_at_epoch_millis
 FROM save_run
 WHERE run_id = ?;
+
+insertRecognitionJob:
+INSERT INTO content_recognition_job(
+    job_id, schema_version, revision, source_name, source_format, source_hash, stage, status, job_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectRecognitionJob:
+SELECT job_id, schema_version, revision, source_name, source_format, source_hash, stage, status, job_json
+FROM content_recognition_job
+WHERE job_id = ?;
+
+selectRecognitionJobs:
+SELECT job_id, schema_version, revision, source_name, source_format, source_hash, stage, status, job_json
+FROM content_recognition_job
+ORDER BY job_id;
+
+updateRecognitionJob:
+UPDATE content_recognition_job
+SET schema_version = ?, revision = ?, source_name = ?, source_format = ?, source_hash = ?,
+    stage = ?, status = ?, job_json = ?
+WHERE job_id = ? AND revision = ?;
 
 selectAllRuns:
 SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived,

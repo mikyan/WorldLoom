@@ -1,0 +1,11 @@
+CREATE TABLE content_recognition_job (
+    job_id TEXT NOT NULL PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    source_name TEXT NOT NULL,
+    source_format TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    job_json TEXT NOT NULL
+);
