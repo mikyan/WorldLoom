@@ -4,7 +4,11 @@ CREATE TABLE save_run (
     data_schema_version INTEGER NOT NULL DEFAULT 1,
     world_content_version INTEGER NOT NULL DEFAULT 1,
     display_name TEXT NOT NULL DEFAULT '',
-    archived INTEGER NOT NULL DEFAULT 0
+    archived INTEGER NOT NULL DEFAULT 0,
+    last_persisted_event_sequence INTEGER NOT NULL DEFAULT 0,
+    last_persisted_turn_id TEXT,
+    save_status TEXT NOT NULL DEFAULT 'SAVED',
+    saved_at_epoch_millis INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE event_log (
@@ -189,23 +193,68 @@ INSERT INTO save_run(run_id, world_definition_id, data_schema_version)
 VALUES (?, ?, ?);
 
 selectRun:
-SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived
+SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived,
+       last_persisted_event_sequence, last_persisted_turn_id, save_status, saved_at_epoch_millis
 FROM save_run
 WHERE run_id = ?;
 
 selectAllRuns:
-SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived
+SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived,
+       last_persisted_event_sequence, last_persisted_turn_id, save_status, saved_at_epoch_millis
 FROM save_run
 ORDER BY run_id;
 
 selectRunDirectory:
 SELECT r.run_id, r.world_definition_id, r.data_schema_version, r.world_content_version,
-       r.display_name, r.archived, COALESCE(MAX(e.sequence), 0) AS last_sequence
+       r.display_name, r.archived, COALESCE(MAX(e.sequence), 0) AS last_sequence,
+       r.last_persisted_event_sequence, r.last_persisted_turn_id, r.save_status,
+       r.saved_at_epoch_millis
 FROM save_run r
 LEFT JOIN event_log e ON e.run_id = r.run_id
 GROUP BY r.run_id, r.world_definition_id, r.data_schema_version, r.world_content_version,
-         r.display_name, r.archived
+         r.display_name, r.archived, r.last_persisted_event_sequence, r.last_persisted_turn_id,
+         r.save_status, r.saved_at_epoch_millis
 ORDER BY r.run_id DESC;
+
+selectLatestRunTurnId:
+SELECT turn_id
+FROM gm_turn
+WHERE run_id = ?
+ORDER BY turn_ordinal DESC
+LIMIT 1;
+
+markRunEventWriting:
+UPDATE save_run
+SET save_status = CASE WHEN save_status = 'WRITING_TURN' THEN save_status ELSE 'WRITING_EVENT' END
+WHERE run_id = ?;
+
+markRunEventPersisted:
+UPDATE save_run
+SET last_persisted_event_sequence = ?,
+    save_status = CASE WHEN save_status = 'WRITING_TURN' THEN save_status ELSE 'SAVED' END,
+    saved_at_epoch_millis = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE run_id = ?;
+
+markRunTurnWriting:
+UPDATE save_run
+SET save_status = 'WRITING_TURN'
+WHERE run_id = ?;
+
+markRunTurnPersisted:
+UPDATE save_run
+SET last_persisted_event_sequence = (SELECT COALESCE(MAX(sequence), 0) FROM event_log WHERE run_id = save_run.run_id),
+    last_persisted_turn_id = ?,
+    save_status = 'SAVED',
+    saved_at_epoch_millis = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE run_id = ?;
+
+repairRunPersistenceEvidence:
+UPDATE save_run
+SET last_persisted_event_sequence = (SELECT COALESCE(MAX(sequence), 0) FROM event_log WHERE run_id = save_run.run_id),
+    last_persisted_turn_id = (SELECT turn_id FROM gm_turn WHERE run_id = save_run.run_id ORDER BY turn_ordinal DESC LIMIT 1),
+    save_status = 'SAVED',
+    saved_at_epoch_millis = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE run_id = ?;
 
 renameRun:
 UPDATE save_run SET display_name = ? WHERE run_id = ?;

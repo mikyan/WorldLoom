@@ -43,14 +43,52 @@ class SaveCoordinatorTest {
         assertEquals(2, library.runs.size)
         assertEquals("玛拉路线", library.runs.single { it.runId == first }.displayName)
         assertTrue(library.runs.single { it.runId == second }.archived)
+        assertEquals(first, library.quickContinueRunId)
 
-        assertIs<SaveOperationResult.Success>(coordinator.continueRun(first))
+        assertIs<SaveOperationResult.Success>(coordinator.quickContinue())
         assertEquals(first, session.currentRunId)
         assertIs<GameSessionUiState.Ready>(session.state.value)
 
         assertTrue(store.setWorldContentVersion(first, 2))
         val mismatch = assertIs<SaveOperationResult.Failure>(coordinator.continueRun(first))
         assertEquals(SaveOperationErrorCode.CONTENT_VERSION_MISMATCH, mismatch.error.code)
+        driver.close()
+    }
+
+    @Test
+    fun quickContinueRejectsTheMostRecentCorruptRunWithoutFallingBack() = runTest {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val session = DefaultGameSession(
+            catalog = catalog(),
+            eventStore = SqlDelightEventStore(database),
+            idSource = SequentialSessionIdSource("quick-continue"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+        )
+        val coordinator = SaveCoordinator(session, SqlDelightRunDirectoryStore(database))
+        val worldId = DefinitionId("contract.war-survival")
+        val older = assertNotNull(assertIs<SaveOperationResult.Success>(coordinator.create(worldId, "较早存档")).runId)
+        val latest = assertNotNull(assertIs<SaveOperationResult.Success>(coordinator.create(worldId, "最近存档")).runId)
+        driver.execute(
+            identifier = null,
+            sql = "UPDATE save_run SET saved_at_epoch_millis = CASE run_id WHEN ? THEN 1000 ELSE 2000 END",
+            parameters = 1,
+        ) { bindString(0, older.value) }.value
+        driver.execute(
+            identifier = null,
+            sql = "UPDATE event_log SET event_json = '{broken' WHERE run_id = ?",
+            parameters = 1,
+        ) { bindString(0, latest.value) }.value
+        coordinator.refresh()
+        assertEquals(latest, assertIs<SaveLibraryState.Ready>(coordinator.state.value).quickContinueRunId)
+
+        val rejected = assertIs<SaveOperationResult.Failure>(coordinator.quickContinue())
+        assertEquals(SaveOperationErrorCode.CORRUPT_RUN, rejected.error.code)
+        val library = assertIs<SaveLibraryState.Ready>(coordinator.state.value)
+        assertEquals(SaveOperationErrorCode.CORRUPT_RUN, library.operationError?.code)
+        assertEquals(latest, library.quickContinueRunId)
         driver.close()
     }
 

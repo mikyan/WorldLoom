@@ -17,12 +17,13 @@
         "snapshot": 1,
         "gmTurn": 3,
         "gmContinuity": 1,
+        "runPersistenceEvidence": 1,
         "playableGuidance": 1,
         "npcWork": 1,
         "npcAddress": 1,
         "npcKnowledgeReveal": 1
     },
-    "database": {"schemaVersion": 9, "latestMigration": "8.sqm"},
+    "database": {"schemaVersion": 10, "latestMigration": "9.sqm"},
     "artifacts": [
         {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": false},
         {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}

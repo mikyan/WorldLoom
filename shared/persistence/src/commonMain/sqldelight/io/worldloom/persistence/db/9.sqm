@@ -1,0 +1,18 @@
+ALTER TABLE save_run ADD COLUMN last_persisted_event_sequence INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE save_run ADD COLUMN last_persisted_turn_id TEXT;
+ALTER TABLE save_run ADD COLUMN save_status TEXT NOT NULL DEFAULT 'SAVED';
+ALTER TABLE save_run ADD COLUMN saved_at_epoch_millis INTEGER NOT NULL DEFAULT 0;
+
+UPDATE save_run
+SET last_persisted_event_sequence = (
+        SELECT COALESCE(MAX(sequence), 0)
+        FROM event_log
+        WHERE run_id = save_run.run_id
+    ),
+    last_persisted_turn_id = (
+        SELECT turn_id
+        FROM gm_turn
+        WHERE run_id = save_run.run_id
+        ORDER BY turn_ordinal DESC
+        LIMIT 1
+    );

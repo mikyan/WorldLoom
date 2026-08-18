@@ -55,6 +55,7 @@ import io.worldloom.application.LoadResult
 import io.worldloom.application.SessionError
 import io.worldloom.application.SaveCoordinator
 import io.worldloom.application.SaveLibraryState
+import io.worldloom.application.RunSaveStatus
 import io.worldloom.application.ReplayInspector
 import io.worldloom.application.TimelinePageResult
 import io.worldloom.application.PublicReplayResult
@@ -158,6 +159,7 @@ fun WorldloomApp(
                             scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
                         },
                         agentController = agentController,
+                        saveCoordinator = saveCoordinator,
                         agentHistoryKey = "${session.currentRunId?.value}:${current.presentation.lastSequence}",
                         guidanceRunKey = session.currentRunId?.value.orEmpty(),
                         replayInspector = session as? ReplayInspector,
@@ -181,6 +183,7 @@ fun WorldloomApp(
                         onActivity = {},
                         onTravel = {},
                         agentController = null,
+                        saveCoordinator = saveCoordinator,
                         interactive = false,
                         replayInspector = session as? ReplayInspector,
                         reduceMotion = reduceMotion,
@@ -208,6 +211,16 @@ private fun SaveLibraryPanel(
             if (library.runs.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("继续游戏", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                    library.quickContinueRunId?.let {
+                        Button(onClick = {
+                            scope.launch {
+                                if (coordinator.quickContinue() is io.worldloom.application.SaveOperationResult.Success) {
+                                    onSessionChanged()
+                                }
+                            }
+                        }) { Text("快速继续最近一局") }
+                    }
+                    library.operationError?.let { Text(it.message, color = MaterialTheme.colors.error) }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(library.runs, key = { it.runId.value }) { run ->
                             var name by remember(run.runId) { mutableStateOf(run.displayName) }
@@ -223,12 +236,36 @@ private fun SaveLibraryPanel(
                                         label = { Text("存档名称") },
                                     )
                                     Text("${run.lifecycle.name} · #${run.lastSequence} · 内容 v${run.worldContentVersion}")
+                                    Text(
+                                        when (run.saveStatus) {
+                                            RunSaveStatus.SAVED -> buildString {
+                                                append("自动存档已保存 · 事件 #${run.lastPersistedEventSequence}")
+                                                run.lastPersistedTurnId?.let { append(" · 回合 $it") }
+                                            }
+                                            RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING ->
+                                                "事实已保存，目录待修复 · 当前事件 #${run.lastSequence}"
+                                        },
+                                        color = if (run.saveStatus == RunSaveStatus.SAVED) {
+                                            MaterialTheme.colors.onSurface.copy(alpha = 0.62f)
+                                        } else {
+                                            MaterialTheme.colors.error
+                                        },
+                                        fontSize = 12.sp,
+                                    )
+                                    if (run.savedAtEpochMillis > 0) {
+                                        Text(
+                                            "持久化时间戳 ${run.savedAtEpochMillis}",
+                                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.48f),
+                                            fontSize = 11.sp,
+                                        )
+                                    }
                                     run.diagnostic?.let { Text(it, color = MaterialTheme.colors.error, fontSize = 12.sp) }
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Button(onClick = {
                                             scope.launch {
-                                                coordinator.continueRun(run.runId)
-                                                onSessionChanged()
+                                                if (coordinator.continueRun(run.runId) is
+                                                    io.worldloom.application.SaveOperationResult.Success
+                                                ) onSessionChanged()
                                             }
                                         }) { Text(if (run.lifecycle.name == "COMPLETED") "查看" else "继续") }
                                         Button(onClick = { scope.launch { coordinator.rename(run.runId, name) } }) {
@@ -236,6 +273,11 @@ private fun SaveLibraryPanel(
                                         }
                                         Button(onClick = { scope.launch { coordinator.archive(run.runId, !run.archived) } }) {
                                             Text(if (run.archived) "恢复" else "归档")
+                                        }
+                                    }
+                                    if (run.saveStatus == RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING) {
+                                        Button(onClick = { scope.launch { coordinator.repairDirectory(run.runId) } }) {
+                                            Text("修复目录证据")
                                         }
                                     }
                                 }
@@ -521,6 +563,7 @@ private fun ReadyState(
     onActivity: (io.worldloom.definition.DefinitionId) -> Unit,
     onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
+    saveCoordinator: SaveCoordinator? = null,
     agentHistoryKey: String = "",
     guidanceRunKey: String = "",
     interactive: Boolean = true,
@@ -569,7 +612,7 @@ private fun ReadyState(
         replayVerification?.let { EmptyState(it, isError = it.contains("失败")) }
 
         if (interactive) agentController?.let {
-            AgentPanel(it, agentHistoryKey, guidanceRunKey, presentation.guidance, reduceMotion)
+            AgentPanel(it, saveCoordinator, agentHistoryKey, guidanceRunKey, presentation.guidance, reduceMotion)
         }
 
         presentation.scene?.let { scene ->
@@ -924,6 +967,7 @@ private fun CredentialPanel(configuration: CredentialConfiguration) {
 @Composable
 private fun AgentPanel(
     controller: GameAgentController,
+    saveCoordinator: SaveCoordinator?,
     historyKey: String,
     guidanceRunKey: String,
     guidance: GuidancePresentation,
@@ -938,6 +982,7 @@ private fun AgentPanel(
     val running = state is GameAgentState.Running
     val tutorial = guidanceState.visibleTutorials(guidance).firstOrNull()
     LaunchedEffect(controller, historyKey) { controller.refreshHistory() }
+    LaunchedEffect(saveCoordinator, state, history.items.size) { saveCoordinator?.refresh() }
 
     Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
         Column(

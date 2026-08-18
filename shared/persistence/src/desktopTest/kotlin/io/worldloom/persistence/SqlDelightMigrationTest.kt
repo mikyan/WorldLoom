@@ -31,7 +31,7 @@ class SqlDelightMigrationTest {
                 parameters = 0,
             ).value
 
-            WorldloomDatabase.Schema.migrate(driver, oldVersion = 1, newVersion = 9).value
+            WorldloomDatabase.Schema.migrate(driver, oldVersion = 1, newVersion = 10).value
             val database = WorldloomDatabase(driver)
             val run = assertNotNull(database.worldloomQueries.selectRun("run.legacy").executeAsOneOrNull())
 
@@ -40,6 +40,10 @@ class SqlDelightMigrationTest {
             assertEquals(1, run.world_content_version)
             assertEquals("", run.display_name)
             assertEquals(0, run.archived)
+            assertEquals(0, run.last_persisted_event_sequence)
+            assertNull(run.last_persisted_turn_id)
+            assertEquals("SAVED", run.save_status)
+            assertEquals(0, run.saved_at_epoch_millis)
             assertNull(database.worldloomQueries.selectSnapshot("run.legacy").executeAsOneOrNull())
             assertNull(database.worldloomQueries.selectAgentSession("run.legacy", "session.legacy").executeAsOneOrNull())
             assertNull(database.worldloomQueries.selectCharacterCreationDraft("run.legacy").executeAsOneOrNull())
@@ -93,6 +97,43 @@ class SqlDelightMigrationTest {
             assertEquals(CURRENT_GM_TURN_SCHEMA_VERSION, page.entries.last().turn?.schemaVersion)
             assertEquals(GameTurnOutputKind.NARRATION, page.entries.last().turn?.outputKind)
             assertEquals("second", store.load(RunId("run.gm.legacy"), TurnId("run.gm.legacy.turn.2"))?.input)
+        } finally {
+            driver.close()
+            Files.deleteIfExists(migratedFile)
+        }
+    }
+
+    @Test
+    fun migrationNineBackfillsRunPersistenceEvidenceFromDurableRows() {
+        val baseline = assertNotNull(javaClass.classLoader.getResource("1.db"))
+        val migratedFile = Files.createTempFile("worldloom-run-evidence-migration-", ".db")
+        Files.copy(baseline.openStream(), migratedFile, StandardCopyOption.REPLACE_EXISTING)
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${migratedFile.absolutePathString()}")
+        try {
+            WorldloomDatabase.Schema.migrate(driver, oldVersion = 1, newVersion = 9).value
+            driver.execute(
+                null,
+                "INSERT INTO save_run(run_id, world_definition_id) VALUES ('run.evidence.legacy', 'contract.legacy')",
+                0,
+            ).value
+            driver.execute(
+                null,
+                "INSERT INTO event_log(run_id, sequence, event_id, event_json) VALUES ('run.evidence.legacy', 3, 'event.legacy.3', '{}')",
+                0,
+            ).value
+            driver.execute(
+                null,
+                "INSERT INTO gm_turn(run_id, turn_id, revision, turn_schema_version, turn_json, turn_ordinal) VALUES ('run.evidence.legacy', 'turn.legacy.2', 0, 1, '{}', 2)",
+                0,
+            ).value
+
+            WorldloomDatabase.Schema.migrate(driver, oldVersion = 9, newVersion = 10).value
+            val run = assertNotNull(
+                WorldloomDatabase(driver).worldloomQueries.selectRun("run.evidence.legacy").executeAsOneOrNull(),
+            )
+            assertEquals(3, run.last_persisted_event_sequence)
+            assertEquals("turn.legacy.2", run.last_persisted_turn_id)
+            assertEquals("SAVED", run.save_status)
         } finally {
             driver.close()
             Files.deleteIfExists(migratedFile)

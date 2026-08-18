@@ -7,6 +7,7 @@ import io.worldloom.agent.runtime.GameTurnHistoryPage
 import io.worldloom.agent.runtime.GameTurnHistoryProblem
 import io.worldloom.agent.runtime.GameTurnHistoryProblemCode
 import io.worldloom.agent.runtime.GameTurnHistoryResult
+import io.worldloom.agent.runtime.GameTurnStatus
 import io.worldloom.agent.runtime.GameTurnStore
 import io.worldloom.agent.runtime.GameTurnStoreResult
 import io.worldloom.agent.runtime.LEGACY_GM_TURN_SCHEMA_VERSION
@@ -34,6 +35,7 @@ class SqlDelightGameTurnStore(database: WorldloomDatabase) : GameTurnStore {
             val existing = queries.selectGmTurn(turn.runId.value, turn.turnId.value).executeAsOneOrNull()
             if (existing?.revision != expectedRevision) return@withLock GameTurnStoreResult.RevisionConflict
             val current = turn.toCurrentSchema()
+            runCatching { queries.markRunTurnWriting(current.runId.value) }
             val ordinal = existing?.turn_ordinal
                 ?: queries.selectLatestGmTurnOrdinal(turn.runId.value).executeAsOne() + 1
             queries.upsertGmTurn(
@@ -44,6 +46,18 @@ class SqlDelightGameTurnStore(database: WorldloomDatabase) : GameTurnStore {
                 current.schemaVersion.toLong(),
                 PersistenceCodec.encodeGameTurn(current),
             )
+            if (current.status !in setOf(
+                    GameTurnStatus.ACCEPTED,
+                    GameTurnStatus.RUNNING,
+                )
+            ) {
+                runCatching {
+                    queries.markRunTurnPersisted(
+                        current.turnId.value,
+                        current.runId.value,
+                    )
+                }
+            }
             GameTurnStoreResult.Success
         } catch (_: Exception) {
             GameTurnStoreResult.Failure("Unable to persist GM turn")

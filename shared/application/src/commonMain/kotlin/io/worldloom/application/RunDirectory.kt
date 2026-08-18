@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class RunSaveStatus { SAVED, FACTS_SAVED_DIRECTORY_PENDING }
+
 data class RunDirectoryEntry(
     val runId: RunId,
     val worldId: DefinitionId,
@@ -15,6 +17,10 @@ data class RunDirectoryEntry(
     val archived: Boolean,
     val lastSequence: Long,
     val lifecycle: RunLifecycle,
+    val lastPersistedEventSequence: Long = lastSequence,
+    val lastPersistedTurnId: String? = null,
+    val saveStatus: RunSaveStatus = RunSaveStatus.SAVED,
+    val savedAtEpochMillis: Long = 0,
     val diagnostic: String? = null,
 )
 
@@ -26,12 +32,19 @@ interface RunDirectoryStore {
     suspend fun setArchived(runId: RunId, archived: Boolean): Boolean
 
     suspend fun setWorldContentVersion(runId: RunId, version: Int): Boolean
+
+    /** Repairs only derived directory evidence; EventLog and GM Turn rows remain untouched. */
+    suspend fun repairPersistenceEvidence(runId: RunId): Boolean
 }
 
 sealed interface SaveLibraryState {
     data object Loading : SaveLibraryState
 
-    data class Ready(val runs: List<RunDirectoryEntry>) : SaveLibraryState
+    data class Ready(
+        val runs: List<RunDirectoryEntry>,
+        val quickContinueRunId: RunId? = null,
+        val operationError: SaveOperationError? = null,
+    ) : SaveLibraryState
 
     data class Failed(val message: String) : SaveLibraryState
 }
@@ -42,6 +55,7 @@ enum class SaveOperationErrorCode {
     INVALID_NAME,
     CONTENT_VERSION_MISMATCH,
     LOAD_REJECTED,
+    CORRUPT_RUN,
     STORAGE_FAILURE,
 }
 
@@ -63,7 +77,17 @@ class SaveCoordinator(
 
     suspend fun refresh() {
         mutableState.value = try {
-            SaveLibraryState.Ready(store.list().sortedWith(runOrdering))
+            val runs = store.list().sortedWith(runOrdering)
+            SaveLibraryState.Ready(
+                runs = runs,
+                quickContinueRunId = runs.firstOrNull { run ->
+                    !run.archived && run.lifecycle in setOf(
+                        RunLifecycle.CREATED,
+                        RunLifecycle.CHARACTER_CREATION,
+                        RunLifecycle.ACTIVE,
+                    )
+                }?.runId,
+            )
         } catch (_: Exception) {
             SaveLibraryState.Failed("无法读取存档目录")
         }
@@ -89,7 +113,11 @@ class SaveCoordinator(
     }
 
     suspend fun continueRun(runId: RunId): SaveOperationResult {
-        val entry = store.list().firstOrNull { it.runId == runId }
+        val entry = try {
+            store.list().firstOrNull { it.runId == runId }
+        } catch (_: Exception) {
+            return failure(SaveOperationErrorCode.STORAGE_FAILURE, "无法读取存档目录")
+        }
             ?: return failure(SaveOperationErrorCode.RUN_NOT_FOUND, "存档不存在：$runId")
         val world = session.availableWorlds.firstOrNull { it.id == entry.worldId }
             ?: return failure(SaveOperationErrorCode.WORLD_NOT_FOUND, "存档使用的世界不可用：${entry.worldId}")
@@ -99,10 +127,36 @@ class SaveCoordinator(
                 "存档内容版本 ${entry.worldContentVersion} 与内置世界版本 ${world.contentVersion} 不一致",
             )
         }
-        return when (session.resume(entry.worldId, runId)) {
-            LoadResult.Success -> SaveOperationResult.Success(runId)
-            is LoadResult.Failure -> failure(SaveOperationErrorCode.LOAD_REJECTED, "存档一致性校验失败")
-        }.also { refresh() }
+        return when (val resumed = session.resume(entry.worldId, runId)) {
+            LoadResult.Success -> SaveOperationResult.Success(runId).also { refresh() }
+            is LoadResult.Failure -> failure(
+                if (entry.diagnostic != null || resumed.error.code in setOf(
+                        SessionErrorCode.REPLAY_REJECTED,
+                        SessionErrorCode.PERSISTENCE_REJECTED,
+                    )
+                ) {
+                    SaveOperationErrorCode.CORRUPT_RUN
+                } else {
+                    SaveOperationErrorCode.LOAD_REJECTED
+                },
+                "存档一致性校验失败：${resumed.error.message}",
+            )
+        }
+    }
+
+    suspend fun quickContinue(): SaveOperationResult {
+        val ready = mutableState.value as? SaveLibraryState.Ready
+        val runId = ready?.quickContinueRunId
+            ?: return failure(SaveOperationErrorCode.RUN_NOT_FOUND, "没有可快速继续的 Run")
+        return continueRun(runId)
+    }
+
+    suspend fun repairDirectory(runId: RunId): SaveOperationResult {
+        if (!store.repairPersistenceEvidence(runId)) {
+            return failure(SaveOperationErrorCode.STORAGE_FAILURE, "无法修复存档目录证据")
+        }
+        refresh()
+        return SaveOperationResult.Success(runId)
     }
 
     suspend fun rename(runId: RunId, displayName: String): SaveOperationResult {
@@ -124,12 +178,16 @@ class SaveCoordinator(
 
     private fun validName(value: String): Boolean = value.length in 1..80 && value.none(Char::isISOControl)
 
-    private fun failure(code: SaveOperationErrorCode, message: String) = SaveOperationResult.Failure(
-        SaveOperationError(code, message),
-    )
+    private fun failure(code: SaveOperationErrorCode, message: String): SaveOperationResult.Failure {
+        val error = SaveOperationError(code, message)
+        val current = mutableState.value
+        if (current is SaveLibraryState.Ready) mutableState.value = current.copy(operationError = error)
+        return SaveOperationResult.Failure(error)
+    }
 
     private companion object {
         val runOrdering = compareBy<RunDirectoryEntry> { it.archived }
+            .thenByDescending { it.savedAtEpochMillis }
             .thenByDescending { it.lastSequence }
             .thenByDescending { it.runId.value }
     }

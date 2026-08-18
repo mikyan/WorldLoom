@@ -1,6 +1,6 @@
 # Worldloom 迭代执行与验收记录
 
-文档状态：Alpha candidate 3.5<br>
+文档状态：Alpha candidate 3.6<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
@@ -57,6 +57,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 29. NPC 知识揭示与记忆 | 将 NPC 私有知识升级为稳定 Definition，`npc.speak` 只接受自身动态白名单内的知识 ID；固定公开摘要通过类型化 Command/Event 进入 EventLog、后续主持上下文、独立 NPC 情景记忆与公开回放 | 合法/越权/重复揭示、固定摘要不可改写、旧 Profile 兼容、跨 NPC/Run 隔离、序列化、重放和双世界测试 |
 | 30. 主持人长期连续性 | 从终态 GM Turn 与已提交公开 Event 修复稳定连续性流，按 Run/GM AgentId 写入 SQL 记忆；上下文组合最后检查点、未压缩尾部和当前 Presentation，旧范围由生命周期受控后台任务冻结并原子压缩 | 长局继续、压缩中前台回合、SQL 重启、候选失败保留旧检查点、上下文裁剪、跨 Run/NPC 隔离和三端编译 |
 | 31. 场景引导与行动建议 | 增加版本化 Guidance Definition、教程/提示触发与目标引用校验，以及只读 GuidanceProjector；共享 UI 支持跳过、重看、场景提示和预填输入建议 | 悬空/不可见引用、动态死路、双世界不同教程、完成/跳过/重看、无事实写入、窄屏惰性入口和三端编译 |
+| 32. 快速继续与自动存档状态 | Run 目录增加 Event/终态 Turn 持久化证据、保存状态与时间戳；Event/Turn 落盘和目录更新分离，快速继续严格复用恢复校验，共享 UI 显示已保存/待修复及分类操作 | migration 9 回填、目录写失败事实保留、修复、最近损坏拒绝、跨 Run 排序、取消重试、主持历史刷新和三端编译 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -67,13 +68,14 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - `.worldloom` v1 拒绝绝对路径、路径穿越、重复项、CRC 不一致、超限内容和当前不支持的压缩方法；世界包不能携带任意脚本；
 - 内容生成先校验 Definition、角色配置、规则配置、Behavior 和来源引用，再创建初始状态做快速模拟，最后重新装载生成包；
 - 声明 `playableContractPath` 的世界必须在创建 Run 前通过角色入口、Scene/Action、目标、结局、表现、Behavior、模块和黄金路线验证；旧包不声明时保持兼容但不能标记为可玩；
-- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列、`6.sqm` 新增 NPC 工作队列、`7.sqm` 为 Run 增加内容版本与目录元数据，旧 Run 迁移后使用内容 v1 且没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
+- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列、`6.sqm` 新增 NPC 工作队列、`7.sqm` 为 Run 增加内容版本与目录元数据、`8.sqm` 增加 GM Turn 顺序、`9.sqm` 回填 Run 持久化证据。旧 Run 迁移后使用内容 v1 且没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
 - 世界时间只接受显式正向 Command；活动、旅行、计划触发及其数值效果按稳定顺序组成原子 Event 批次。活动/路线 Definition 与 Event 均带默认兼容字段，旧世界不启用 temporal 配置时行为不变；旧 Snapshot 在恢复时只增量初始化缺失的世界时间模块状态。
 - 库存、状态、关系、任务和进度钟都由世界 Definition 与 manifest 显式选择，不向通用状态增加题材字段。每类写操作使用独立权限和 Tool Schema，私有状态不进入玩家 Presentation；旧 Snapshot 恢复时只初始化缺失的模块状态，新增事件类型沿用既有 EventLog Schema。
 - Behavior 只在事件提交后调度；guard 使用冻结触发上下文和最新状态，每个 effect 都重新经过 CommandValidator/WorldEngine。稳定工作项记录 root/parent event、因果深度和派生 Command；深度、触发、重复签名或命令预算超限时暂停单条链，恢复补扫已提交事件，回放只校验审计链而不重新执行。
 - NPC 只接收当前参与场景、白名单 Presentation、自己的目标/知识/记忆和抽象触发事件；稳定工作项按 Run/NPC/Event 幂等恢复，遗留运行项不重新调用 Provider。公开发言、动作与知识揭示必须经过 NPC Actor、当前参与者和动态白名单约束的 Tool→Command→Event；知识事件只携带世界包固定的公开摘要，模型最终正文和私有知识不进入主持上下文、Presentation 或公开重放。
 - 主持连续性只从持久化终态回合和公开 Event 生成，并使用 `worldloom.agent.gm` 在每 Run 的独立 SQL 分区中保存。检查点是叙事辅助而非事实；候选范围冻结、校验后原子发布，失败保留上一有效检查点，前台始终以最新 Presentation 与动态 Tool 为准。Android、iOS 与 Desktop 会在宿主生命周期结束时取消尚未完成的后台压缩。
 - Guidance 只能引用当前 Scene 中经过契约验证的 Action、Activity 或 Travel Route。投影不读取世界题材键，建议只预填玩家输入且不自动调用 Tool；没有动态推进出口的场景在加载或运行投影时产生显式诊断，不以虚构事实掩盖内容错误。
+- 自动存档证据是可重建目录元数据，不是世界事实。EventLog 与 GM Turn 先各自持久化，再尽力更新 Run 目录；后者失败时不得回滚前者或显示“已保存”，只能投影待修复状态。快速继续始终重新验证世界版本、事件连续性、Snapshot 和生命周期，不因目录排序跳过损坏的最近 Run。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
 
@@ -117,4 +119,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-第 31 轮已补齐场景引导。第 32–33 轮继续优先完成快速继续和第二内置世界，从而先跑稳内置剧本的主持闭环。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。
+第 31–32 轮已补齐场景引导、快速继续和自动存档反馈。第 33 轮继续优先完成第二内置世界，从而先跑稳内置剧本的主持闭环。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。

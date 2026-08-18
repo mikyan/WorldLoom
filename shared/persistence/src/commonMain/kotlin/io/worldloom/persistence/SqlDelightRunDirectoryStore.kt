@@ -2,6 +2,8 @@ package io.worldloom.persistence
 
 import io.worldloom.application.RunDirectoryEntry
 import io.worldloom.application.RunDirectoryStore
+import io.worldloom.application.RunSaveStatus
+import io.worldloom.agent.runtime.GameTurnStatus
 import io.worldloom.definition.DefinitionId
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.world.RunId
@@ -11,7 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class SqlDelightRunDirectoryStore(
-    database: WorldloomDatabase,
+    private val database: WorldloomDatabase,
 ) : RunDirectoryStore {
     private val queries = database.worldloomQueries
     private val mutex = Mutex()
@@ -40,6 +42,10 @@ class SqlDelightRunDirectoryStore(
             } catch (_: Exception) {
                 diagnostic = "EventLog 无法读取"
             }
+            val latestTurnId = queries.selectLatestRunTurnId(row.run_id).executeAsOneOrNull()
+            val evidenceMatches = row.save_status == "SAVED" &&
+                row.last_persisted_event_sequence == row.last_sequence &&
+                row.last_persisted_turn_id == latestTurnId
             RunDirectoryEntry(
                 runId = RunId(row.run_id),
                 worldId = DefinitionId(row.world_definition_id),
@@ -48,6 +54,14 @@ class SqlDelightRunDirectoryStore(
                 archived = row.archived != 0L,
                 lastSequence = row.last_sequence,
                 lifecycle = lifecycle,
+                lastPersistedEventSequence = row.last_persisted_event_sequence,
+                lastPersistedTurnId = row.last_persisted_turn_id,
+                saveStatus = if (evidenceMatches) {
+                    RunSaveStatus.SAVED
+                } else {
+                    RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING
+                },
+                savedAtEpochMillis = row.saved_at_epoch_millis,
                 diagnostic = diagnostic,
             )
         }
@@ -69,5 +83,21 @@ class SqlDelightRunDirectoryStore(
         if (queries.selectRun(runId.value).executeAsOneOrNull() == null) return@withLock false
         queries.setRunContentVersion(version.toLong(), runId.value)
         true
+    }
+
+    override suspend fun repairPersistenceEvidence(runId: RunId): Boolean = mutex.withLock {
+        if (queries.selectRun(runId.value).executeAsOneOrNull() == null) return@withLock false
+        try {
+            val latestTurnId = queries.selectLatestRunTurnId(runId.value).executeAsOneOrNull()
+            val latestTurn = SqlDelightGameTurnStore(database).latest(runId)
+            if (latestTurnId != null && latestTurn == null) return@withLock false
+            if (latestTurn?.status in setOf(GameTurnStatus.ACCEPTED, GameTurnStatus.RUNNING)) {
+                return@withLock false
+            }
+            queries.repairRunPersistenceEvidence(runId.value)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 }

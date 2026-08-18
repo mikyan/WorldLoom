@@ -61,6 +61,9 @@ class SqlDelightEventStore(
     ): EventAppendResult = mutex.withLock {
         validateBatch(runId, expectedSequence, events)?.let { return@withLock it }
         try {
+            // This metadata write is deliberately outside the EventLog transaction. If it fails,
+            // facts may still commit and the directory later derives a repairable pending state.
+            runCatching { queries.markRunEventWriting(runId.value) }
             var failure: EventAppendResult.Failure? = null
             database.transaction {
                 if (queries.selectRun(runId.value).executeAsOneOrNull() == null) {
@@ -85,7 +88,10 @@ class SqlDelightEventStore(
                     )
                 }
             }
-            failure ?: EventAppendResult.Success(events.last().sequence)
+            failure ?: run {
+                runCatching { queries.markRunEventPersisted(events.last().sequence, runId.value) }
+                EventAppendResult.Success(events.last().sequence)
+            }
         } catch (_: Exception) {
             eventFailure(EventStoreErrorCode.STORAGE_FAILURE, "Unable to append the event batch atomically")
         }

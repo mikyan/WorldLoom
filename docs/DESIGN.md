@@ -750,6 +750,8 @@ Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector
 
 第 31 轮为 `playable-world/v1` 增加独立版本的 Guidance Definition。世界包可用通用 Trigger 把 Tutorial/Hint 绑定到 Scene，并把建议目标引用到当前场景可见的 Action、Activity 或 Travel Route；加载器拒绝悬空引用、场景外目标、条件锁定的教程行动，以及没有任何无条件行动或时空出口的动态死路。`GuidanceProjector` 只组合当前 Presentation 已公开的可用项，不读取题材字段，也不生成 Command/Event。共享 UI 可以完成、跳过或重新查看教程，窄屏使用横向惰性入口；采用建议只预填自然语言输入，减少动态效果路径不引入强制动画。
 
+第 32 轮把自动存档文案绑定到可验证的持久化证据。Run 目录记录最后 Event 序列、最后终态 GM TurnId、保存状态和毫秒时间戳；EventLog 与 GM Turn 先独立提交，再尽力更新派生目录证据，因此目录写失败不会撤销事实或叙事记录。`SqlDelightRunDirectoryStore` 通过实际 Event 最大序列与最新 Turn 对比识别中断窗口，并可只重建目录字段。`SaveCoordinator.quickContinue` 选择最近的未归档活动 Run 后仍调用完整 Resume 校验；内容版本、EventLog、Snapshot 或生命周期不合法时明确拒绝，不回退到另一个 Run。取消或 Provider 失败在尚无事实时提供安全重试，已有事实时只提供补叙述。
+
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
 工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，逐轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)。

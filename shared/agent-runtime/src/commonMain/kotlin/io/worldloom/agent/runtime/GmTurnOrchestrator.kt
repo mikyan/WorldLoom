@@ -473,11 +473,20 @@ class GameTurnOrchestrator(
             )
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
+                val cancelledSequence = gameSession.commandContext()?.lastSequence ?: running.acceptedSequence
+                val factsCommitted = cancelledSequence > running.acceptedSequence
                 persistTerminal(
                     running,
                     GameTurnStatus.CANCELLED,
                     error = "Turn was cancelled",
+                    worldChanged = factsCommitted,
+                    deliveredSequence = cancelledSequence,
                     errorCode = GameTurnErrorCode.CANCELLED,
+                    recoveryKind = if (factsCommitted) {
+                        GameTurnRecoveryKind.NARRATION_REQUIRED
+                    } else {
+                        GameTurnRecoveryKind.RETRY_SAFE
+                    },
                 )
             }
             throw cancelled
@@ -512,6 +521,11 @@ class GameTurnOrchestrator(
                 worldChanged = result.error.worldChanged,
                 deliveredSequence = deliveredSequence,
                 errorCode = result.error.code.toGameTurnErrorCode(),
+                recoveryKind = if (result.error.worldChanged || deliveredSequence > running.acceptedSequence) {
+                    GameTurnRecoveryKind.NARRATION_REQUIRED
+                } else {
+                    GameTurnRecoveryKind.RETRY_SAFE
+                },
             )
         }
     }
@@ -749,6 +763,7 @@ class GameTurnOrchestrator(
             GameTurnOutputKind.FAILURE
         },
         errorCode: GameTurnErrorCode? = null,
+        recoveryKind: GameTurnRecoveryKind = GameTurnRecoveryKind.NONE,
     ): GmTurnResult {
         val evidenceThrough = deliveredSequence?.takeIf { it > base.acceptedSequence }
         val turn = base.copy(
@@ -762,6 +777,7 @@ class GameTurnOrchestrator(
             evidenceFromSequenceExclusive = base.acceptedSequence.takeIf { evidenceThrough != null },
             evidenceThroughSequenceInclusive = evidenceThrough,
             errorCode = errorCode,
+            recoveryKind = recoveryKind,
         )
         return when (turnStore.save(turn, base.revision)) {
             GameTurnStoreResult.Success -> {

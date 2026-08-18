@@ -169,7 +169,15 @@ class GameAgentControllerTest {
         val cancelled = assertNotNull(controller.history.value.items.singleOrNull())
         assertEquals(GameTurnStatus.CANCELLED, cancelled.status)
         assertEquals("该回合已取消。", cancelled.safeFailureMessage)
+        assertEquals(GameTurnRecoveryKind.RETRY_SAFE, cancelled.recoveryKind)
         assertIs<GameAgentState.Idle>(controller.state.value)
+
+        release.complete(Unit)
+        controller.retry(cancelled.turnId)
+        assertIs<GameAgentState.Completed>(controller.state.value)
+        val retried = controller.history.value.items.last()
+        assertEquals(GameTurnStatus.COMPLETED, retried.status)
+        assertEquals(2, controller.history.value.items.size)
     }
 
     private fun readyState(
