@@ -224,17 +224,19 @@ class AgentRuntimeTest {
     }
 
     @Test
-    fun providerFailureAndTimeoutBeforeToolsLeaveTheWorldUntouched() = runTest {
-        val failedFixture = fixture()
-        val failedProvider = ScriptedProvider(
-            ProviderResult.Failure(ProviderFailureCode.UNAVAILABLE, "offline", retryable = true),
-        )
-        val providerFailure = assertIs<AgentRunResult.Failure>(
-            runtime(failedFixture, failedProvider).run(request(identity(CommandPermission.ADJUST_NUMERIC_COMPONENT))),
-        )
-        assertEquals(AgentRunErrorCode.PROVIDER_FAILURE, providerFailure.error.code)
-        assertFalse(providerFailure.error.worldChanged)
-        assertEquals(0, failedFixture.ready().presentation.lastSequence)
+    fun providerOutageRateLimitAndTimeoutBeforeToolsLeaveTheWorldUntouched() = runTest {
+        listOf(ProviderFailureCode.UNAVAILABLE, ProviderFailureCode.RATE_LIMITED).forEach { failureCode ->
+            val failedFixture = fixture()
+            val failedProvider = ScriptedProvider(
+                ProviderResult.Failure(failureCode, "provider unavailable", retryable = true),
+            )
+            val providerFailure = assertIs<AgentRunResult.Failure>(
+                runtime(failedFixture, failedProvider).run(request(identity(CommandPermission.ADJUST_NUMERIC_COMPONENT))),
+            )
+            assertEquals(AgentRunErrorCode.PROVIDER_FAILURE, providerFailure.error.code)
+            assertFalse(providerFailure.error.worldChanged)
+            assertEquals(0, failedFixture.ready().presentation.lastSequence)
+        }
 
         val timeoutFixture = fixture()
         val timeoutRuntime = AgentRuntime(

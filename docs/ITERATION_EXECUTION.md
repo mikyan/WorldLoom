@@ -1,11 +1,11 @@
-# Worldloom 二十四轮迭代执行与验收记录
+# Worldloom 二十五轮迭代执行与验收记录
 
-文档状态：Implemented 2.8<br>
+文档状态：Alpha candidate 2.9<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
 
-本记录把项目初始化后的二十四个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
+本记录把项目初始化后的二十五个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
 
 所有世界事实变化继续遵守：
 
@@ -50,6 +50,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 22. NPC 场景参与 | 增加声明式 NPC Profile、场景/白名单感知投影、Event→NPC 稳定 SQLDelight 队列、独立 Session/记忆、同步受预算调度，以及受 Actor/场景/动作白名单约束的公开发言与动作 Command/Event | 两个世界一至多 NPC 唤醒、私密知识隔离、公开结果聚合、重复触发、工具拒绝、Token 耗尽、遗留运行项、持久化、回放和三端组装测试 |
 | 23. 内置战争生存短剧本 | 完成《灰烬中的车队》内容 v1：10 场景、12 行动、2 名 NPC、时间/旅行/冒险状态/Behavior 组合和 3 个结局；主持人读取场景素材与动态行动，结局态保留投影与回放 | 成功、代价成功、失败黄金路线，失败推进、资源耗尽、非法行动、存档恢复、随机审计、NPC 秘密隔离、双世界契约和三端编译 |
 | 24. 游玩界面、存档与公开回放 | 增加 `SaveCoordinator`、版本化多 Run 目录、坏 Snapshot 回退、分页审计时间线、Definition 状态卡片和离线公开回放校验，并接入 Android/iOS/Desktop | 创建/继续/重命名/归档、跨 Run 隔离、内容版本拒绝、EventLog 重建、200 项窗口与分页、篡改检测、隐私排除、迁移和三端编译 |
+| 25. 封闭 Alpha 加固 | 增加 Fake 主持人完整旅程、故障注入矩阵、秘密/题材审计、版本与 Schema 清单、Android/Desktop Release 构建和 artifact hash；修复 NPC 公开事件无法写入 SQL 的多态字段冲突 | 启动至结局跨进程旅程、Provider 断网/限流、工具/事务/磁盘/坏 Snapshot 恢复、公开回放隐私、全仓门禁、发行产物和 iOS 交接 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -83,6 +84,8 @@ Windows 开发机需要 JDK 17 或更高版本及 Android API 36 SDK：
 ./gradlew.bat :shared:content-generation:compileKotlinIosSimulatorArm64
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:classes
+./gradlew.bat alphaGate
+./tools/alpha-audit.ps1
 ```
 
 macOS CI 或开发机继续负责 Xcode 宿主、Security Framework 链接和 iOS Simulator 应用构建：
@@ -106,4 +109,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-下一条竖切进行封闭 Alpha 故障、隐私、性能与发行门禁加固。TXT/EPUB 识别和自动世界生成扩展继续延后到第 26 轮以后。
+封闭 Alpha 继续收集最低设备帧时间、常驻内存和人工试玩反馈。TXT/EPUB 识别、自动世界生成与世界工坊扩展从第 26 轮以后再评估，不抢占内置剧本主持体验的修复优先级。

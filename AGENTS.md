@@ -148,6 +148,9 @@ docs/       # 设计文档和 ADR
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
+./gradlew.bat alphaGate
+./gradlew.bat alphaRelease
+./tools/alpha-audit.ps1
 ```
 
 Unix 与 macOS 将 `./gradlew.bat` 替换为 `./gradlew`。iOS 宿主通过 `apps/iosApp/iosApp.xcodeproj` 在 macOS/Xcode 中构建。

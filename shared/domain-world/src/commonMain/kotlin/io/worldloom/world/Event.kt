@@ -92,6 +92,7 @@ data class NpcPublicActionPublishedEvent(
     val schemaVersion: Int = CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION,
     val entityId: EntityId,
     val sceneId: DefinitionId,
+    @SerialName("actionKind")
     val kind: NpcPublicActionKind,
     val actionId: DefinitionId? = null,
     val content: String,

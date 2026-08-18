@@ -91,12 +91,12 @@
 
 ## 25. 封闭 Alpha 加固
 
-- [ ] 25.1 建立内置剧本关键旅程系统测试：启动 → 创建角色 → 多轮行动 → 时间/活动/旅行 → Behavior/NPC → 保存恢复 → 结局 → 重放
-- [ ] 25.2 建立故障注入矩阵，覆盖 Provider 断网/限流、工具失败、EventStore 事务失败、应用终止、磁盘不足和坏 Snapshot 恢复
+- [x] 25.1 建立内置剧本关键旅程系统测试：启动 → 创建角色 → 多轮行动 → 时间/活动/旅行 → Behavior/NPC → 保存恢复 → 结局 → 重放
+- [x] 25.2 建立故障注入矩阵，覆盖 Provider 断网/限流、工具失败、EventStore 事务失败、应用终止、磁盘不足和坏 Snapshot 恢复
 - [ ] 25.3 以 Fake Agent 黄金路线作为发布权威，并在可选开发配置下完成真实 Provider 冒烟且不保存密钥、完整正文或私有上下文
 - [ ] 25.4 在目标最低设备测量启动、前台回合、长时间线、后台 NPC 竞争、内存和 30 FPS 基线，修复发布阻断退化
-- [ ] 25.5 运行秘密、日志、回放、工具权限、世界包 Schema、Agent 隔离和题材硬编码审计，并把发现转为回归测试
+- [x] 25.5 运行秘密、日志、回放、工具权限、世界包 Schema、Agent 隔离和题材硬编码审计，并把发现转为回归测试
 - [ ] 25.6 组织多轮人工试玩，记录路线覆盖、卡死点、叙事一致性和资源平衡问题，并只调整声明式世界内容或通用能力
-- [ ] 25.7 配置可重复的 Android 与 Desktop 发行构建、版本/Schema 清单和 artifact hash，并准备 iOS Xcode build handoff
-- [ ] 25.8 更新 README、DESIGN、AGENTS、已知限制和 Alpha 验收证据；明确 TXT/EPUB 导入、自动世界生成与世界工坊从第 26 轮以后再启动
+- [x] 25.7 配置可重复的 Android 与 Desktop 发行构建、版本/Schema 清单和 artifact hash，并准备 iOS Xcode build handoff
+- [x] 25.8 更新 README、DESIGN、AGENTS、已知限制和 Alpha 验收证据；明确 TXT/EPUB 导入、自动世界生成与世界工坊从第 26 轮以后再启动
 - [ ] 25.9 运行全仓 check、数据库迁移、相关模块测试、Android 构建、Desktop 冒烟和 iOS Simulator Kotlin 编译，所有门禁通过后才标记 Alpha ready

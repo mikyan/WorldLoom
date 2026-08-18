@@ -116,7 +116,7 @@ class TemporalContractGameSessionTest {
     }
 
     @Test
-    fun rejectedAtomicActivityAppendDoesNotRerollOnRetry() = runTest {
+    fun diskFullLikeAtomicAppendFailureDoesNotRerollOnRetry() = runTest {
         val rejectingStore = RejectOnceAppendStore(rejectAppendNumber = 3)
         val retried = session("war-survival", rejectingStore, "retry-random")
         assertIs<LoadResult.Success>(retried.load(DefinitionId("contract.war-survival")))
@@ -204,7 +204,7 @@ class TemporalContractGameSessionTest {
             if (!rejected && appendCount == rejectAppendNumber) {
                 rejected = true
                 return EventAppendResult.Failure(
-                    EventStoreError(EventStoreErrorCode.STORAGE_FAILURE, "Injected atomic append failure"),
+                    EventStoreError(EventStoreErrorCode.STORAGE_FAILURE, "Injected disk-full atomic append failure"),
                 )
             }
             return delegate.append(runId, expectedSequence, events)

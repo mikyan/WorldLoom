@@ -4,13 +4,13 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成二十四轮工程迭代：在完整内置短剧本之上，三端现已具备多 Run 存档目录、继续/重命名/归档、坏 Snapshot 回退、分页事件详情和隐私隔离的公开回放校验。
+> 项目已经完成二十五轮工程迭代并进入 `0.1.0-alpha.1` 候选：内置短剧本现已通过 Fake 主持人/NPC、Behavior、SQL 存档恢复、结局和公开回放组成的完整旅程门禁，并具备可重复发行与安全审计任务。
 
 ## 产品方向
 
 - 自然语言自由行动为主，情境化快捷建议为辅；
-- 用自然语言生成完整剧本和可玩的世界；
-- 将 TXT、EPUB 等长篇复杂剧情资料转化为结构化游戏内容；
+- 先把内置剧本的主持、游玩、存档和结局体验做完整；
+- 第 26 轮以后再扩展用自然语言生成世界，以及 TXT/EPUB 剧情资料转化；
 - 后续接入语音转写与 TTS 模型，支持全程语音游玩；
 - 属性、技能、资源、角色创建与领域规则由剧本生成，世界包按需启用规则模块，经 Schema 验证后加载；
 - 世界状态和规则由本地权威引擎维护，掷骰通过可审计的 Agent Tool 执行并写入事件记录；
@@ -25,7 +25,8 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [二十四轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [二十五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [封闭 Alpha 验收与发行说明](docs/ALPHA_ACCEPTANCE.md)
 - [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
 - [存档与公开回放说明](docs/SAVES_AND_PUBLIC_REPLAY.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
@@ -114,6 +115,8 @@ BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
+./gradlew.bat alphaGate
+./tools/alpha-audit.ps1
 ```
 
 Unix 与 macOS 使用 `./gradlew`。iOS 应用需要在安装 Xcode 的 macOS 上构建：

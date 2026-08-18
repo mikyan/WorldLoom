@@ -33,6 +33,10 @@ compose.desktop {
     application {
         mainClass = "io.worldloom.app.desktop.MainKt"
 
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
             packageName = "Worldloom"

@@ -1,0 +1,28 @@
+{
+    "schema": "worldloom.release-manifest/v1",
+    "release": "0.1.0-alpha.1",
+    "channel": "closed-alpha",
+    "builtInWorlds": [
+        {"id": "contract.war-survival", "contentVersion": 1, "default": true},
+        {"id": "contract.station-ai", "contentVersion": 1, "contractOnly": true}
+    ],
+    "schemas": {
+        "worldDefinition": 2,
+        "worldManifest": 1,
+        "ruleModuleApi": 1,
+        "playableWorld": 1,
+        "command": 1,
+        "event": 1,
+        "saveData": 1,
+        "snapshot": 1,
+        "gmTurn": 1,
+        "npcWork": 1
+    },
+    "database": {"schemaVersion": 8, "latestMigration": "7.sqm"},
+    "artifacts": [
+        {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": false},
+        {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}
+    ],
+    "hashes": "build/alpha/artifact-hashes.sha256",
+    "iosHandoff": "apps/iosApp/iosApp.xcodeproj"
+}

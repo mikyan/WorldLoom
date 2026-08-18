@@ -45,6 +45,10 @@ kotlin {
         }
         named("desktopTest") {
             resources.srcDir(rootProject.layout.projectDirectory.dir("contract-worlds"))
+            dependencies {
+                implementation(projects.shared.persistence)
+                implementation(libs.sqldelight.sqlite.driver)
+            }
         }
     }
 
