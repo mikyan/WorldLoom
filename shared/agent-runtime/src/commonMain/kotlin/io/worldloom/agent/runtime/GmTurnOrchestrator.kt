@@ -14,7 +14,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlin.jvm.JvmInline
 
-const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 1
+const val LEGACY_GM_TURN_SCHEMA_VERSION: Int = 1
+const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 2
 const val CURRENT_GM_PROFILE_SCHEMA_VERSION: Int = 1
 
 @Serializable
@@ -25,6 +26,23 @@ value class TurnId(val value: String) {
 
 @Serializable
 enum class GameTurnStatus { ACCEPTED, RUNNING, AWAITING_PLAYER, COMPLETED, CANCELLED, FAILED }
+
+@Serializable
+enum class GameTurnOutputKind { NONE, NARRATION, CLARIFICATION, FAILURE }
+
+@Serializable
+enum class GameTurnRecoveryKind { NONE, RETRY_SAFE, NARRATION_REQUIRED }
+
+@Serializable
+enum class GameTurnErrorCode {
+    INVALID_REQUEST,
+    PROVIDER_FAILURE,
+    TOOL_FAILURE,
+    STORAGE_FAILURE,
+    CANCELLED,
+    INTERRUPTED,
+    UNKNOWN,
+}
 
 @Serializable
 data class GameTurn(
@@ -39,15 +57,92 @@ data class GameTurn(
     val output: String? = null,
     val error: String? = null,
     val worldChanged: Boolean = false,
+    val outputKind: GameTurnOutputKind = GameTurnOutputKind.NONE,
+    val evidenceFromSequenceExclusive: Long? = null,
+    val evidenceThroughSequenceInclusive: Long? = null,
+    val recoveryKind: GameTurnRecoveryKind = GameTurnRecoveryKind.NONE,
+    val errorCode: GameTurnErrorCode? = null,
 ) {
     init {
-        require(schemaVersion == CURRENT_GM_TURN_SCHEMA_VERSION) { "Unsupported GM turn schema" }
+        require(schemaVersion in LEGACY_GM_TURN_SCHEMA_VERSION..CURRENT_GM_TURN_SCHEMA_VERSION) {
+            "Unsupported GM turn schema"
+        }
         require(revision >= 0) { "GM turn revision must not be negative" }
         require(acceptedSequence >= 0) { "Accepted sequence must not be negative" }
         require(deliveredSequence == null || deliveredSequence >= acceptedSequence) {
             "Delivered sequence cannot precede the accepted sequence"
         }
+        require((evidenceFromSequenceExclusive == null) == (evidenceThroughSequenceInclusive == null)) {
+            "GM turn evidence range must have both boundaries"
+        }
+        if (evidenceFromSequenceExclusive != null && evidenceThroughSequenceInclusive != null) {
+            require(evidenceFromSequenceExclusive >= acceptedSequence) {
+                "GM turn evidence cannot start before the accepted sequence"
+            }
+            require(evidenceThroughSequenceInclusive > evidenceFromSequenceExclusive) {
+                "GM turn evidence range must contain at least one event"
+            }
+            require(deliveredSequence == null || evidenceThroughSequenceInclusive <= deliveredSequence) {
+                "GM turn evidence cannot exceed its delivered sequence"
+            }
+        }
     }
+
+    fun toCurrentSchema(): GameTurn {
+        if (schemaVersion == CURRENT_GM_TURN_SCHEMA_VERSION) return this
+        val migratedOutputKind = when {
+            status == GameTurnStatus.AWAITING_PLAYER -> GameTurnOutputKind.CLARIFICATION
+            status == GameTurnStatus.COMPLETED && !output.isNullOrBlank() -> GameTurnOutputKind.NARRATION
+            status in setOf(GameTurnStatus.CANCELLED, GameTurnStatus.FAILED) -> GameTurnOutputKind.FAILURE
+            else -> GameTurnOutputKind.NONE
+        }
+        val migratedRecoveryKind = when {
+            status != GameTurnStatus.FAILED || !error.orEmpty().startsWith("Turn was interrupted") ->
+                GameTurnRecoveryKind.NONE
+            worldChanged -> GameTurnRecoveryKind.NARRATION_REQUIRED
+            else -> GameTurnRecoveryKind.RETRY_SAFE
+        }
+        return copy(
+            schemaVersion = CURRENT_GM_TURN_SCHEMA_VERSION,
+            outputKind = migratedOutputKind,
+            evidenceFromSequenceExclusive = acceptedSequence.takeIf {
+                deliveredSequence != null && deliveredSequence > acceptedSequence
+            },
+            evidenceThroughSequenceInclusive = deliveredSequence?.takeIf { it > acceptedSequence },
+            recoveryKind = migratedRecoveryKind,
+            errorCode = when {
+                status == GameTurnStatus.CANCELLED -> GameTurnErrorCode.CANCELLED
+                status == GameTurnStatus.FAILED -> GameTurnErrorCode.UNKNOWN
+                else -> null
+            },
+        )
+    }
+}
+
+enum class GameTurnHistoryProblemCode { INVALID_SCHEMA, INVALID_JSON, IDENTITY_MISMATCH, FUTURE_EVIDENCE }
+
+data class GameTurnHistoryProblem(
+    val turnId: TurnId,
+    val code: GameTurnHistoryProblemCode,
+    val message: String,
+)
+
+data class GameTurnHistoryEntry(
+    val ordinal: Long,
+    val turn: GameTurn? = null,
+    val problem: GameTurnHistoryProblem? = null,
+) {
+    init { require((turn == null) != (problem == null)) { "History entry must contain a turn or a problem" } }
+}
+
+data class GameTurnHistoryPage(
+    val entries: List<GameTurnHistoryEntry>,
+    val hasEarlier: Boolean,
+)
+
+sealed interface GameTurnHistoryResult {
+    data class Success(val page: GameTurnHistoryPage) : GameTurnHistoryResult
+    data class Failure(val message: String) : GameTurnHistoryResult
 }
 
 sealed interface GameTurnStoreResult {
@@ -61,11 +156,22 @@ interface GameTurnStore {
     suspend fun nextTurnId(runId: RunId): TurnId
     suspend fun load(runId: RunId, turnId: TurnId): GameTurn?
     suspend fun save(turn: GameTurn, expectedRevision: Long?): GameTurnStoreResult
+    suspend fun history(
+        runId: RunId,
+        beforeOrdinalExclusive: Long? = null,
+        limit: Int = 50,
+    ): GameTurnHistoryResult
+
+    suspend fun latest(runId: RunId): GameTurn? = when (val result = history(runId, limit = 1)) {
+        is GameTurnHistoryResult.Success -> result.page.entries.singleOrNull()?.turn
+        is GameTurnHistoryResult.Failure -> null
+    }
 }
 
 class InMemoryGameTurnStore : GameTurnStore {
     private val mutex = Mutex()
     private val turns = mutableMapOf<Pair<RunId, TurnId>, GameTurn>()
+    private val ordinals = mutableMapOf<Pair<RunId, TurnId>, Long>()
 
     override suspend fun nextTurnId(runId: RunId): TurnId = mutex.withLock {
         TurnId("${runId.value}.turn.${turns.keys.count { it.first == runId } + 1}")
@@ -79,8 +185,30 @@ class InMemoryGameTurnStore : GameTurnStore {
         val key = turn.runId to turn.turnId
         val existing = turns[key]
         if (existing?.revision != expectedRevision) return@withLock GameTurnStoreResult.RevisionConflict
-        turns[key] = turn
+        turns[key] = turn.toCurrentSchema()
+        ordinals.getOrPut(key) { ordinals.filterKeys { it.first == turn.runId }.values.maxOrNull()?.plus(1) ?: 1 }
         GameTurnStoreResult.Success
+    }
+
+    override suspend fun history(
+        runId: RunId,
+        beforeOrdinalExclusive: Long?,
+        limit: Int,
+    ): GameTurnHistoryResult = mutex.withLock {
+        if (limit !in 1..200) return@withLock GameTurnHistoryResult.Failure("History limit must be within 1..200")
+        val boundary = beforeOrdinalExclusive ?: Long.MAX_VALUE
+        val eligible = turns.mapNotNull { (key, turn) ->
+            if (key.first != runId) return@mapNotNull null
+            val ordinal = ordinals.getValue(key)
+            if (ordinal >= boundary) return@mapNotNull null
+            GameTurnHistoryEntry(ordinal, turn = turn)
+        }.sortedByDescending(GameTurnHistoryEntry::ordinal)
+        GameTurnHistoryResult.Success(
+            GameTurnHistoryPage(
+                entries = eligible.take(limit).reversed(),
+                hasEarlier = eligible.size > limit,
+            ),
+        )
     }
 }
 
@@ -202,7 +330,13 @@ class GameTurnOrchestrator(
         val normalized = input.trim()
         turnStore.load(context.runId, turnId)?.let { existing ->
             if (existing.input != normalized) {
-                return@withLock GmTurnResult.Failed(existing.copy(error = "TurnId was reused with different input"))
+                return@withLock GmTurnResult.Failed(
+                    existing.copy(
+                        error = "TurnId was reused with different input",
+                        outputKind = GameTurnOutputKind.FAILURE,
+                        errorCode = GameTurnErrorCode.INVALID_REQUEST,
+                    ),
+                )
             }
             return@withLock recoverOrReturn(existing, context.lastSequence)
         }
@@ -222,11 +356,25 @@ class GameTurnOrchestrator(
             output = "请描述你想做什么。",
         )
         if (turnStore.save(accepted, null) !is GameTurnStoreResult.Success) {
-            return@withLock GmTurnResult.Failed(accepted.copy(status = GameTurnStatus.FAILED, error = "Turn could not be stored"))
+            return@withLock GmTurnResult.Failed(
+                accepted.copy(
+                    status = GameTurnStatus.FAILED,
+                    error = "Turn could not be stored",
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
+            )
         }
         val running = accepted.copy(status = GameTurnStatus.RUNNING, revision = 1)
         if (turnStore.save(running, 0) !is GameTurnStoreResult.Success) {
-            return@withLock GmTurnResult.Failed(running.copy(status = GameTurnStatus.FAILED, error = "Turn could not start"))
+            return@withLock GmTurnResult.Failed(
+                running.copy(
+                    status = GameTurnStatus.FAILED,
+                    error = "Turn could not start",
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
+            )
         }
         val projected = GmContextProjector.project(ready.presentation, context, profile)
         val result = try {
@@ -241,7 +389,12 @@ class GameTurnOrchestrator(
                 onTextDelta,
             )
         } catch (cancelled: CancellationException) {
-            persistTerminal(running, GameTurnStatus.CANCELLED, error = "Turn was cancelled")
+            persistTerminal(
+                running,
+                GameTurnStatus.CANCELLED,
+                error = "Turn was cancelled",
+                errorCode = GameTurnErrorCode.CANCELLED,
+            )
             throw cancelled
         }
         val deliveredSequence = gameSession.commandContext()?.lastSequence ?: projected.visibleSequence
@@ -254,6 +407,7 @@ class GameTurnOrchestrator(
                         GameTurnStatus.AWAITING_PLAYER,
                         output = text.removePrefix(profile.clarificationPrefix).trim(),
                         deliveredSequence = deliveredSequence,
+                        outputKind = GameTurnOutputKind.CLARIFICATION,
                     )
                 } else {
                     persistTerminal(
@@ -262,6 +416,7 @@ class GameTurnOrchestrator(
                         output = text,
                         worldChanged = result.worldChanged,
                         deliveredSequence = deliveredSequence,
+                        outputKind = GameTurnOutputKind.NARRATION,
                     )
                 }
             }
@@ -271,6 +426,7 @@ class GameTurnOrchestrator(
                 error = result.error.message,
                 worldChanged = result.error.worldChanged,
                 deliveredSequence = deliveredSequence,
+                errorCode = result.error.code.toGameTurnErrorCode(),
             )
         }
     }
@@ -313,11 +469,21 @@ class GameTurnOrchestrator(
             revision = 0,
             output = output,
             deliveredSequence = base.acceptedSequence,
+            outputKind = if (status == GameTurnStatus.AWAITING_PLAYER) {
+                GameTurnOutputKind.CLARIFICATION
+            } else {
+                GameTurnOutputKind.NONE
+            },
         )
         return when (turnStore.save(turn, null)) {
             GameTurnStoreResult.Success -> turn.toResult()
             else -> GmTurnResult.Failed(
-                turn.copy(status = GameTurnStatus.FAILED, error = "Turn result could not be stored"),
+                turn.copy(
+                    status = GameTurnStatus.FAILED,
+                    error = "Turn result could not be stored",
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
             )
         }
     }
@@ -329,7 +495,14 @@ class GameTurnOrchestrator(
         error: String? = null,
         worldChanged: Boolean = false,
         deliveredSequence: Long? = null,
+        outputKind: GameTurnOutputKind = if (error == null) {
+            GameTurnOutputKind.NONE
+        } else {
+            GameTurnOutputKind.FAILURE
+        },
+        errorCode: GameTurnErrorCode? = null,
     ): GmTurnResult {
+        val evidenceThrough = deliveredSequence?.takeIf { it > base.acceptedSequence }
         val turn = base.copy(
             status = status,
             revision = base.revision + 1,
@@ -337,11 +510,20 @@ class GameTurnOrchestrator(
             error = error,
             worldChanged = worldChanged,
             deliveredSequence = deliveredSequence,
+            outputKind = outputKind,
+            evidenceFromSequenceExclusive = base.acceptedSequence.takeIf { evidenceThrough != null },
+            evidenceThroughSequenceInclusive = evidenceThrough,
+            errorCode = errorCode,
         )
         return when (turnStore.save(turn, base.revision)) {
             GameTurnStoreResult.Success -> turn.toResult()
             else -> GmTurnResult.Failed(
-                turn.copy(status = GameTurnStatus.FAILED, error = "Turn result could not be stored"),
+                turn.copy(
+                    status = GameTurnStatus.FAILED,
+                    error = "Turn result could not be stored",
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
             )
         }
     }
@@ -356,10 +538,22 @@ class GameTurnOrchestrator(
             return existing.toResult()
         }
         val recovered = existing.copy(
+            schemaVersion = CURRENT_GM_TURN_SCHEMA_VERSION,
             status = GameTurnStatus.FAILED,
             revision = existing.revision + 1,
             deliveredSequence = visibleSequence,
             worldChanged = visibleSequence > existing.acceptedSequence,
+            outputKind = GameTurnOutputKind.FAILURE,
+            evidenceFromSequenceExclusive = existing.acceptedSequence.takeIf {
+                visibleSequence > existing.acceptedSequence
+            },
+            evidenceThroughSequenceInclusive = visibleSequence.takeIf { visibleSequence > existing.acceptedSequence },
+            recoveryKind = if (visibleSequence > existing.acceptedSequence) {
+                GameTurnRecoveryKind.NARRATION_REQUIRED
+            } else {
+                GameTurnRecoveryKind.RETRY_SAFE
+            },
+            errorCode = GameTurnErrorCode.INTERRUPTED,
             error = if (visibleSequence > existing.acceptedSequence) {
                 "Turn was interrupted after authoritative facts were committed; retry with a new TurnId"
             } else {
@@ -382,6 +576,8 @@ class GameTurnOrchestrator(
                 revision = 0,
                 acceptedSequence = 0,
                 error = message,
+                outputKind = GameTurnOutputKind.FAILURE,
+                errorCode = GameTurnErrorCode.INVALID_REQUEST,
             ),
         )
 
@@ -390,5 +586,25 @@ class GameTurnOrchestrator(
         GameTurnStatus.COMPLETED -> GmTurnResult.Completed(this)
         GameTurnStatus.CANCELLED -> GmTurnResult.Cancelled(this)
         GameTurnStatus.ACCEPTED, GameTurnStatus.RUNNING, GameTurnStatus.FAILED -> GmTurnResult.Failed(this)
+    }
+
+    private fun AgentRunErrorCode.toGameTurnErrorCode(): GameTurnErrorCode = when (this) {
+        AgentRunErrorCode.SESSION_STORAGE_FAILURE -> GameTurnErrorCode.STORAGE_FAILURE
+        AgentRunErrorCode.PROVIDER_CAPABILITY_UNAVAILABLE,
+        AgentRunErrorCode.PROVIDER_FAILURE,
+        AgentRunErrorCode.INVALID_PROVIDER_RESPONSE,
+        AgentRunErrorCode.TIMEOUT,
+        -> GameTurnErrorCode.PROVIDER_FAILURE
+        AgentRunErrorCode.TOOL_REJECTED,
+        AgentRunErrorCode.TOOL_LOOP_DETECTED,
+        AgentRunErrorCode.STEP_LIMIT_EXCEEDED,
+        AgentRunErrorCode.TOOL_CALL_LIMIT_EXCEEDED,
+        AgentRunErrorCode.INPUT_TOKEN_BUDGET_EXCEEDED,
+        AgentRunErrorCode.OUTPUT_TOKEN_BUDGET_EXCEEDED,
+        AgentRunErrorCode.COST_BUDGET_EXCEEDED,
+        -> GameTurnErrorCode.TOOL_FAILURE
+        AgentRunErrorCode.SESSION_OWNERSHIP_MISMATCH,
+        AgentRunErrorCode.SESSION_CONFLICT,
+        -> GameTurnErrorCode.INVALID_REQUEST
     }
 }

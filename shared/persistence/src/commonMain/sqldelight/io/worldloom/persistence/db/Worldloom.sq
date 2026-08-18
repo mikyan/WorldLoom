@@ -38,9 +38,12 @@ CREATE TABLE gm_turn (
     revision INTEGER NOT NULL,
     turn_schema_version INTEGER NOT NULL,
     turn_json TEXT NOT NULL,
+    turn_ordinal INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, turn_id),
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
+
+CREATE UNIQUE INDEX gm_turn_run_ordinal ON gm_turn(run_id, turn_ordinal);
 
 CREATE TABLE behavior_work (
     run_id TEXT NOT NULL,
@@ -250,18 +253,30 @@ deleteCharacterCreationDraft:
 DELETE FROM character_creation_draft WHERE run_id = ?;
 
 selectGmTurn:
-SELECT revision, turn_schema_version, turn_json
+SELECT turn_ordinal, revision, turn_schema_version, turn_json
 FROM gm_turn
 WHERE run_id = ? AND turn_id = ?;
 
-countGmTurnsForRun:
-SELECT count(*)
+selectLatestGmTurnOrdinal:
+SELECT COALESCE(MAX(turn_ordinal), 0)
 FROM gm_turn
 WHERE run_id = ?;
 
+selectGmTurnPage:
+SELECT turn_id, turn_ordinal, revision, turn_schema_version, turn_json
+FROM gm_turn
+WHERE run_id = ? AND turn_ordinal < ?
+ORDER BY turn_ordinal DESC, turn_id DESC
+LIMIT ?;
+
+countGmTurnsBefore:
+SELECT count(*)
+FROM gm_turn
+WHERE run_id = ? AND turn_ordinal < ?;
+
 upsertGmTurn:
-INSERT OR REPLACE INTO gm_turn(run_id, turn_id, revision, turn_schema_version, turn_json)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO gm_turn(run_id, turn_id, turn_ordinal, revision, turn_schema_version, turn_json)
+VALUES (?, ?, ?, ?, ?, ?);
 
 selectBehaviorWork:
 SELECT work_json

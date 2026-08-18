@@ -706,7 +706,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成二十五轮工程基线并进入 `0.1.0-alpha.1` 候选，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成二十六轮工程基线并处于 `0.1.0-alpha.1` 候选，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -738,11 +738,13 @@ Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector
 
 封闭 Alpha 使用 Fake GM/NPC 作为发布权威，把建角、时间、活动、旅行、Behavior、NPC、持久化 GM Turn、进程重建、结局和公开回放串成单一 SQLDelight 系统旅程。Provider 不可用/限流、工具拒绝、EventStore 原子失败、磁盘不足等价注入、终止窗口、坏 Snapshot 和坏 EventLog 都有对应回归。`alphaGate` 统一运行仓库检查、迁移、iOS Simulator Kotlin 编译与 Android/Desktop Release 构建，`alphaRelease` 输出 SHA-256；版本与 Schema 边界记录在 `release/alpha-manifest.json`。真实 Provider 只做开发者自带 Vault 凭据后的可选冒烟，不成为确定性发布结果。
 
+第 26 轮将 GM Turn 升级为 `schemaVersion = 2` 的公开表现记录：状态之外显式保存输出类型、权威事件证据范围、恢复类别和可安全投影的错误类别。`GameTurnStore` 按 Run 与稳定 ordinal 分页，SQLDelight migration 8 为旧回合补充分区内顺序；旧 schema 1 JSON 在读取时迁移。`HostedTurnHistoryProjector` 会隔离损坏、身份不匹配或引用未来 Event 的记录，只投影玩家输入、主持公开叙事、澄清和归一化错误，不把模型措辞写入 EventLog 或用于重建世界。
+
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，二十五轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，逐轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)。
 
-从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七至二十二轮依次补齐建角、主持人、时间与冒险状态、Behavior 和 NPC，第二十三轮完成内置短剧本，第二十四轮完成多 Run 存档与公开回放，第二十五轮完成封闭 Alpha 故障、隐私和发行门禁。第 26 轮以后仍应先处理内置剧本试玩反馈，再启动 TXT/EPUB 识别、自动世界生成或世界工坊产品化；`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
+从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七至二十二轮依次补齐建角、主持人、时间与冒险状态、Behavior 和 NPC，第二十三轮完成内置短剧本，第二十四轮完成多 Run 存档与公开回放，第二十五轮完成封闭 Alpha 工程门禁，第二十六轮开始深化可恢复主持体验。第 26–33 轮继续处理主持历史、NPC 对话、长局连续性、引导、恢复和第二内置世界；TXT/EPUB 识别与隔离草稿试玩排在第 34–35 轮。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
 
 ## 8. 世界包格式
 

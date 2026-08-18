@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成二十五轮工程迭代并进入 `0.1.0-alpha.1` 候选：内置短剧本现已通过 Fake 主持人/NPC、Behavior、SQL 存档恢复、结局和公开回放组成的完整旅程门禁，并具备可重复发行与安全审计任务。
+> 项目已经完成二十六轮工程迭代并处于 `0.1.0-alpha.1` 候选：主持人叙事现在按 Run 持久化为可分页、可校验证据范围的公开回合历史；内置短剧本仍通过 Fake 主持人/NPC、Behavior、SQL 恢复、结局和公开回放门禁。
 
 ## 产品方向
 
@@ -25,7 +25,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [二十五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [封闭 Alpha 验收与发行说明](docs/ALPHA_ACCEPTANCE.md)
 - [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
 - [存档与公开回放说明](docs/SAVES_AND_PUBLIC_REPLAY.md)

@@ -1,0 +1,11 @@
+ALTER TABLE gm_turn ADD COLUMN turn_ordinal INTEGER NOT NULL DEFAULT 0;
+
+UPDATE gm_turn
+SET turn_ordinal = (
+    SELECT COUNT(*)
+    FROM gm_turn AS ordered_turn
+    WHERE ordered_turn.run_id = gm_turn.run_id
+      AND ordered_turn.rowid <= gm_turn.rowid
+);
+
+CREATE UNIQUE INDEX gm_turn_run_ordinal ON gm_turn(run_id, turn_ordinal);

@@ -15,10 +15,10 @@
         "event": 1,
         "saveData": 1,
         "snapshot": 1,
-        "gmTurn": 1,
+        "gmTurn": 2,
         "npcWork": 1
     },
-    "database": {"schemaVersion": 8, "latestMigration": "7.sqm"},
+    "database": {"schemaVersion": 9, "latestMigration": "8.sqm"},
     "artifacts": [
         {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": false},
         {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}
