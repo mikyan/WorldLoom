@@ -17,6 +17,7 @@ import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.persistence.AndroidPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
 import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
+import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
                 SqlDelightAgentSessionStore(database),
             ),
             gameSession = session,
+            turnStore = SqlDelightGameTurnStore(database),
         )
         val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
         setContent {

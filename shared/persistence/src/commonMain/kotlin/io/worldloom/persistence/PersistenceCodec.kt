@@ -9,7 +9,11 @@ import io.worldloom.world.PlayerComponentInitializedEvent
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
 import io.worldloom.world.RunLifecycleChangedEvent
+import io.worldloom.world.ActionOutcomeAppliedEvent
+import io.worldloom.world.PlayerEnteredSceneEvent
+import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.application.CharacterCreationDraft
+import io.worldloom.agent.runtime.GameTurn
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -39,6 +43,9 @@ object PersistenceCodec {
                 subclass(PlayerEntityCreatedEvent::class)
                 subclass(PlayerComponentInitializedEvent::class)
                 subclass(PlayerEnteredInitialSceneEvent::class)
+                subclass(ActionOutcomeAppliedEvent::class)
+                subclass(PlayerExitedSceneEvent::class)
+                subclass(PlayerEnteredSceneEvent::class)
             }
         }
         classDiscriminator = "kind"
@@ -60,6 +67,10 @@ object PersistenceCodec {
 
     fun decodeCharacterDraft(source: String): PersistenceDecodeResult<CharacterCreationDraft> =
         decode("character_draft", source)
+
+    fun encodeGameTurn(turn: GameTurn): String = json.encodeToString(turn)
+
+    fun decodeGameTurn(source: String): PersistenceDecodeResult<GameTurn> = decode("gm_turn", source)
 
     private inline fun <reified T> decode(
         label: String,

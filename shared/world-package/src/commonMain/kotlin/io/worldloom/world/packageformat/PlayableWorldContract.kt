@@ -34,6 +34,7 @@ data class PlayableScene(
     val id: DefinitionId,
     val label: String,
     val actionIds: List<DefinitionId>,
+    val participantEntityIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -58,6 +59,7 @@ data class PlayableActionResolution(
 data class PlayableAction(
     val id: DefinitionId,
     val sceneId: DefinitionId,
+    val label: String? = null,
     val checkProfileId: DefinitionId? = null,
     val resolutions: List<PlayableActionResolution>,
 )
@@ -153,6 +155,7 @@ enum class PlayableWorldProblemCode {
     BLANK_LABEL,
     INITIAL_SCENE_UNKNOWN,
     SCENE_ACTION_UNKNOWN,
+    SCENE_PARTICIPANT_UNKNOWN,
     ACTION_SCENE_UNKNOWN,
     ACTION_NOT_AVAILABLE_IN_SCENE,
     ACTION_CHECK_UNKNOWN,
@@ -214,6 +217,10 @@ data class ValidatedPlayableWorldContract internal constructor(
     private val endingsById: Map<DefinitionId, PlayableEnding>,
     private val routesById: Map<DefinitionId, PlayableRouteFixture>,
 ) {
+    fun scene(id: DefinitionId): PlayableScene? = scenesById[id]
+
+    fun action(id: DefinitionId): PlayableAction? = actionsById[id]
+
     fun route(id: DefinitionId): PlayableRouteFixture? = routesById[id]
 
     fun simulate(routeId: DefinitionId): PlayableRouteSimulationResult {
@@ -272,7 +279,7 @@ object PlayableWorldValidator {
                 "Initial scene is not declared: ${contract.initialSceneId}",
             )
         }
-        validateScenes(contract, scenes, actions, problems)
+        validateScenes(contract, definition, scenes, actions, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
         validateBehaviors(contract, definition, entries, problems)
@@ -425,12 +432,29 @@ object PlayableWorldValidator {
 
     private fun validateScenes(
         contract: PlayableWorldContract,
+        definition: ValidatedWorldDefinition,
         scenes: Map<DefinitionId, PlayableScene>,
         actions: Map<DefinitionId, PlayableAction>,
         problems: MutableList<PlayableWorldProblem>,
     ) {
         contract.scenes.forEachIndexed { sceneIndex, scene ->
             duplicateIds(scene.actionIds, "scenes[$sceneIndex].actionIds", problems)
+            if (scene.participantEntityIds.distinct().size != scene.participantEntityIds.size) {
+                problems += problem(
+                    PlayableWorldProblemCode.DUPLICATE_ID,
+                    "scenes[$sceneIndex].participantEntityIds",
+                    "Scene participant IDs must be unique",
+                )
+            }
+            scene.participantEntityIds.forEachIndexed { participantIndex, entityId ->
+                if (definition.source.initialEntities.none { it.entityId == entityId }) {
+                    problems += problem(
+                        PlayableWorldProblemCode.SCENE_PARTICIPANT_UNKNOWN,
+                        "scenes[$sceneIndex].participantEntityIds[$participantIndex]",
+                        "Scene participant Entity is not initialized: $entityId",
+                    )
+                }
+            }
             scene.actionIds.forEachIndexed { actionIndex, actionId ->
                 val action = actions[actionId]
                 if (action == null) {

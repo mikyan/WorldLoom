@@ -122,6 +122,9 @@ fun WorldloomApp(
                             }
                         },
                         onReplay = { scope.launch { session.replay() } },
+                        onAction = { actionId ->
+                            scope.launch { session.perform(GameSessionAction.PerformAvailableAction(actionId)) }
+                        },
                         agentController = agentController,
                     )
 
@@ -408,6 +411,7 @@ private fun ReadyState(
     onAdjust: (io.worldloom.definition.DefinitionId) -> Unit,
     onCheck: (io.worldloom.definition.DefinitionId) -> Unit,
     onReplay: () -> Unit,
+    onAction: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -430,6 +434,25 @@ private fun ReadyState(
         notice?.let { EmptyState(it.message, isError = true) }
 
         agentController?.let { AgentPanel(it) }
+
+        presentation.scene?.let { scene ->
+            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("当前场景 · ${scene.label}", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                    if (scene.participantIds.isNotEmpty()) {
+                        Text("参与者：${scene.participantIds.joinToString { it.value }}")
+                    }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(scene.actions, key = { it.id.value }) { action ->
+                            Button(onClick = { onAction(action.id) }) { Text(action.label) }
+                        }
+                    }
+                }
+            }
+        }
 
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
@@ -619,6 +642,10 @@ private fun AgentPanel(controller: GameAgentController) {
                 }
 
                 is GameAgentState.Completed -> Text(current.text)
+                is GameAgentState.AwaitingPlayer -> Text(
+                    current.question,
+                    color = MaterialTheme.colors.primary,
+                )
                 is GameAgentState.Failed -> Text(
                     if (current.worldChanged) "${current.message}（部分工具操作已写入事件）" else current.message,
                     color = MaterialTheme.colors.error,

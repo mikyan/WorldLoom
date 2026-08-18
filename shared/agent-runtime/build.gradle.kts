@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.multiplatform.library)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -36,6 +37,7 @@ kotlin {
             api(projects.shared.domainWorld)
             implementation(projects.shared.application)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

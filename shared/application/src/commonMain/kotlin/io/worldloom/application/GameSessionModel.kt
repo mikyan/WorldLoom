@@ -32,7 +32,19 @@ data class GamePresentation(
     val fields: List<PresentedField>,
     val checks: List<PresentedCheck>,
     val timeline: List<PresentedEvent>,
+    val scene: PresentedScene? = null,
+    val completedObjectiveIds: Set<DefinitionId> = emptySet(),
+    val endingId: DefinitionId? = null,
 )
+
+data class PresentedScene(
+    val id: DefinitionId,
+    val label: String,
+    val participantIds: List<EntityId>,
+    val actions: List<PresentedAction>,
+)
+
+data class PresentedAction(val id: DefinitionId, val label: String)
 
 enum class SessionErrorCode {
     WORLD_NOT_FOUND,
@@ -75,6 +87,8 @@ sealed interface GameSessionAction {
     data class AdjustPresentedField(val presentationId: DefinitionId) : GameSessionAction
 
     data class ResolvePresentedCheck(val presentationId: DefinitionId) : GameSessionAction
+
+    data class PerformAvailableAction(val actionId: DefinitionId) : GameSessionAction
 }
 
 /** Typed application boundary used by UI and Agent tools before commands enter the world engine. */
@@ -90,6 +104,11 @@ sealed interface GameSessionCommand {
         val profileId: DefinitionId,
         val modifier: Long = 0,
     ) : GameSessionCommand
+
+    data class PerformAvailableAction(
+        val actionId: DefinitionId,
+        val selectedOutcomeId: DefinitionId? = null,
+    ) : GameSessionCommand
 }
 
 data class SessionCommandContext(
@@ -97,6 +116,16 @@ data class SessionCommandContext(
     val modules: RegisteredWorldModules,
     val adjustmentTargets: List<SessionAdjustmentTarget>,
     val checkProfileIds: List<DefinitionId>,
+    val lastSequence: Long = 0,
+    val currentSceneId: DefinitionId? = null,
+    val availableActions: List<SessionAvailableAction> = emptyList(),
+)
+
+data class SessionAvailableAction(
+    val actionId: DefinitionId,
+    val label: String,
+    val outcomeIds: List<DefinitionId>,
+    val requiresCheck: Boolean,
 )
 
 data class SessionAdjustmentTarget(

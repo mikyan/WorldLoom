@@ -26,6 +26,7 @@ import kotlinx.serialization.json.put
 
 val NUMERIC_ADJUST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.numeric.adjust")
 val RESOLVE_CHECK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.check.resolve")
+val PERFORM_ACTION_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.action.perform")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -56,7 +57,43 @@ sealed interface ToolInvocationResult {
         val worldChanged: Boolean,
     ) : ToolInvocationResult
 
-    data class Failure(val error: ToolGatewayError) : ToolInvocationResult
+    data class Failure(
+        val error: ToolGatewayError,
+        /** True when the primary command committed before a foreground follow-up failed. */
+        val worldChanged: Boolean = false,
+    ) : ToolInvocationResult
+}
+
+data class GameTurnFollowUpRequest(
+    val runId: io.worldloom.world.RunId,
+    val afterSequence: Long,
+    val committedThroughSequence: Long,
+)
+
+data class PublicFollowUp(
+    val source: String,
+    val summary: String,
+) {
+    init {
+        require(source.isNotBlank() && summary.isNotBlank()) { "Public follow-up fields must not be blank" }
+    }
+}
+
+sealed interface GameTurnFollowUpResult {
+    data class Completed(val publicResults: List<PublicFollowUp> = emptyList()) : GameTurnFollowUpResult
+    data class Failed(val message: String) : GameTurnFollowUpResult
+}
+
+/**
+ * Foreground hook for deterministic Behavior processing and visible NPC results after a tool
+ * commits. Implementations may only change facts through their own authoritative command gateway.
+ */
+fun interface GameTurnFollowUpDispatcher {
+    suspend fun dispatch(request: GameTurnFollowUpRequest): GameTurnFollowUpResult
+}
+
+private data object NoGameTurnFollowUps : GameTurnFollowUpDispatcher {
+    override suspend fun dispatch(request: GameTurnFollowUpRequest) = GameTurnFollowUpResult.Completed()
 }
 
 interface AgentToolGateway {
@@ -75,6 +112,7 @@ interface AgentToolGateway {
 
 class DefaultAgentToolGateway(
     private val session: GameSession,
+    private val followUpDispatcher: GameTurnFollowUpDispatcher = NoGameTurnFollowUps,
 ) : AgentToolGateway {
     private val tools = StandardAgentTools.all.associateBy { it.definition.name }
 
@@ -94,7 +132,7 @@ class DefaultAgentToolGateway(
             ?: return invalid(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Load a world before invoking tools")
         val tool = tools[call.name]
             ?: return invalid(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}")
-        if (!tool.enabledByManifest(context.modules)) {
+        if (!tool.enabled(context)) {
             return invalid(ToolGatewayErrorCode.TOOL_DISABLED, "The world manifest did not enable ${call.name}")
         }
         if (tool.permission !in identity.permissions) {
@@ -117,6 +155,14 @@ class DefaultAgentToolGateway(
             ToolValidationResult.Valid -> Unit
             is ToolValidationResult.Invalid -> return ToolInvocationResult.Failure(validation.error)
         }
+        val before = session.state.value as? GameSessionUiState.Ready
+            ?: return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Active Run presentation is unavailable"),
+            )
+        val context = session.commandContext()
+            ?: return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Active Run context is unavailable"),
+            )
         val command = when (call.name) {
             NUMERIC_ADJUST_TOOL_ID.value -> GameSessionCommand.AdjustNumericComponent(
                 entityId = EntityId(call.requireString("entityId")),
@@ -130,6 +176,11 @@ class DefaultAgentToolGateway(
                 modifier = call.optionalLong("modifier") ?: 0,
             )
 
+            PERFORM_ACTION_TOOL_ID.value -> GameSessionCommand.PerformAvailableAction(
+                actionId = DefinitionId(call.requireString("actionId")),
+                selectedOutcomeId = call.optionalString("outcomeId")?.let(::DefinitionId),
+            )
+
             else -> return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
@@ -140,7 +191,27 @@ class DefaultAgentToolGateway(
                 CommandAuthorization(identity.actorId, identity.permissions),
             )
         ) {
-            ActionResult.Success -> ToolInvocationResult.Success(successOutput(), worldChanged = true)
+            ActionResult.Success -> {
+                val committedThrough = session.commandContext()?.lastSequence ?: before.presentation.lastSequence
+                when (
+                    val followUps = followUpDispatcher.dispatch(
+                        GameTurnFollowUpRequest(
+                            runId = context.runId,
+                            afterSequence = before.presentation.lastSequence,
+                            committedThroughSequence = committedThrough,
+                        ),
+                    )
+                ) {
+                    is GameTurnFollowUpResult.Completed -> ToolInvocationResult.Success(
+                        successOutput(followUps.publicResults),
+                        worldChanged = true,
+                    )
+                    is GameTurnFollowUpResult.Failed -> ToolInvocationResult.Failure(
+                        ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, followUps.message),
+                        worldChanged = true,
+                    )
+                }
+            }
             is ActionResult.Failure -> ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, result.error.message),
             )
@@ -150,14 +221,14 @@ class DefaultAgentToolGateway(
     private fun StandardAgentTool.available(
         context: SessionCommandContext,
         identity: AgentIdentity,
-    ): Boolean = enabledByManifest(context.modules) && permission in identity.permissions
+    ): Boolean = enabled(context) && permission in identity.permissions
 
     private fun invalid(
         code: ToolGatewayErrorCode,
         message: String,
     ): ToolValidationResult.Invalid = ToolValidationResult.Invalid(ToolGatewayError(code, message))
 
-    private fun successOutput(): String {
+    private fun successOutput(publicFollowUps: List<PublicFollowUp>): String {
         val ready = session.state.value as? GameSessionUiState.Ready
         return buildJsonObject {
             put("status", "success")
@@ -174,6 +245,16 @@ class DefaultAgentToolGateway(
                 })
                 presentation.timeline.lastOrNull()?.let { event -> put("latestEvent", event.summary) }
             }
+            if (publicFollowUps.isNotEmpty()) {
+                put("foregroundResults", buildJsonArray {
+                    publicFollowUps.forEach { followUp ->
+                        add(buildJsonObject {
+                            put("source", followUp.source)
+                            put("summary", followUp.summary)
+                        })
+                    }
+                })
+            }
         }.toString()
     }
 }
@@ -184,6 +265,12 @@ private data class StandardAgentTool(
     val permission: CommandPermission,
     val additionalAvailability: (RegisteredWorldModules) -> Boolean = { true },
 ) {
+    fun enabled(context: SessionCommandContext): Boolean = if (capabilityId == PERFORM_ACTION_TOOL_ID) {
+        context.availableActions.isNotEmpty()
+    } else {
+        enabledByManifest(context.modules)
+    }
+
     fun enabledByManifest(modules: RegisteredWorldModules): Boolean =
         modules.capability(capabilityId) != null && additionalAvailability(modules)
 
@@ -206,6 +293,25 @@ private data class StandardAgentTool(
                     parameter.copy(allowedValues = context.checkProfileIds.map { it.value }.distinct().sorted())
                 } else {
                     parameter
+                }
+            },
+        )
+
+        PERFORM_ACTION_TOOL_ID -> definition.copy(
+            parameters = definition.parameters.map { parameter ->
+                when (parameter.name) {
+                    "actionId" -> parameter.copy(
+                        allowedValues = context.availableActions.map { it.actionId.value }.distinct().sorted(),
+                    )
+                    "outcomeId" -> parameter.copy(
+                        allowedValues = context.availableActions
+                            .filter { !it.requiresCheck }
+                            .flatMap { it.outcomeIds }
+                            .map { it.value }
+                            .distinct()
+                            .sorted(),
+                    )
+                    else -> parameter
                 }
             },
         )
@@ -253,6 +359,23 @@ private object StandardAgentTools {
             capabilityId = RESOLVE_CHECK_TOOL_ID,
             permission = CommandPermission.RESOLVE_CHECK,
         ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = PERFORM_ACTION_TOOL_ID.value,
+                description = "Perform one action available in the current scene and commit its configured outcome.",
+                parameters = listOf(
+                    stringParameter("actionId", "Action identifier exposed by the current scene."),
+                    ProviderToolParameter(
+                        name = "outcomeId",
+                        description = "Configured outcome for a choice without a CheckProfile; omit for checked actions.",
+                        type = ProviderToolValueType.STRING,
+                        required = false,
+                    ),
+                ),
+            ),
+            capabilityId = PERFORM_ACTION_TOOL_ID,
+            permission = CommandPermission.APPLY_ACTION_OUTCOME,
+        ),
     )
 
     private fun stringParameter(
@@ -295,6 +418,9 @@ private fun ProviderToolCall.requireLong(name: String): Long =
 private fun ProviderToolCall.optionalLong(name: String): Long? =
     (arguments[name] as? JsonPrimitive)?.longOrNull
 
+private fun ProviderToolCall.optionalString(name: String): String? =
+    (arguments[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
 private fun validateIdentifiers(
     call: ProviderToolCall,
     context: SessionCommandContext,
@@ -313,6 +439,17 @@ private fun validateIdentifiers(
             RESOLVE_CHECK_TOOL_ID.value -> {
                 val profileId = DefinitionId(call.requireString("profileId"))
                 if (profileId !in context.checkProfileIds) return "Tool arguments do not identify one configured check"
+            }
+
+            PERFORM_ACTION_TOOL_ID.value -> {
+                val actionId = DefinitionId(call.requireString("actionId"))
+                val action = context.availableActions.firstOrNull { it.actionId == actionId }
+                    ?: return "Tool action is not available in the current scene"
+                val outcomeId = call.optionalString("outcomeId")?.let(::DefinitionId)
+                if (action.requiresCheck && outcomeId != null) return "Checked actions derive their outcome from the audit record"
+                if (!action.requiresCheck && outcomeId != null && outcomeId !in action.outcomeIds) {
+                    return "Tool outcome is not configured for the selected action"
+                }
             }
         }
         null

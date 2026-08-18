@@ -1,0 +1,9 @@
+CREATE TABLE gm_turn (
+    run_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    turn_schema_version INTEGER NOT NULL,
+    turn_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, turn_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);

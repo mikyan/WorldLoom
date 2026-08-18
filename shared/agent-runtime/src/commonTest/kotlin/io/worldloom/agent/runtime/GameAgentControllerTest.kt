@@ -21,7 +21,6 @@ import io.worldloom.provider.api.StreamingLanguageModelProvider
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.ActorId
-import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -52,17 +51,18 @@ class GameAgentControllerTest {
         job.join()
         assertEquals("织境回应", assertIs<GameAgentState.Completed>(controller.state.value).text)
         assertTrue(provider.request.messages.first().content.orEmpty().contains("测试世界"))
-        assertIs<AgentSessionLoadResult.Success>(
+        val gmSession = assertIs<AgentSessionLoadResult.Success>(
             store.load(
-                AgentSessionId("narrator.test.run"),
+                AgentSessionId("worldloom.gm.test.run"),
                 AgentIdentity(
-                    AgentId("worldloom.agent.narrator"),
-                    ActorId("worldloom.actor.narrator"),
-                    setOf(CommandPermission.ADJUST_NUMERIC_COMPONENT, CommandPermission.RESOLVE_CHECK),
+                    AgentId("worldloom.agent.gm"),
+                    ActorId("worldloom.actor.gm"),
+                    emptySet(),
                 ),
                 RunId("test.run"),
             ),
-        )
+        ).snapshot
+        assertEquals("织境回应", gmSession.messages.last().content)
     }
 
     @Test

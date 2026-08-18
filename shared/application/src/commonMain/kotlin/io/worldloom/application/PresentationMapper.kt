@@ -5,6 +5,11 @@ import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.world.EventEnvelope
 import io.worldloom.world.GameState
 import io.worldloom.world.NumericComponentAdjustedEvent
+import io.worldloom.world.ActionOutcomeAppliedEvent
+import io.worldloom.world.PlayerEnteredInitialSceneEvent
+import io.worldloom.world.PlayerEnteredSceneEvent
+import io.worldloom.world.PlayerExitedSceneEvent
+import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.rules.CheckResolvedEvent
 
 sealed interface PresentationMappingResult {
@@ -69,6 +74,12 @@ object PresentationMapper {
                         "${profile.label}: ${payload.record.total} · ${outcome.label}"
                     }
                 }
+
+                is ActionOutcomeAppliedEvent -> "行动已结算：${payload.actionId.value} · ${payload.outcomeId.value}"
+                is PlayerExitedSceneEvent -> "离开场景：${payload.sceneId.value}"
+                is PlayerEnteredSceneEvent -> "进入场景：${payload.sceneId.value}"
+                is PlayerEnteredInitialSceneEvent -> "进入初始场景：${payload.sceneId.value}"
+                is RunLifecycleChangedEvent -> "游戏阶段：${payload.lifecycle.name}"
 
                 else -> "事件已记录"
             }

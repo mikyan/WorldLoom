@@ -6,6 +6,9 @@ object WorldEngine {
         is ValidatedCommand.ChangeRunLifecycle,
         -> 1
         is ValidatedCommand.CreatePlayerCharacter -> command.payload.entity.components.size + 3
+        is ValidatedCommand.ApplyActionOutcome -> 1 +
+            (if (command.payload.nextSceneId != null) 2 else 0) +
+            (if (command.payload.endingId != null) 1 else 0)
     }
 
     /**
@@ -28,6 +31,7 @@ object WorldEngine {
             is ValidatedCommand.AdjustNumericComponent -> listOf(command.toEvent(eventIds.single()))
             is ValidatedCommand.ChangeRunLifecycle -> listOf(command.toEvent(eventIds.single()))
             is ValidatedCommand.CreatePlayerCharacter -> command.toEvents(eventIds)
+            is ValidatedCommand.ApplyActionOutcome -> command.toEvents(eventIds)
         }
     }
 
@@ -88,4 +92,36 @@ object WorldEngine {
         correlationId = envelope.correlationId ?: envelope.commandId.value,
         payload = payload,
     )
+
+    private fun ValidatedCommand.ApplyActionOutcome.toEvents(eventIds: List<EventId>): List<EventEnvelope> {
+        val payloads = buildList<GameEventPayload> {
+            add(
+                ActionOutcomeAppliedEvent(
+                    actionId = payload.actionId,
+                    outcomeId = payload.outcomeId,
+                    objectiveIds = payload.objectiveIds,
+                    endingId = payload.endingId,
+                ),
+            )
+            payload.nextSceneId?.let { nextSceneId ->
+                add(PlayerExitedSceneEvent(entityId = playerEntityId, sceneId = payload.fromSceneId))
+                add(
+                    PlayerEnteredSceneEvent(
+                        entityId = playerEntityId,
+                        sceneId = nextSceneId,
+                        participantIds = payload.participantIds,
+                    ),
+                )
+            }
+            if (payload.endingId != null) {
+                add(
+                    RunLifecycleChangedEvent(
+                        previousLifecycle = RunLifecycle.ACTIVE,
+                        lifecycle = RunLifecycle.COMPLETED,
+                    ),
+                )
+            }
+        }
+        return payloads.mapIndexed { index, payload -> event(eventIds[index], index + 1L, payload) }
+    }
 }

@@ -20,13 +20,13 @@
 
 ## 18. 主持人 Agent 与游戏回合编排
 
-- [ ] 18.1 定义版本化 Scene、SceneParticipant、AvailableAction、TurnId、GameTurn 与主持人 Session/Profile Schema
-- [ ] 18.2 实现 `GmContextProjector` 和按 Run 隔离的主持人会话，只投影玩家可见事实、当前场景、公开事件、预算与动态 Tool Schema
-- [ ] 18.3 实现 `GameTurnOrchestrator`，支持意图理解、缺失目标澄清、受限工具循环、NPC/Behavior 前台调度和事实一致叙述
-- [ ] 18.4 将所有客观变化限制为 Tool Gateway → GameCommand → CommandValidator → WorldEngine → GameEvent，并实现场景进入/退出/参与者变更的类型化事件
-- [ ] 18.5 实现稳定主持人身份、回合幂等、取消、超时、最大步骤、费用预算、循环检测和部分事实已提交后的可恢复失败
-- [ ] 18.6 重构主游戏页为叙事记录、当前场景、行动输入和可选行动组成的最小游玩界面
-- [ ] 18.7 添加 Fake Agent 集成测试，覆盖意图澄清、动态工具、场景节奏、多步裁决、NPC/Behavior 聚合、非法工具、重复回合、断线恢复和叙述一致性
+- [x] 18.1 定义版本化 Scene、SceneParticipant、AvailableAction、TurnId、GameTurn 与主持人 Session/Profile Schema
+- [x] 18.2 实现 `GmContextProjector` 和按 Run 隔离的主持人会话，只投影玩家可见事实、当前场景、公开事件、预算与动态 Tool Schema
+- [x] 18.3 实现 `GameTurnOrchestrator`，支持意图理解、缺失目标澄清、受限工具循环、NPC/Behavior 前台调度和事实一致叙述
+- [x] 18.4 将所有客观变化限制为 Tool Gateway → GameCommand → CommandValidator → WorldEngine → GameEvent，并实现场景进入/退出/参与者变更的类型化事件
+- [x] 18.5 实现稳定主持人身份、回合幂等、取消、超时、最大步骤、费用预算、循环检测和部分事实已提交后的可恢复失败
+- [x] 18.6 重构主游戏页为叙事记录、当前场景、行动输入和可选行动组成的最小游玩界面
+- [x] 18.7 添加 Fake Agent 集成测试，覆盖意图澄清、动态工具、场景节奏、多步裁决、NPC/Behavior 聚合、非法工具、重复回合、断线恢复和叙述一致性
 
 ## 19. 时间、活动与旅行
 

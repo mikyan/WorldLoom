@@ -29,6 +29,16 @@ CREATE TABLE character_creation_draft (
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE gm_turn (
+    run_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    turn_schema_version INTEGER NOT NULL,
+    turn_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, turn_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_session (
     run_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -195,6 +205,20 @@ WHERE run_id = ?;
 
 deleteCharacterCreationDraft:
 DELETE FROM character_creation_draft WHERE run_id = ?;
+
+selectGmTurn:
+SELECT revision, turn_schema_version, turn_json
+FROM gm_turn
+WHERE run_id = ? AND turn_id = ?;
+
+countGmTurnsForRun:
+SELECT count(*)
+FROM gm_turn
+WHERE run_id = ?;
+
+upsertGmTurn:
+INSERT OR REPLACE INTO gm_turn(run_id, turn_id, revision, turn_schema_version, turn_json)
+VALUES (?, ?, ?, ?, ?);
 
 selectAgentSession:
 SELECT session_id, owner_agent_id, owner_actor_id, revision, messages_json, session_schema_version

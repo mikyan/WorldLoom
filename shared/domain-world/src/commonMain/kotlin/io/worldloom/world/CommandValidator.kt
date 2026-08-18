@@ -30,6 +30,10 @@ enum class CommandValidationErrorCode {
     DUPLICATE_COMPONENT,
     DUPLICATE_FIELD,
     MISSING_REQUIRED_FIELD,
+    ACTION_POLICY_REQUIRED,
+    ACTION_OUTCOME_MISMATCH,
+    CURRENT_SCENE_MISMATCH,
+    PARTICIPANT_NOT_FOUND,
     UNSUPPORTED_COMMAND_PAYLOAD,
 }
 
@@ -66,6 +70,12 @@ sealed interface ValidatedCommand {
         val payload: CreatePlayerCharacterCommand,
         val entityId: EntityId,
     ) : ValidatedCommand
+
+    data class ApplyActionOutcome(
+        override val envelope: CommandEnvelope,
+        val payload: ApplyActionOutcomeCommand,
+        val playerEntityId: EntityId,
+    ) : ValidatedCommand
 }
 
 /** Pinned world/profile references supplied by application after package validation. */
@@ -73,6 +83,17 @@ data class CharacterCreationCommandPolicy(
     val profileId: DefinitionId,
     val playerEntityId: EntityId,
     val initialSceneId: DefinitionId,
+)
+
+/** Exact progression selected from a validated playable-world contract. */
+data class ActionOutcomeCommandPolicy(
+    val actionId: DefinitionId,
+    val outcomeId: DefinitionId,
+    val fromSceneId: DefinitionId,
+    val nextSceneId: DefinitionId?,
+    val objectiveIds: List<DefinitionId>,
+    val endingId: DefinitionId?,
+    val participantIds: List<EntityId>,
 )
 
 /** Shared envelope checks used before dispatching a payload to its owning module validator. */
@@ -124,6 +145,7 @@ object CommandValidator {
         authorization: CommandAuthorization,
         envelope: CommandEnvelope,
         characterCreationPolicy: CharacterCreationCommandPolicy? = null,
+        actionOutcomePolicy: ActionOutcomeCommandPolicy? = null,
     ): CommandValidationResult {
         CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
             return CommandValidationResult.Invalid(it)
@@ -140,12 +162,83 @@ object CommandValidator {
                 payload,
                 characterCreationPolicy,
             )
+            is ApplyActionOutcomeCommand -> validateActionOutcome(
+                state,
+                authorization,
+                envelope,
+                payload,
+                actionOutcomePolicy,
+            )
             else -> invalid(
                 CommandValidationErrorCode.UNSUPPORTED_COMMAND_PAYLOAD,
                 "payload",
                 "Command payload is not handled by the core world validator",
             )
         }
+    }
+
+    private fun validateActionOutcome(
+        state: GameState,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+        payload: ApplyActionOutcomeCommand,
+        policy: ActionOutcomeCommandPolicy?,
+    ): CommandValidationResult {
+        if (CommandPermission.APPLY_ACTION_OUTCOME !in authorization.permissions) {
+            return invalid(CommandValidationErrorCode.PERMISSION_DENIED, "payload", "Actor cannot apply action outcomes")
+        }
+        if (payload.schemaVersion != CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION) {
+            return invalid(
+                CommandValidationErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED,
+                "payload.schemaVersion",
+                "Unsupported action outcome command schema: ${payload.schemaVersion}",
+            )
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return invalid(CommandValidationErrorCode.RUN_LIFECYCLE_INVALID, "payload", "Actions require an ACTIVE Run")
+        }
+        if (state.currentSceneId != payload.fromSceneId) {
+            return invalid(
+                CommandValidationErrorCode.CURRENT_SCENE_MISMATCH,
+                "payload.fromSceneId",
+                "Action does not start in the current scene",
+            )
+        }
+        val expected = policy ?: return invalid(
+            CommandValidationErrorCode.ACTION_POLICY_REQUIRED,
+            "payload",
+            "Validated playable action policy is required",
+        )
+        val matches = payload.actionId == expected.actionId &&
+            payload.outcomeId == expected.outcomeId &&
+            payload.fromSceneId == expected.fromSceneId &&
+            payload.nextSceneId == expected.nextSceneId &&
+            payload.objectiveIds == expected.objectiveIds &&
+            payload.endingId == expected.endingId &&
+            payload.participantIds == expected.participantIds
+        if (!matches) {
+            return invalid(
+                CommandValidationErrorCode.ACTION_OUTCOME_MISMATCH,
+                "payload",
+                "Action outcome does not match the validated playable contract",
+            )
+        }
+        if (payload.participantIds.distinct().size != payload.participantIds.size) {
+            return invalid(CommandValidationErrorCode.DUPLICATE_FIELD, "payload.participantIds", "Scene participant is duplicated")
+        }
+        payload.participantIds.firstOrNull { it !in state.entities }?.let { participantId ->
+            return invalid(
+                CommandValidationErrorCode.PARTICIPANT_NOT_FOUND,
+                "payload.participantIds",
+                "Scene participant is not present in world state: $participantId",
+            )
+        }
+        val playerId = state.playerEntityId ?: return invalid(
+            CommandValidationErrorCode.ENTITY_NOT_FOUND,
+            "state.playerEntityId",
+            "ACTIVE Run has no player Entity",
+        )
+        return CommandValidationResult.Valid(ValidatedCommand.ApplyActionOutcome(envelope, payload, playerId))
     }
 
     private fun validateLifecycle(

@@ -24,6 +24,8 @@ enum class StateReductionErrorCode {
     COMPONENT_ALREADY_EXISTS,
     DUPLICATE_FIELD,
     MISSING_REQUIRED_FIELD,
+    CURRENT_SCENE_MISMATCH,
+    DUPLICATE_OBJECTIVE,
     UNSUPPORTED_EVENT_PAYLOAD,
 }
 
@@ -76,6 +78,9 @@ object StateReducer : EventReducer {
             payload is PlayerEntityCreatedEvent ||
             payload is PlayerComponentInitializedEvent ||
             payload is PlayerEnteredInitialSceneEvent
+            || payload is ActionOutcomeAppliedEvent
+            || payload is PlayerExitedSceneEvent
+            || payload is PlayerEnteredSceneEvent
 
     override fun reduce(
         state: GameState,
@@ -89,12 +94,99 @@ object StateReducer : EventReducer {
             is PlayerEntityCreatedEvent -> reducePlayerCreated(state, event, payload)
             is PlayerComponentInitializedEvent -> reducePlayerComponent(state, definition, event, payload)
             is PlayerEnteredInitialSceneEvent -> reduceInitialScene(state, event, payload)
+            is ActionOutcomeAppliedEvent -> reduceActionOutcome(state, event, payload)
+            is PlayerExitedSceneEvent -> reduceSceneExit(state, event, payload)
+            is PlayerEnteredSceneEvent -> reduceSceneEntry(state, event, payload)
             else -> failure(
                 StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
                 "payload",
                 "Event payload is not handled by the core world reducer",
             )
         }
+    }
+
+    private fun reduceActionOutcome(
+        state: GameState,
+        event: EventEnvelope,
+        payload: ActionOutcomeAppliedEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_SCENE_EVENT_SCHEMA_VERSION) {
+            return failure(
+                StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED,
+                "payload.schemaVersion",
+                "Unsupported action outcome event schema: ${payload.schemaVersion}",
+            )
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return failure(StateReductionErrorCode.RUN_LIFECYCLE_INVALID, "payload", "Action outcome requires ACTIVE Run")
+        }
+        if (payload.objectiveIds.distinct().size != payload.objectiveIds.size) {
+            return failure(
+                StateReductionErrorCode.DUPLICATE_OBJECTIVE,
+                "payload.objectiveIds",
+                "Action outcome repeats an objective",
+            )
+        }
+        return StateReductionResult.Success(
+            state.copy(
+                lastSequence = event.sequence,
+                completedObjectiveIds = state.completedObjectiveIds + payload.objectiveIds,
+                endingId = payload.endingId ?: state.endingId,
+            ),
+        )
+    }
+
+    private fun reduceSceneExit(
+        state: GameState,
+        event: EventEnvelope,
+        payload: PlayerExitedSceneEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_SCENE_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported scene event schema")
+        }
+        if (state.playerEntityId != payload.entityId || state.currentSceneId != payload.sceneId) {
+            return failure(
+                StateReductionErrorCode.CURRENT_SCENE_MISMATCH,
+                "payload.sceneId",
+                "Player is not in the scene being exited",
+            )
+        }
+        return StateReductionResult.Success(
+            state.copy(lastSequence = event.sequence, currentSceneId = null, sceneParticipantIds = emptySet()),
+        )
+    }
+
+    private fun reduceSceneEntry(
+        state: GameState,
+        event: EventEnvelope,
+        payload: PlayerEnteredSceneEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_SCENE_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported scene event schema")
+        }
+        if (state.playerEntityId != payload.entityId || state.currentSceneId != null) {
+            return failure(
+                StateReductionErrorCode.CURRENT_SCENE_MISMATCH,
+                "payload.sceneId",
+                "Player must exit the current scene before entering another",
+            )
+        }
+        if (payload.participantIds.distinct().size != payload.participantIds.size ||
+            payload.participantIds.any { it !in state.entities }
+        ) {
+            return failure(
+                StateReductionErrorCode.ENTITY_NOT_FOUND,
+                "payload.participantIds",
+                "Scene participants must be unique existing entities",
+            )
+        }
+        return StateReductionResult.Success(
+            state.copy(
+                lastSequence = event.sequence,
+                currentSceneId = payload.sceneId,
+                sceneParticipantIds = payload.participantIds.toSet(),
+            ),
+        )
     }
 
     private fun reduceLifecycle(

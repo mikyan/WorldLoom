@@ -54,6 +54,9 @@ data class GameState(
     val lifecycle: RunLifecycle = RunLifecycle.ACTIVE,
     val playerEntityId: EntityId? = null,
     val currentSceneId: DefinitionId? = null,
+    val sceneParticipantIds: Set<EntityId> = emptySet(),
+    val completedObjectiveIds: Set<DefinitionId> = emptySet(),
+    val endingId: DefinitionId? = null,
 )
 
 object InitialGameStateFactory {

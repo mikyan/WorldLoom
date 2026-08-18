@@ -30,6 +30,8 @@ import io.worldloom.world.WorldEngine
 import io.worldloom.world.RunLifecycle
 import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
+import io.worldloom.world.ActionOutcomeCommandPolicy
+import io.worldloom.world.ApplyActionOutcomeCommand
 import io.worldloom.world.EventReducer
 import io.worldloom.world.EventReducerChain
 import io.worldloom.world.DurableEventStore
@@ -47,6 +49,8 @@ import io.worldloom.rules.CheckResolvedEvent
 import io.worldloom.rules.RandomRestoreResult
 import io.worldloom.rules.RestorableRandomService
 import io.worldloom.rules.module.api.RegisteredWorldModules
+import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
+import io.worldloom.world.packageformat.PlayableActionResolution
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,6 +170,7 @@ class DefaultGameSession(
                     randomServiceFactory(runId),
                     coordinator,
                     draft,
+                    playableContract = playable,
                 )
                 mutableState.value = GameSessionUiState.CharacterCreation(coordinator.present(draft))
                 return@withContext LoadResult.Success
@@ -188,8 +193,9 @@ class DefaultGameSession(
                 initialState,
                 initialState,
                 randomServiceFactory(initialState.runId),
+                playableContract = playable,
             )
-            mutableState.value = GameSessionUiState.Ready(presentation)
+            mutableState.value = GameSessionUiState.Ready(enrichPresentation(presentation, initialState, playable))
             LoadResult.Success
         }
     }
@@ -350,6 +356,7 @@ class DefaultGameSession(
                     randomService,
                     coordinator,
                     draft,
+                    playableContract = playable,
                 )
                 mutableState.value = GameSessionUiState.CharacterCreation(coordinator.present(draft))
                 return@withContext LoadResult.Success
@@ -362,6 +369,7 @@ class DefaultGameSession(
                     initialState,
                     currentState,
                     randomService,
+                    playableContract = playable,
                 )
                 mutableState.value = GameSessionUiState.Ended(definition.source.id, currentState.lifecycle)
                 return@withContext LoadResult.Success
@@ -382,8 +390,9 @@ class DefaultGameSession(
                 initialState,
                 currentState,
                 randomService,
+                playableContract = playable,
             )
-            mutableState.value = GameSessionUiState.Ready(presentation)
+            mutableState.value = GameSessionUiState.Ready(enrichPresentation(presentation, currentState, playable))
             LoadResult.Success
         }
     }
@@ -393,6 +402,13 @@ class DefaultGameSession(
             when (action) {
                 is GameSessionAction.AdjustPresentedField -> adjustPresentedField(action.presentationId)
                 is GameSessionAction.ResolvePresentedCheck -> resolvePresentedCheck(action.presentationId)
+                is GameSessionAction.PerformAvailableAction -> executeAuthoritative(
+                    GameSessionCommand.PerformAvailableAction(action.actionId),
+                    CommandAuthorization(
+                        ActorId("system.player"),
+                        setOf(CommandPermission.APPLY_ACTION_OUTCOME, CommandPermission.RESOLVE_CHECK),
+                    ),
+                )
             }
         }
     }
@@ -571,6 +587,9 @@ class DefaultGameSession(
                     )
                 },
                 checkProfileIds = session.definition.source.presentationChecks.map { it.checkProfileId },
+                lastSequence = session.currentState.lastSequence,
+                currentSceneId = session.currentState.currentSceneId,
+                availableActions = session.availableActions(),
             )
         }
     }
@@ -630,6 +649,7 @@ class DefaultGameSession(
     ): ActionResult = when (request) {
         is GameSessionCommand.AdjustNumericComponent -> executeAdjustment(request, authorization)
         is GameSessionCommand.ResolveCheck -> executeCheck(request, authorization)
+        is GameSessionCommand.PerformAvailableAction -> executePlayableAction(request, authorization)
     }
 
     private suspend fun executeAdjustment(
@@ -777,6 +797,152 @@ class DefaultGameSession(
         return ActionResult.Success
     }
 
+    private suspend fun executePlayableAction(
+        request: GameSessionCommand.PerformAvailableAction,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val contract = session.playableContract
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "World has no playable action contract"))
+        val sceneId = session.currentState.currentSceneId
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Player is not in a scene"))
+        val scene = contract.scene(sceneId)
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Current scene is not playable"))
+        if (request.actionId !in scene.actionIds) {
+            return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Action is not available in the current scene"))
+        }
+        val action = contract.action(request.actionId)
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Playable action is missing"))
+        val baseState = session.currentState
+        var candidateState = baseState
+        val events = mutableListOf<EventEnvelope>()
+        val checkProfileId = action.checkProfileId
+        val outcomeId = if (checkProfileId != null) {
+            val checkCommand = CommandEnvelope(
+                schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+                commandId = idSource.nextCommandId(),
+                runId = baseState.runId,
+                actorId = authorization.actorId,
+                expectedSequence = baseState.lastSequence,
+                payload = ResolveCheckCommand(checkProfileId),
+            )
+            val validated = when (
+                val validation = CheckCommandValidator.validate(
+                    baseState,
+                    session.definition,
+                    session.modules,
+                    authorization,
+                    checkCommand,
+                )
+            ) {
+                is CheckCommandValidationResult.Valid -> validation.command
+                is CheckCommandValidationResult.Invalid -> return failAction(
+                    SessionError(SessionErrorCode.CHECK_REJECTED, validation.error.message, validation.error.path),
+                )
+            }
+            val checkEvent = when (
+                val resolution = RuleEngine.resolve(
+                    command = validated,
+                    eventId = idSource.nextEventId(),
+                    checkId = idSource.nextCheckId(),
+                    randomRecordId = idSource.nextRandomRecordId(),
+                    randomService = session.randomService,
+                )
+            ) {
+                is CheckResolutionResult.Success -> resolution.event
+                is CheckResolutionResult.Failure -> return failAction(
+                    SessionError(SessionErrorCode.CHECK_REJECTED, resolution.error.message),
+                )
+            }
+            candidateState = when (val reduction = reducer.reduce(candidateState, session.definition, checkEvent)) {
+                is StateReductionResult.Success -> reduction.state
+                is StateReductionResult.Failure -> return failAction(
+                    SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+                )
+            }
+            events += checkEvent
+            (checkEvent.payload as CheckResolvedEvent).record.outcomeId
+        } else {
+            request.selectedOutcomeId ?: action.resolutions.singleOrNull()?.outcomeId
+                ?: return failAction(
+                    SessionError(SessionErrorCode.COMMAND_REJECTED, "Action requires an explicit configured outcome"),
+                )
+        }
+        val resolution = action.resolutions.firstOrNull { it.outcomeId == outcomeId }
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Action outcome is not configured"))
+        val progression = resolution.progression
+        val participants = progression.nextSceneId
+            ?.let(contract::scene)
+            ?.participantEntityIds
+            .orEmpty()
+            .map(::EntityId)
+        val progressionCommand = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = baseState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = candidateState.lastSequence,
+            payload = ApplyActionOutcomeCommand(
+                actionId = action.id,
+                outcomeId = resolution.outcomeId,
+                fromSceneId = sceneId,
+                nextSceneId = progression.nextSceneId,
+                objectiveIds = progression.objectiveIds,
+                endingId = progression.endingId,
+                participantIds = participants,
+            ),
+        )
+        val policy = ActionOutcomeCommandPolicy(
+            actionId = action.id,
+            outcomeId = resolution.outcomeId,
+            fromSceneId = sceneId,
+            nextSceneId = progression.nextSceneId,
+            objectiveIds = progression.objectiveIds,
+            endingId = progression.endingId,
+            participantIds = participants,
+        )
+        val validatedProgression = when (
+            val validation = CommandValidator.validate(
+                candidateState,
+                session.definition,
+                authorization,
+                progressionCommand,
+                actionOutcomePolicy = policy,
+            )
+        ) {
+            is CommandValidationResult.Valid -> validation.command
+            is CommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val progressionEvents = WorldEngine.handle(
+            validatedProgression,
+            List(WorldEngine.requiredEventCount(validatedProgression)) { idSource.nextEventId() },
+        )
+        when (val reduction = reduceAll(candidateState, session.definition, progressionEvents)) {
+            is StateReductionResult.Success -> candidateState = reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        events += progressionEvents
+        when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
+            )
+        }
+        session.currentState = candidateState
+        val notice = writeSnapshotIfDue(session)
+        if (candidateState.lifecycle == RunLifecycle.COMPLETED) {
+            mutableState.value = GameSessionUiState.Ended(candidateState.worldDefinitionId, candidateState.lifecycle)
+        } else {
+            publishReady(session, eventStore.read(baseState.runId), notice)
+        }
+        return ActionResult.Success
+    }
+
     private fun reduceAll(
         initial: GameState,
         definition: ValidatedWorldDefinition,
@@ -798,7 +964,10 @@ class DefaultGameSession(
         notice: SessionError? = null,
     ) {
         when (val mapping = PresentationMapper.map(session.definition, session.currentState, events)) {
-            is PresentationMappingResult.Success -> mutableState.value = GameSessionUiState.Ready(mapping.presentation, notice)
+            is PresentationMappingResult.Success -> mutableState.value = GameSessionUiState.Ready(
+                enrichPresentation(mapping.presentation, session.currentState, session.playableContract),
+                notice,
+            )
             is PresentationMappingResult.Failure -> mutableState.value = GameSessionUiState.Failed(
                 SessionError(SessionErrorCode.INVALID_WORLD_DEFINITION, mapping.message, mapping.path),
             )
@@ -865,5 +1034,43 @@ class DefaultGameSession(
         val characterCoordinator: CharacterCreationCoordinator? = null,
         var characterDraft: CharacterCreationDraft? = null,
         var confirmedCharacterCommandId: io.worldloom.world.CommandId? = null,
+        val playableContract: ValidatedPlayableWorldContract? = null,
     )
+
+    private fun LoadedSession.availableActions(): List<SessionAvailableAction> {
+        val contract = playableContract ?: return emptyList()
+        val scene = currentState.currentSceneId?.let(contract::scene) ?: return emptyList()
+        return scene.actionIds.mapNotNull(contract::action).map { action ->
+            SessionAvailableAction(
+                actionId = action.id,
+                label = action.label ?: action.id.value,
+                outcomeIds = action.resolutions.map(PlayableActionResolution::outcomeId),
+                requiresCheck = action.checkProfileId != null,
+            )
+        }
+    }
+
+    private fun enrichPresentation(
+        presentation: GamePresentation,
+        state: GameState,
+        contract: ValidatedPlayableWorldContract?,
+    ): GamePresentation {
+        val scene = state.currentSceneId?.let { sceneId ->
+            contract?.scene(sceneId)?.let { configured ->
+                PresentedScene(
+                    id = sceneId,
+                    label = configured.label,
+                    participantIds = state.sceneParticipantIds.sortedBy(EntityId::value),
+                    actions = configured.actionIds.mapNotNull(contract::action).map { action ->
+                        PresentedAction(action.id, action.label ?: action.id.value)
+                    },
+                )
+            }
+        }
+        return presentation.copy(
+            scene = scene,
+            completedObjectiveIds = state.completedObjectiveIds,
+            endingId = state.endingId,
+        )
+    }
 }

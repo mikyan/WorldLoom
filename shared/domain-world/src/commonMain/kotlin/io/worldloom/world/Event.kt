@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 const val CURRENT_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_RUN_LIFECYCLE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_EVENT_SCHEMA_VERSION: Int = 1
+const val CURRENT_SCENE_EVENT_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameEventPayload
@@ -54,6 +55,33 @@ data class PlayerEnteredInitialSceneEvent(
     val schemaVersion: Int = CURRENT_CHARACTER_CREATION_EVENT_SCHEMA_VERSION,
     val entityId: EntityId,
     val sceneId: DefinitionId,
+) : GameEventPayload
+
+@Serializable
+@SerialName("action-outcome-applied")
+data class ActionOutcomeAppliedEvent(
+    val schemaVersion: Int = CURRENT_SCENE_EVENT_SCHEMA_VERSION,
+    val actionId: DefinitionId,
+    val outcomeId: DefinitionId,
+    val objectiveIds: List<DefinitionId>,
+    val endingId: DefinitionId? = null,
+) : GameEventPayload
+
+@Serializable
+@SerialName("player-exited-scene")
+data class PlayerExitedSceneEvent(
+    val schemaVersion: Int = CURRENT_SCENE_EVENT_SCHEMA_VERSION,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+) : GameEventPayload
+
+@Serializable
+@SerialName("player-entered-scene")
+data class PlayerEnteredSceneEvent(
+    val schemaVersion: Int = CURRENT_SCENE_EVENT_SCHEMA_VERSION,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val participantIds: List<EntityId> = emptyList(),
 ) : GameEventPayload
 
 @Serializable

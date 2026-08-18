@@ -226,7 +226,7 @@ class AgentRuntime(
                     is ToolInvocationResult.Failure -> return failure(
                         AgentRunErrorCode.TOOL_REJECTED,
                         invocation.error.message,
-                        worldChanged,
+                        worldChanged || invocation.worldChanged,
                     )
                 }
             }

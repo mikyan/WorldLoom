@@ -1,5 +1,6 @@
 package io.worldloom.application
 
+import io.worldloom.definition.DefinitionId
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -17,6 +18,54 @@ import io.worldloom.world.InMemoryEventStore
 import io.worldloom.world.RunId
 
 class ContractGameSessionTest {
+    @Test
+    fun playableActionCommitsCheckAndSceneProgressionAsOneReplayableBatch() = runTest {
+        val source = WorldPackageSource(
+            resource("war-survival/manifest.json"),
+            mapOf(
+                "world.json" to resource("war-survival/world.json"),
+                "playable-world.json" to resource("war-survival/playable-world.json"),
+                "character-profile.json" to resource("war-survival/character-profile.json"),
+            ),
+        )
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(listOf(source)),
+        ).catalog
+        val store = InMemoryEventStore()
+        val session = DefaultGameSession(
+            catalog,
+            store,
+            SequentialSessionIdSource("playable-action"),
+            StandardTestDispatcher(testScheduler),
+        )
+
+        assertIs<LoadResult.Success>(session.load(catalog.entries.single().id))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        val before = assertIs<GameSessionUiState.Ready>(session.state.value)
+        assertEquals("war.scene.ruins", before.presentation.scene?.id?.value)
+
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
+        )
+
+        val progressed = assertIs<GameSessionUiState.Ready>(session.state.value)
+        assertEquals(9, progressed.presentation.lastSequence)
+        assertTrue(progressed.presentation.scene?.id?.value in setOf("war.scene.shelter", "war.scene.under-fire"))
+        assertTrue(progressed.presentation.completedObjectiveIds.isNotEmpty())
+        assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("行动已结算") })
+        assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("进入场景") })
+        val authoritativeEvents = store.read(RunId("playable-action.run.1"))
+        assertEquals((1L..9L).toList(), authoritativeEvents.map(EventEnvelope::sequence))
+
+        assertIs<SessionReplayResult.Success>(session.replay())
+        assertEquals(progressed.presentation, assertIs<GameSessionUiState.Ready>(session.state.value).presentation)
+        val rejected = assertIs<ActionResult.Failure>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
+        )
+        assertEquals(SessionErrorCode.COMMAND_REJECTED, rejected.error.code)
+        assertEquals(9, store.read(RunId("playable-action.run.1")).size)
+    }
+
     @Test
     fun rejectedConfirmationKeepsTheDraftAndPregameFacts() = runTest {
         val source = WorldPackageSource(

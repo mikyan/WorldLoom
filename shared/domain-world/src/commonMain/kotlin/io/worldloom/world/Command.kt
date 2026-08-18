@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 const val CURRENT_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_RUN_LIFECYCLE_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_COMMAND_SCHEMA_VERSION: Int = 1
+const val CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameCommandPayload
@@ -39,6 +40,19 @@ data class CreatePlayerCharacterCommand(
 ) : GameCommandPayload
 
 @Serializable
+@SerialName("apply-action-outcome")
+data class ApplyActionOutcomeCommand(
+    val schemaVersion: Int = CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION,
+    val actionId: DefinitionId,
+    val outcomeId: DefinitionId,
+    val fromSceneId: DefinitionId,
+    val nextSceneId: DefinitionId? = null,
+    val objectiveIds: List<DefinitionId> = emptyList(),
+    val endingId: DefinitionId? = null,
+    val participantIds: List<EntityId> = emptyList(),
+) : GameCommandPayload
+
+@Serializable
 data class CommandEnvelope(
     val schemaVersion: Int,
     val commandId: CommandId,
@@ -54,6 +68,7 @@ enum class CommandPermission {
     RESOLVE_CHECK,
     MANAGE_RUN_LIFECYCLE,
     CREATE_PLAYER_CHARACTER,
+    APPLY_ACTION_OUTCOME,
 }
 
 data class CommandAuthorization(
