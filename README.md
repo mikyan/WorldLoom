@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成二十二轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础、`playable-world/v1` 可玩世界契约，以及从建角、正式开局、主持人回合到时间/活动/旅行、冒险状态、Behavior 和场景 NPC 参与的可游玩链路。
+> 项目已经完成二十三轮工程迭代：在可运行的 KMP/Compose 竖切上，已经跑通从建角、主持人回合、时间/活动/旅行、冒险状态、Behavior 和场景 NPC 参与到三类结局的完整内置短剧本。
 
 ## 产品方向
 
@@ -25,7 +25,8 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [二十二轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [二十三轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -93,6 +94,8 @@ docs/
 已提交事件会在 post-commit 阶段进入可恢复的 Behavior 队列。世界包中的已验证 Behavior 按稳定顺序读取冻结触发上下文和最新状态，派生动作仍重新经过 CommandValidator、WorldEngine、EventLog 与 Reducer；root/parent event、因果深度和派生 Command 均可审计。深度、触发数、重复签名或命令预算超限时只暂停相关链，已提交事实不回滚；恢复会补扫 EventLog，回放只校验结果而不重新运行 Behavior。
 
 场景参与者现在可以绑定声明式 NPC Profile。每个 NPC 只获得当前场景、白名单 Presentation、自己的目标、秘密和记忆，使用稳定且独立的 Session；已提交的场景、活动、旅行、任务与公开 NPC 事件会生成幂等工作项。NPC 的公开发言和动作必须调用身份受限工具并形成 Command/Event，模型最终正文只作为私有反思；主持人仅收到显式公开结果。NPC 调度在前台主持回合内串行执行，并继续受步骤、Token、费用、超时和工具预算限制。
+
+内置试玩入口现在是约 60 分钟的《灰烬中的车队》。它用 10 个场景、12 个关键行动、2 名独立 NPC 和成功、代价成功、失败三条黄金路线，从钟楼废墟推进到撤离车队或被俘结局。主持人上下文会获得当前场景的公开叙述素材与动态行动 Schema；结局后仍保留完整时间线、状态摘要、结局总结和确定性回放，内容版本与试玩排序都来自世界包元数据。
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 

@@ -45,6 +45,7 @@ data class GamePresentation(
     val activities: List<PresentedActivity> = emptyList(),
     val travelRoutes: List<PresentedTravelRoute> = emptyList(),
     val adventureState: AdventureStatePresentation? = null,
+    val endingSummary: String? = null,
 )
 
 data class PresentedScene(
@@ -52,6 +53,7 @@ data class PresentedScene(
     val label: String,
     val participantIds: List<EntityId>,
     val actions: List<PresentedAction>,
+    val description: String? = null,
 )
 
 data class PresentedAction(val id: DefinitionId, val label: String)
@@ -98,7 +100,12 @@ sealed interface GameSessionUiState {
 
     data class CharacterCreation(val presentation: CharacterCreationPresentation) : GameSessionUiState
 
-    data class Ended(val worldId: DefinitionId, val lifecycle: RunLifecycle) : GameSessionUiState
+    data class Ended(
+        val worldId: DefinitionId,
+        val lifecycle: RunLifecycle,
+        val presentation: GamePresentation,
+        val notice: SessionError? = null,
+    ) : GameSessionUiState
 
     data class Failed(val error: SessionError) : GameSessionUiState
 }

@@ -53,7 +53,7 @@ class ContractGameSessionTest {
 
         val progressed = assertIs<GameSessionUiState.Ready>(session.state.value)
         assertEquals(9, progressed.presentation.lastSequence)
-        assertTrue(progressed.presentation.scene?.id?.value in setOf("war.scene.shelter", "war.scene.under-fire"))
+        assertTrue(progressed.presentation.scene?.id?.value in setOf("war.scene.pharmacy", "war.scene.under-fire"))
         assertTrue(progressed.presentation.completedObjectiveIds.isNotEmpty())
         assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("行动已结算") })
         assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("进入场景") })
@@ -119,6 +119,8 @@ class ContractGameSessionTest {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(sources),
         ).catalog
+        assertEquals("contract.war-survival", catalog.entries.first().id.value)
+        assertEquals(100, catalog.entries.first().priority)
 
         catalog.entries.forEach { entry ->
             val session = DefaultGameSession(

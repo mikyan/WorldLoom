@@ -1,7 +1,7 @@
 {
     "schemaVersion": 2,
     "id": "contract.war-survival",
-    "title": "War Survival Contract",
+    "title": "灰烬中的车队",
     "components": [
         {
             "id": "war.vitals",

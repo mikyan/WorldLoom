@@ -123,6 +123,7 @@ object GmContextProjector {
             appendLine("主持预算：最多 ${profile.maxSteps} 步、${profile.maxToolCalls} 次工具调用")
             presentation.scene?.let { scene ->
                 appendLine("当前场景：${scene.label} (${scene.id.value})")
+                scene.description?.let { appendLine("场景描述：$it") }
                 if (scene.participantIds.isNotEmpty()) appendLine(
                     "公开参与者：${scene.participantIds.joinToString { it.value }}",
                 )

@@ -34,6 +34,17 @@ class ContractPlayableWorldTest {
             assertEquals(3, contract.behaviors.size)
             assertEquals(case.npcCount, contract.source.npcs.size)
             assertTrue(contract.scene(contract.source.initialSceneId)?.participantEntityIds.orEmpty().isNotEmpty())
+            if (case.directory == "war-survival") {
+                assertEquals(1, contract.source.contentVersion)
+                assertEquals(60, contract.source.estimatedPlayMinutes)
+                assertEquals(100, contract.source.catalogPriority)
+                assertEquals(10, contract.source.scenes.size)
+                assertEquals(12, contract.source.actions.size)
+                assertEquals(10, contract.source.objectives.size)
+                assertEquals(3, contract.source.endings.size)
+                assertTrue(contract.source.scenes.all { !it.description.isNullOrBlank() })
+                assertTrue(contract.source.endings.all { !it.summary.isNullOrBlank() })
+            }
         }
     }
 

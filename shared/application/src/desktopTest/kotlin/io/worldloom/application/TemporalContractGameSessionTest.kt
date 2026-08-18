@@ -72,7 +72,7 @@ class TemporalContractGameSessionTest {
         val nextDay = ready(session)
         assertEquals(2_040, nextDay.presentation.worldTimeMinutes)
         val events = store.read(RunId("war-time.run.1"))
-        assertEquals(1, events.count { it.payload is ScheduledTriggerFiredEvent })
+        assertEquals(2, events.count { it.payload is ScheduledTriggerFiredEvent })
         assertTrue(events.zipWithNext().all { (left, right) -> right.sequence == left.sequence + 1 })
 
         assertIs<SessionReplayResult.Success>(session.replay())

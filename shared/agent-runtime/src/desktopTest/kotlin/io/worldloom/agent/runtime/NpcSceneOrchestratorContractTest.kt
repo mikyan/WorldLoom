@@ -104,14 +104,17 @@ class NpcSceneOrchestratorContractTest {
             ),
         )
 
-        assertEquals(listOf("玛拉", "托马斯"), result.publicResults.map { it.source })
+        assertEquals(listOf("玛拉", "托马斯", "玛拉", "托马斯"), result.publicResults.map { it.source })
         val work = workStore.list(RunId("npc-war.run.1"))
-        assertEquals(listOf("war.npc.mara", "war.npc.tomas"), work.map { it.npcId.value })
+        assertEquals(
+            listOf("war.npc.mara", "war.npc.tomas", "war.npc.mara", "war.npc.tomas"),
+            work.map { it.npcId.value },
+        )
         assertTrue(work.all { it.status == NpcWorkStatus.COMPLETED })
         val mara = memoryStore.turns(AgentId("worldloom.agent.npc.war.npc.mara"))
         val tomas = memoryStore.turns(AgentId("worldloom.agent.npc.war.npc.tomas"))
-        assertEquals(1, mara.size)
-        assertEquals(1, tomas.size)
+        assertEquals(2, mara.size)
+        assertEquals(2, tomas.size)
         assertTrue(provider.systemPrompts[0].contains("北侧道路"))
         assertFalse(provider.systemPrompts[0].contains("旧水塔"))
         assertTrue(provider.systemPrompts[1].contains("旧水塔"))

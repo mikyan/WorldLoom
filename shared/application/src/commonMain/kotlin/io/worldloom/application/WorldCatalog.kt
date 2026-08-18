@@ -23,6 +23,7 @@ data class WorldCatalogEntry(
     val id: DefinitionId,
     val title: String,
     val moduleIds: List<DefinitionId>,
+    val priority: Int = 0,
 )
 
 data class LoadedWorldPackage(
@@ -65,9 +66,10 @@ class StaticWorldCatalog private constructor(
                 id = loaded.definition.id,
                 title = loaded.definition.title,
                 moduleIds = loaded.modules.modules.map { it.descriptor.id },
+                priority = loaded.playableContract?.source?.catalogPriority ?: 0,
             )
         }
-        .sortedBy { it.id.value }
+        .sortedWith(compareByDescending<WorldCatalogEntry> { it.priority }.thenBy { it.id.value })
 
     override suspend fun load(id: DefinitionId): LoadedWorldPackage? = packages[id]
 

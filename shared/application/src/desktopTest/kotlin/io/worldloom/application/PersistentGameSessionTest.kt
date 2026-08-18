@@ -198,7 +198,7 @@ class PersistentGameSessionTest {
             val expectedClock = assertNotNull(
                 assertIs<GameSessionUiState.Ready>(session.state.value)
                     .presentation.adventureState,
-            ).clocks.single().value
+            ).clocks.single { it.id == clockId }.value
 
             val resumed = DefaultGameSession(
                 catalog,
@@ -211,7 +211,7 @@ class PersistentGameSessionTest {
             assertIs<LoadResult.Success>(resumed.resume(entry.id, RunId("$prefix.run.1")))
             val presentation = assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation
             assertEquals(7, presentation.lastSequence)
-            assertEquals(expectedClock, assertNotNull(presentation.adventureState).clocks.single().value)
+            assertEquals(expectedClock, assertNotNull(presentation.adventureState).clocks.single { it.id == clockId }.value)
         }
         driver.close()
     }

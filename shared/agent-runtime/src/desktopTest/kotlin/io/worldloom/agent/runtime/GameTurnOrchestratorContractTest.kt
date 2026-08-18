@@ -51,7 +51,8 @@ class GameTurnOrchestratorContractTest {
         assertEquals(9, first.turn.deliveredSequence)
         assertTrue(first.turn.worldChanged)
         assertEquals(2, provider.requests.size)
-        assertTrue(provider.requests.first().messages.first().content.orEmpty().contains("废墟边缘"))
+        assertTrue(provider.requests.first().messages.first().content.orEmpty().contains("钟楼废墟"))
+        assertTrue(provider.requests.first().messages.first().content.orEmpty().contains("炮声刚停"))
         val actionTool = assertNotNull(provider.requests.first().tools.singleOrNull { it.name == PERFORM_ACTION_TOOL_ID.value })
         assertEquals(
             listOf("war.action.search-supplies"),

@@ -28,7 +28,7 @@ class AdventureStateContractGameSessionTest {
         val initial = ready(session).presentation.adventureState
         assertNotNull(initial)
         assertEquals(2, initial.inventory.single { it.id.value == "war.item.bread" }.quantity)
-        assertEquals(0, initial.relationships.single().value)
+        assertEquals(0, initial.relationships.single { it.id.value == "war.relationship.mara-trust" }.value)
 
         assertSuccess(session, GameSessionCommand.ChangeInventory(id("war.item.bread"), 2, InventoryOperation.ACQUIRE), authorization)
         assertSuccess(session, GameSessionCommand.ChangeInventory(id("war.item.bandage"), 1, InventoryOperation.USE), authorization)
@@ -41,12 +41,7 @@ class AdventureStateContractGameSessionTest {
         )
         assertSuccess(
             session,
-            GameSessionCommand.AdvanceQuest(id("war.quest.survive"), id("war.quest-stage.reach-convoy"), QuestStatus.ACTIVE),
-            authorization,
-        )
-        assertSuccess(
-            session,
-            GameSessionCommand.AdvanceQuest(id("war.quest.survive"), id("war.quest-stage.reach-convoy"), QuestStatus.COMPLETED),
+            GameSessionCommand.AdvanceQuest(id("war.quest.survive"), id("war.quest-stage.choose-route"), QuestStatus.ACTIVE),
             authorization,
         )
         assertSuccess(session, GameSessionCommand.AdvanceProgressClock(id("war.clock.patrol-threat"), 2), authorization)
@@ -56,15 +51,15 @@ class AdventureStateContractGameSessionTest {
         assertTrue(adventure.inventory.none { it.id.value == "war.item.bandage" })
         assertEquals(2, adventure.conditions.single().stacks)
         assertEquals(480, adventure.conditions.single().remainingMinutes)
-        assertEquals(1, adventure.relationships.single().value)
-        assertEquals(QuestStatus.COMPLETED, adventure.quests.single().status)
-        assertEquals(6, adventure.clocks.single().value)
-        assertEquals("war.ending.hopeful", completed.presentation.endingId?.value)
+        assertEquals(1, adventure.relationships.single { it.id.value == "war.relationship.mara-trust" }.value)
+        assertEquals(QuestStatus.ACTIVE, adventure.quests.single().status)
+        assertEquals(5, adventure.clocks.single { it.id.value == "war.clock.patrol-threat" }.value)
+        assertNull(completed.presentation.endingId)
 
         val beforeReplay = completed.presentation
         assertIs<SessionReplayResult.Success>(session.replay())
         assertEquals(beforeReplay, ready(session).presentation)
-        assertTrue(store.read(RunId("war-adventure.run.1")).any { it.payload::class.simpleName == "AdventureEndingReachedEvent" })
+        assertTrue(store.read(RunId("war-adventure.run.1")).none { it.payload::class.simpleName == "AdventureEndingReachedEvent" })
     }
 
     @Test

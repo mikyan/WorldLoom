@@ -431,7 +431,7 @@ class DefaultGameSession(
                     randomService,
                     playableContract = playable,
                 )
-                mutableState.value = GameSessionUiState.Ended(definition.source.id, currentState.lifecycle)
+                publishEnded(requireNotNull(loaded), allEvents)
                 return@withContext LoadResult.Success
             }
             if (currentState.lifecycle == RunLifecycle.ACTIVE && playable?.characterProfile != null) {
@@ -642,7 +642,7 @@ class DefaultGameSession(
             session.currentState = next
             session.characterDraft = null
             characterDraftStore.delete(next.runId)
-            mutableState.value = GameSessionUiState.Ended(next.worldDefinitionId, next.lifecycle)
+            publishEnded(session, eventStore.read(next.runId))
             ActionResult.Success
         }
     }
@@ -778,7 +778,11 @@ class DefaultGameSession(
                 }
             }
             session.currentState = replayed
-            publishReady(session, events)
+            if (replayed.lifecycle in setOf(RunLifecycle.COMPLETED, RunLifecycle.ABANDONED)) {
+                publishEnded(session, events)
+            } else {
+                publishReady(session, events)
+            }
             SessionReplayResult.Success
         }
     }
@@ -1176,7 +1180,7 @@ class DefaultGameSession(
         session.currentState = candidateState
         val notice = writeSnapshotIfDue(session)
         if (candidateState.lifecycle == RunLifecycle.COMPLETED) {
-            mutableState.value = GameSessionUiState.Ended(candidateState.worldDefinitionId, candidateState.lifecycle)
+            publishEnded(session, eventStore.read(candidateState.runId), notice)
         } else {
             publishReady(session, eventStore.read(baseState.runId), notice)
         }
@@ -1740,6 +1744,24 @@ class DefaultGameSession(
         }
     }
 
+    private fun publishEnded(
+        session: LoadedSession,
+        events: List<EventEnvelope>,
+        notice: SessionError? = null,
+    ) {
+        when (val mapping = PresentationMapper.map(session.definition, session.currentState, events)) {
+            is PresentationMappingResult.Success -> mutableState.value = GameSessionUiState.Ended(
+                worldId = session.currentState.worldDefinitionId,
+                lifecycle = session.currentState.lifecycle,
+                presentation = enrichPresentation(mapping.presentation, session.currentState, session.playableContract),
+                notice = notice,
+            )
+            is PresentationMappingResult.Failure -> mutableState.value = GameSessionUiState.Failed(
+                SessionError(SessionErrorCode.INVALID_WORLD_DEFINITION, mapping.message, mapping.path),
+            )
+        }
+    }
+
     private suspend fun writeSnapshotIfDue(session: LoadedSession): SessionError? {
         val durableStore = eventStore as? DurableEventStore ?: return null
         if (session.currentState.lastSequence % snapshotInterval != 0L) return null
@@ -1779,6 +1801,7 @@ class DefaultGameSession(
         val current = mutableState.value
         when (current) {
             is GameSessionUiState.Ready -> mutableState.value = current.copy(notice = error)
+            is GameSessionUiState.Ended -> mutableState.value = current.copy(notice = error)
             is GameSessionUiState.CharacterCreation -> mutableState.value = current.copy(
                 presentation = current.presentation.copy(notice = error),
             )
@@ -1902,6 +1925,7 @@ class DefaultGameSession(
                     }.map { action ->
                         PresentedAction(action.id, action.label ?: action.id.value)
                     },
+                    description = configured.description,
                 )
             }
         }
@@ -1917,6 +1941,7 @@ class DefaultGameSession(
                 .filter { it.fromSceneId == state.currentSceneId }
                 .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) },
             adventureState = contract?.source?.adventureState?.let { AdventureStateProjector.project(state, it) },
+            endingSummary = state.endingId?.let { contract?.ending(it)?.summary },
         )
     }
 

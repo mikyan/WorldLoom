@@ -1,268 +1,218 @@
 {
     "schema": "worldloom.playable-world/v1",
-    "character": {
-        "profilePath": "character-profile.json",
-        "playerEntityId": "player"
-    },
+    "contentVersion": 1,
+    "estimatedPlayMinutes": 60,
+    "catalogPriority": 100,
+    "character": {"profilePath": "character-profile.json", "playerEntityId": "player"},
     "initialSceneId": "war.scene.ruins",
     "requiredModuleIds": [
-        "worldloom.core.numeric-state",
-        "worldloom.rules.random-check",
-        "worldloom.rules.world-time",
-        "worldloom.rules.activity",
-        "worldloom.rules.travel",
-        "worldloom.rules.inventory",
-        "worldloom.rules.condition",
-        "worldloom.rules.relationship",
-        "worldloom.rules.quest",
+        "worldloom.core.numeric-state", "worldloom.rules.random-check", "worldloom.rules.world-time",
+        "worldloom.rules.activity", "worldloom.rules.travel", "worldloom.rules.inventory",
+        "worldloom.rules.condition", "worldloom.rules.relationship", "worldloom.rules.quest",
         "worldloom.rules.progress-clock"
     ],
     "scenes": [
         {
-            "id": "war.scene.ruins",
-            "label": "废墟边缘",
-            "actionIds": [
-                "war.action.search-supplies"
-            ],
-            "participantEntityIds": ["npc-mara", "npc-tomas"]
+            "id": "war.scene.ruins", "label": "钟楼废墟",
+            "description": "上午八点，炮声刚停。你、玛拉和托马斯躲在倒塌钟楼的阴影里，必须在巡逻队返回前找到水、药品和离城路线。",
+            "actionIds": ["war.action.search-supplies"], "participantEntityIds": ["npc-mara", "npc-tomas"]
         },
         {
-            "id": "war.scene.shelter",
-            "label": "临时避难所",
-            "actionIds": [
-                "war.action.signal-convoy"
-            ],
-            "participantEntityIds": ["npc-mara"]
+            "id": "war.scene.pharmacy", "label": "被洗劫的药房",
+            "description": "碎玻璃铺满地面，药柜后仍有一只上锁的急救箱。街口传来车辆怠速声，留给你们的时间不多。",
+            "actionIds": ["war.action.secure-medicine"], "participantEntityIds": ["npc-mara"]
         },
         {
-            "id": "war.scene.under-fire",
-            "label": "巡逻队火力下",
-            "actionIds": [
-                "war.action.escape-patrol"
-            ],
-            "participantEntityIds": ["npc-tomas"]
+            "id": "war.scene.under-fire", "label": "巡逻队火力下",
+            "description": "曳光弹切过街面。托马斯发现一条通向排水渠的缺口，但必须穿过一段没有掩护的路。",
+            "actionIds": ["war.action.escape-patrol"], "participantEntityIds": ["npc-tomas"]
+        },
+        {
+            "id": "war.scene.drainage", "label": "旧排水渠岔口",
+            "description": "潮湿的岔口把道路分成两条：玛拉坚持先去避难所救人，托马斯则相信水塔里的旧地图能避开检查站。",
+            "actionIds": ["war.action.follow-mara", "war.action.follow-tomas"], "participantEntityIds": ["npc-mara", "npc-tomas"]
+        },
+        {
+            "id": "war.scene.shelter", "label": "学校地下避难所",
+            "description": "地下室里挤着伤员和孩子。守门人愿意分享车队频率，但前提是你们先帮忙稳住混乱。",
+            "actionIds": ["war.action.aid-shelter"], "participantEntityIds": ["npc-mara"]
+        },
+        {
+            "id": "war.scene.water-tower", "label": "旧水塔",
+            "description": "锈蚀楼梯在风里摇晃。托马斯藏的地图仍压在检修盒里，但附近已经留下新鲜脚印。",
+            "actionIds": ["war.action.recover-map"], "participantEntityIds": ["npc-tomas"]
+        },
+        {
+            "id": "war.scene.ration-line", "label": "废弃配给站",
+            "description": "几名饥饿的幸存者守着最后一箱罐头。你可以交换情报，也可能被迫放弃一部分补给换取通行。",
+            "actionIds": ["war.action.bargain-passage"], "participantEntityIds": ["npc-mara", "npc-tomas"]
+        },
+        {
+            "id": "war.scene.checkpoint", "label": "河堤检查站",
+            "description": "检查站横在通往车队的最后一公里。可以拿避难所的名单冒险交涉，也可以沿托马斯地图标出的涵洞潜行。",
+            "actionIds": ["war.action.present-papers", "war.action.use-culvert"], "participantEntityIds": ["npc-mara", "npc-tomas"]
+        },
+        {
+            "id": "war.scene.detention", "label": "临时拘留棚",
+            "description": "你们被分在铁丝网后的角落。换岗前只有一次机会：制造混乱，从破损围栏钻出去。",
+            "actionIds": ["war.action.escape-detention"], "participantEntityIds": ["npc-mara", "npc-tomas"]
+        },
+        {
+            "id": "war.scene.convoy", "label": "撤离车队外缘",
+            "description": "发动机声就在雾里。巡逻队也在逼近，你必须让车队认出避难所频率，并在最后几分钟决定谁先上车。",
+            "actionIds": ["war.action.signal-convoy"], "participantEntityIds": ["npc-mara", "npc-tomas"]
         }
     ],
     "actions": [
         {
-            "id": "war.action.search-supplies",
-            "sceneId": "war.scene.ruins",
-            "checkProfileId": "war.check.survive",
+            "id": "war.action.search-supplies", "sceneId": "war.scene.ruins", "label": "搜查临街药房", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {
-                    "outcomeId": "war.outcome.success",
-                    "kind": "SUCCESS",
-                    "progression": {
-                        "nextSceneId": "war.scene.shelter",
-                        "objectiveIds": [
-                            "war.objective.find-supplies"
-                        ]
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.cost",
-                    "kind": "COST",
-                    "progression": {
-                        "nextSceneId": "war.scene.shelter",
-                        "objectiveIds": [
-                            "war.objective.find-supplies"
-                        ]
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.failure",
-                    "kind": "FAILURE",
-                    "progression": {
-                        "nextSceneId": "war.scene.under-fire",
-                        "objectiveIds": [
-                            "war.objective.escape-danger"
-                        ]
-                    }
-                }
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.under-fire", "objectiveIds": ["war.objective.escape-danger"]}}
             ]
         },
         {
-            "id": "war.action.signal-convoy",
-            "sceneId": "war.scene.shelter",
-            "checkProfileId": "war.check.survive",
+            "id": "war.action.secure-medicine", "sceneId": "war.scene.pharmacy", "label": "取出急救箱后撤离", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {
-                    "outcomeId": "war.outcome.success",
-                    "kind": "SUCCESS",
-                    "progression": {
-                        "objectiveIds": [
-                            "war.objective.reach-convoy"
-                        ],
-                        "endingId": "war.ending.hopeful"
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.cost",
-                    "kind": "COST",
-                    "progression": {
-                        "objectiveIds": [
-                            "war.objective.reach-convoy"
-                        ],
-                        "endingId": "war.ending.costly"
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.failure",
-                    "kind": "FAILURE",
-                    "progression": {
-                        "endingId": "war.ending.captured"
-                    }
-                }
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.ration-line", "objectiveIds": ["war.objective.find-medicine"]}}
             ]
         },
         {
-            "id": "war.action.escape-patrol",
-            "sceneId": "war.scene.under-fire",
-            "checkProfileId": "war.check.survive",
+            "id": "war.action.escape-patrol", "sceneId": "war.scene.under-fire", "label": "冲向排水渠缺口", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {
-                    "outcomeId": "war.outcome.success",
-                    "kind": "SUCCESS",
-                    "progression": {
-                        "nextSceneId": "war.scene.shelter",
-                        "objectiveIds": [
-                            "war.objective.escape-danger"
-                        ]
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.cost",
-                    "kind": "COST",
-                    "progression": {
-                        "endingId": "war.ending.costly"
-                    }
-                },
-                {
-                    "outcomeId": "war.outcome.failure",
-                    "kind": "FAILURE",
-                    "progression": {
-                        "endingId": "war.ending.captured"
-                    }
-                }
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.detention"}}
+            ]
+        },
+        {
+            "id": "war.action.follow-mara", "sceneId": "war.scene.drainage", "label": "跟玛拉去避难所", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.shelter", "objectiveIds": ["war.objective.choose-route"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.shelter", "objectiveIds": ["war.objective.choose-route"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.under-fire", "retryAllowed": true}}
+            ]
+        },
+        {
+            "id": "war.action.follow-tomas", "sceneId": "war.scene.drainage", "label": "跟托马斯去水塔", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.water-tower", "objectiveIds": ["war.objective.choose-route"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.water-tower", "objectiveIds": ["war.objective.choose-route"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.ration-line", "retryAllowed": true}}
+            ]
+        },
+        {
+            "id": "war.action.aid-shelter", "sceneId": "war.scene.shelter", "label": "帮助玛拉照看伤员", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.help-survivors"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.help-survivors"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.ration-line", "objectiveIds": ["war.objective.help-survivors"]}}
+            ]
+        },
+        {
+            "id": "war.action.recover-map", "sceneId": "war.scene.water-tower", "label": "爬上水塔取回地图", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.recover-map"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.recover-map"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.ration-line", "objectiveIds": ["war.objective.recover-map"]}}
+            ]
+        },
+        {
+            "id": "war.action.bargain-passage", "sceneId": "war.scene.ration-line", "label": "用补给和情报换取通行", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.secure-passage"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.checkpoint", "objectiveIds": ["war.objective.secure-passage"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.detention"}}
+            ]
+        },
+        {
+            "id": "war.action.present-papers", "sceneId": "war.scene.checkpoint", "label": "出示避难所名单交涉", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.cross-checkpoint"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.cross-checkpoint"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.detention"}}
+            ]
+        },
+        {
+            "id": "war.action.use-culvert", "sceneId": "war.scene.checkpoint", "label": "沿地图穿过河堤涵洞", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.cross-checkpoint"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.cross-checkpoint"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.detention"}}
+            ]
+        },
+        {
+            "id": "war.action.escape-detention", "sceneId": "war.scene.detention", "label": "趁换岗钻出破损围栏", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.escape-detention"]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.convoy", "objectiveIds": ["war.objective.escape-detention"]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"endingId": "war.ending.captured"}}
+            ]
+        },
+        {
+            "id": "war.action.signal-convoy", "sceneId": "war.scene.convoy", "label": "用约定频率呼叫车队", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"objectiveIds": ["war.objective.reach-convoy"], "endingId": "war.ending.hopeful"}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"objectiveIds": ["war.objective.reach-convoy"], "endingId": "war.ending.costly"}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"endingId": "war.ending.captured"}}
             ]
         }
     ],
     "objectives": [
-        {
-            "id": "war.objective.find-supplies",
-            "label": "找到可用补给",
-            "presentationId": "war.presentation.primary-status"
-        },
-        {
-            "id": "war.objective.escape-danger",
-            "label": "摆脱巡逻队"
-        },
-        {
-            "id": "war.objective.reach-convoy",
-            "label": "与撤离车队会合"
-        }
+        {"id": "war.objective.leave-ruins", "label": "离开钟楼废墟"},
+        {"id": "war.objective.find-medicine", "label": "取得可用药品", "presentationId": "war.presentation.primary-status"},
+        {"id": "war.objective.escape-danger", "label": "摆脱巡逻队"},
+        {"id": "war.objective.choose-route", "label": "在避难所与水塔路线间作出选择"},
+        {"id": "war.objective.help-survivors", "label": "帮助避难所幸存者"},
+        {"id": "war.objective.recover-map", "label": "取回托马斯的旧地图"},
+        {"id": "war.objective.secure-passage", "label": "从配给站换得通行"},
+        {"id": "war.objective.cross-checkpoint", "label": "越过河堤检查站"},
+        {"id": "war.objective.escape-detention", "label": "逃出临时拘留棚"},
+        {"id": "war.objective.reach-convoy", "label": "与撤离车队会合"}
     ],
     "endings": [
-        {
-            "id": "war.ending.hopeful",
-            "label": "带着希望撤离"
-        },
-        {
-            "id": "war.ending.costly",
-            "label": "付出代价后幸存"
-        },
-        {
-            "id": "war.ending.captured",
-            "label": "落入巡逻队之手"
-        }
+        {"id": "war.ending.hopeful", "label": "带着希望撤离", "summary": "车队认出了约定频率。你把伤员和孩子送上车，玛拉与托马斯也安全离开。城市仍在燃烧，但你们保住了补给、彼此的信任和下一段路。"},
+        {"id": "war.ending.costly", "label": "付出代价后幸存", "summary": "车队在最后一刻停下。你们不得不留下部分补给或承受伤势，却没有丢下同伴。撤离不是胜利，但至少今晚所有人都有继续活下去的机会。"},
+        {"id": "war.ending.captured", "label": "落入巡逻队之手", "summary": "巡逻队截断了最后的出口。你们没能抵达车队，但故事并未被无声抹去：公开回放保留了每次选择、代价与失败发生的位置，为下一次尝试提供明确线索。"}
     ],
-    "presentationIds": [
-        "war.presentation.primary-status",
-        "war.presentation.survival-check"
-    ],
+    "presentationIds": ["war.presentation.primary-status", "war.presentation.survival-check"],
     "temporal": {
-        "schemaVersion": 1,
-        "initialMinute": 480,
+        "schemaVersion": 1, "initialMinute": 480,
         "activities": [
             {
-                "id": "war.activity.rest",
-                "label": "休息",
-                "durationMinutes": 480,
-                "availableSceneIds": ["war.scene.shelter"],
+                "id": "war.activity.rest", "label": "短暂休息", "durationMinutes": 120,
+                "availableSceneIds": ["war.scene.shelter", "war.scene.water-tower"],
                 "resolutions": [
-                    {
-                        "outcomeId": "worldloom.outcome.complete",
-                        "effects": [
-                            {
-                                "entityId": "player",
-                                "componentId": "war.vitals",
-                                "fieldId": "war.health",
-                                "delta": 1
-                            }
-                        ]
-                    },
-                    {
-                        "outcomeId": "war.outcome.interrupted",
-                        "effects": []
-                    }
+                    {"outcomeId": "worldloom.outcome.complete", "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": 1}]},
+                    {"outcomeId": "war.outcome.interrupted", "effects": []}
                 ],
-                "interruption": {
-                    "outcomeId": "war.outcome.interrupted",
-                    "elapsedMinutes": 60
-                }
+                "interruption": {"outcomeId": "war.outcome.interrupted", "elapsedMinutes": 30}
             },
             {
-                "id": "war.activity.search",
-                "label": "搜寻",
-                "durationMinutes": 120,
-                "availableSceneIds": ["war.scene.ruins", "war.scene.shelter"],
+                "id": "war.activity.search", "label": "搜寻附近物资", "durationMinutes": 60,
+                "availableSceneIds": ["war.scene.ruins", "war.scene.pharmacy", "war.scene.ration-line", "war.scene.water-tower"],
                 "checkProfileId": "war.check.survive",
                 "resolutions": [
                     {"outcomeId": "war.outcome.success", "effects": []},
-                    {
-                        "outcomeId": "war.outcome.cost",
-                        "effects": [
-                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}
-                        ]
-                    },
-                    {
-                        "outcomeId": "war.outcome.failure",
-                        "effects": [
-                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -2}
-                        ]
-                    },
-                    {
-                        "outcomeId": "war.outcome.interrupted",
-                        "effects": []
-                    }
+                    {"outcomeId": "war.outcome.cost", "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}]},
+                    {"outcomeId": "war.outcome.failure", "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -2}]},
+                    {"outcomeId": "war.outcome.interrupted", "effects": []}
                 ],
-                "interruption": {
-                    "outcomeId": "war.outcome.interrupted",
-                    "elapsedMinutes": 30
-                }
+                "interruption": {"outcomeId": "war.outcome.interrupted", "elapsedMinutes": 30}
             },
             {
-                "id": "war.activity.treat",
-                "label": "治疗",
-                "durationMinutes": 60,
-                "availableSceneIds": ["war.scene.shelter"],
-                "resolutions": [
-                    {
-                        "outcomeId": "worldloom.outcome.complete",
-                        "effects": [
-                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": 1}
-                        ]
-                    }
-                ]
+                "id": "war.activity.treat", "label": "处理伤口", "durationMinutes": 45,
+                "availableSceneIds": ["war.scene.pharmacy", "war.scene.shelter", "war.scene.detention"],
+                "resolutions": [{"outcomeId": "worldloom.outcome.complete", "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": 1}]}]
             }
         ],
         "routes": [
             {
-                "id": "war.travel.ruins-to-shelter",
-                "label": "前往临时避难所",
-                "fromSceneId": "war.scene.ruins",
-                "toSceneId": "war.scene.shelter",
-                "durationMinutes": 90,
+                "id": "war.travel.ruins-to-shelter", "label": "穿过街区前往避难所",
+                "fromSceneId": "war.scene.ruins", "toSceneId": "war.scene.shelter", "durationMinutes": 90,
                 "checkProfileId": "war.check.survive",
                 "resolutions": [
                     {"outcomeId": "war.outcome.success", "arrives": true},
@@ -270,83 +220,51 @@
                     {"outcomeId": "war.outcome.failure", "arrives": false, "additionalDurationMinutes": 60}
                 ]
             },
-            {
-                "id": "war.travel.shelter-to-ruins",
-                "label": "返回废墟边缘",
-                "fromSceneId": "war.scene.shelter",
-                "toSceneId": "war.scene.ruins",
-                "durationMinutes": 90,
-                "resolutions": [
-                    {"outcomeId": "worldloom.outcome.complete", "arrives": true}
-                ]
-            },
-            {
-                "id": "war.travel.fire-to-ruins",
-                "label": "撤回废墟边缘",
-                "fromSceneId": "war.scene.under-fire",
-                "toSceneId": "war.scene.ruins",
-                "durationMinutes": 45,
-                "resolutions": [
-                    {"outcomeId": "worldloom.outcome.complete", "arrives": true}
-                ]
-            }
+            {"id": "war.travel.shelter-to-ruins", "label": "返回钟楼废墟", "fromSceneId": "war.scene.shelter", "toSceneId": "war.scene.ruins", "durationMinutes": 90, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+            {"id": "war.travel.fire-to-ruins", "label": "撤回钟楼废墟", "fromSceneId": "war.scene.under-fire", "toSceneId": "war.scene.ruins", "durationMinutes": 45, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]}
         ],
         "scheduledTriggers": [
-            {
-                "id": "war.trigger.nightfall",
-                "label": "夜幕降临",
-                "atMinute": 600,
-                "effects": [
-                    {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}
-                ]
-            }
+            {"id": "war.trigger.nightfall", "label": "夜幕降临", "atMinute": 600, "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}]},
+            {"id": "war.trigger.patrol-sweep", "label": "巡逻队扩大搜索", "atMinute": 900, "effects": [{"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}]}
         ]
     },
     "adventureState": {
         "schemaVersion": 1,
         "items": [
             {"id": "war.item.bread", "label": "干面包", "unitWeight": 1},
-            {"id": "war.item.bandage", "label": "绷带", "unitWeight": 1}
+            {"id": "war.item.bandage", "label": "绷带", "unitWeight": 1},
+            {"id": "war.item.water", "label": "净水瓶", "unitWeight": 2},
+            {"id": "war.item.antibiotics", "label": "抗生素", "unitWeight": 1},
+            {"id": "war.item.map", "label": "残缺城区地图", "unitWeight": 1}
         ],
-        "inventory": {
-            "ownerEntityId": "player",
-            "capacity": 10,
-            "initialStacks": [
-                {"itemId": "war.item.bread", "quantity": 2},
-                {"itemId": "war.item.bandage", "quantity": 1}
-            ]
-        },
+        "inventory": {"ownerEntityId": "player", "capacity": 12, "initialStacks": [
+            {"itemId": "war.item.bread", "quantity": 2}, {"itemId": "war.item.bandage", "quantity": 1}, {"itemId": "war.item.water", "quantity": 1}
+        ]},
         "conditions": [
             {"id": "war.condition.exhausted", "label": "精疲力竭", "maximumStacks": 3, "durationMinutes": 480},
-            {"id": "war.condition.wounded", "label": "负伤", "maximumStacks": 3, "visibility": "PUBLIC"}
+            {"id": "war.condition.wounded", "label": "负伤", "maximumStacks": 3, "visibility": "PUBLIC"},
+            {"id": "war.condition.shaken", "label": "惊魂未定", "maximumStacks": 2, "durationMinutes": 180}
         ],
         "relationships": [
-            {
-                "id": "war.relationship.mara-trust",
-                "label": "玛拉的信任",
-                "sourceEntityId": "npc-mara",
-                "targetEntityId": "player",
-                "minimum": -3,
-                "maximum": 3,
-                "initialValue": 0,
-                "visibility": "PLAYER"
-            }
+            {"id": "war.relationship.mara-trust", "label": "玛拉的信任", "sourceEntityId": "npc-mara", "targetEntityId": "player", "minimum": -3, "maximum": 3, "initialValue": 0, "visibility": "PLAYER"},
+            {"id": "war.relationship.tomas-trust", "label": "托马斯的信任", "sourceEntityId": "npc-tomas", "targetEntityId": "player", "minimum": -3, "maximum": 3, "initialValue": 0, "visibility": "PLAYER"}
         ],
-        "quests": [
-            {
-                "id": "war.quest.survive",
-                "label": "活到撤离",
-                "stages": [
-                    {"id": "war.quest-stage.find-supplies", "label": "寻找补给"},
-                    {"id": "war.quest-stage.reach-convoy", "label": "抵达撤离车队"}
-                ]
-            }
-        ],
+        "quests": [{
+            "id": "war.quest.survive", "label": "抵达撤离车队", "stages": [
+                {"id": "war.quest-stage.find-supplies", "label": "寻找生存补给"},
+                {"id": "war.quest-stage.choose-route", "label": "选择穿城路线"},
+                {"id": "war.quest-stage.cross-checkpoint", "label": "越过河堤检查站"},
+                {"id": "war.quest-stage.signal-convoy", "label": "联络撤离车队"},
+                {"id": "war.quest-stage.evacuate", "label": "让同伴安全上车"}
+            ]
+        }],
         "clocks": [
-            {"id": "war.clock.patrol-threat", "label": "巡逻队威胁", "segments": 6, "initialValue": 1}
+            {"id": "war.clock.patrol-threat", "label": "巡逻队威胁", "segments": 6, "initialValue": 1},
+            {"id": "war.clock.evacuation-window", "label": "撤离窗口", "segments": 4, "initialValue": 0}
         ],
         "endingConditions": [
-            {"endingId": "war.ending.hopeful", "completedQuestId": "war.quest.survive"}
+            {"endingId": "war.ending.hopeful", "completedQuestId": "war.quest.survive"},
+            {"endingId": "war.ending.captured", "clockId": "war.clock.patrol-threat", "minimumClockValue": 6}
         ]
     },
     "behaviors": [
@@ -356,89 +274,55 @@
     ],
     "npcs": [
         {
-            "id": "war.npc.mara",
-            "entityId": "npc-mara",
-            "displayName": "玛拉",
+            "id": "war.npc.mara", "entityId": "npc-mara", "displayName": "玛拉",
             "identityPrompt": "你是玛拉，一名谨慎但愿意保护孩子的战地医护员。保持简短、具体，不替玩家决定行动。",
-            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
+            "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "visiblePresentationIds": ["war.presentation.primary-status"],
-            "goals": ["帮助队伍避开巡逻并找到安全补给"],
-            "privateKnowledge": ["你怀疑北侧道路已经被巡逻队封锁，但尚未亲眼确认。"],
+            "goals": ["让孩子和伤员安全抵达撤离车队", "阻止队伍因恐慌抛弃弱者"],
+            "privateKnowledge": ["北侧道路已经被巡逻队封锁；避难所守门人掌握车队的旧无线电频率。"],
             "capabilities": ["SPEAK", "ACT"],
-            "publicActionIds": ["war.npc-action.check-wounds"]
+            "publicActionIds": ["war.npc-action.check-wounds", "war.npc-action.calm-survivors"]
         },
         {
-            "id": "war.npc.tomas",
-            "entityId": "npc-tomas",
-            "displayName": "托马斯",
+            "id": "war.npc.tomas", "entityId": "npc-tomas", "displayName": "托马斯",
             "identityPrompt": "你是托马斯，熟悉废墟道路的少年信使。只根据当前感知回应，不泄露未确认的路线情报。",
-            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
-            "goals": ["找到能绕开交火区的路线"],
-            "privateKnowledge": ["你在旧水塔下藏了一张残缺地图，这件事还没有告诉玛拉。"],
+            "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
+            "goals": ["取回水塔地图", "证明涵洞路线仍可通行"],
+            "privateKnowledge": ["旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图；你担心说出来后玛拉会禁止冒险。"],
             "capabilities": ["SPEAK", "ACT"],
-            "publicActionIds": ["war.npc-action.scout-cover"]
+            "publicActionIds": ["war.npc-action.scout-cover", "war.npc-action.mark-route"]
         }
     ],
     "goldenRoutes": [
         {
-            "id": "war.route.golden",
+            "id": "war.route.hopeful",
             "steps": [
-                {
-                    "actionId": "war.action.search-supplies",
-                    "randomValues": [
-                        6,
-                        6
-                    ]
-                },
-                {
-                    "actionId": "war.action.signal-convoy",
-                    "randomValues": [
-                        6,
-                        6
-                    ]
-                }
-            ],
-            "expectedEndingId": "war.ending.hopeful"
+                {"actionId": "war.action.search-supplies", "randomValues": [6, 6]},
+                {"actionId": "war.action.secure-medicine", "randomValues": [6, 6]},
+                {"actionId": "war.action.follow-mara", "randomValues": [6, 6]},
+                {"actionId": "war.action.aid-shelter", "randomValues": [6, 6]},
+                {"actionId": "war.action.present-papers", "randomValues": [6, 6]},
+                {"actionId": "war.action.signal-convoy", "randomValues": [6, 6]}
+            ], "expectedEndingId": "war.ending.hopeful"
         },
         {
             "id": "war.route.costly",
             "steps": [
-                {
-                    "actionId": "war.action.search-supplies",
-                    "randomValues": [
-                        3,
-                        4
-                    ]
-                },
-                {
-                    "actionId": "war.action.signal-convoy",
-                    "randomValues": [
-                        3,
-                        4
-                    ]
-                }
-            ],
-            "expectedEndingId": "war.ending.costly"
+                {"actionId": "war.action.search-supplies", "randomValues": [3, 4]},
+                {"actionId": "war.action.secure-medicine", "randomValues": [3, 4]},
+                {"actionId": "war.action.follow-tomas", "randomValues": [3, 4]},
+                {"actionId": "war.action.recover-map", "randomValues": [3, 4]},
+                {"actionId": "war.action.use-culvert", "randomValues": [3, 4]},
+                {"actionId": "war.action.signal-convoy", "randomValues": [3, 4]}
+            ], "expectedEndingId": "war.ending.costly"
         },
         {
             "id": "war.route.failure",
             "steps": [
-                {
-                    "actionId": "war.action.search-supplies",
-                    "randomValues": [
-                        1,
-                        1
-                    ]
-                },
-                {
-                    "actionId": "war.action.escape-patrol",
-                    "randomValues": [
-                        1,
-                        1
-                    ]
-                }
-            ],
-            "expectedEndingId": "war.ending.captured"
+                {"actionId": "war.action.search-supplies", "randomValues": [1, 1]},
+                {"actionId": "war.action.escape-patrol", "randomValues": [1, 1]},
+                {"actionId": "war.action.escape-detention", "randomValues": [1, 1]}
+            ], "expectedEndingId": "war.ending.captured"
         }
     ]
 }

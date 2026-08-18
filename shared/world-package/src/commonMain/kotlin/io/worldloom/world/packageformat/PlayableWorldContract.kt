@@ -63,6 +63,7 @@ data class PlayableScene(
     val label: String,
     val actionIds: List<DefinitionId>,
     val participantEntityIds: List<String> = emptyList(),
+    val description: String? = null,
 )
 
 @Serializable
@@ -105,6 +106,7 @@ data class PlayableObjective(
 data class PlayableEnding(
     val id: DefinitionId,
     val label: String,
+    val summary: String? = null,
 )
 
 @Serializable
@@ -151,6 +153,9 @@ data class PlayableRouteFixture(
 @Serializable
 data class PlayableWorldContract(
     val schema: String,
+    val contentVersion: Int = 1,
+    val estimatedPlayMinutes: Int? = null,
+    val catalogPriority: Int = 0,
     val character: PlayableCharacterEntry,
     val initialSceneId: DefinitionId,
     val requiredModuleIds: List<DefinitionId>,
@@ -194,6 +199,7 @@ object PlayableWorldContractCodec {
 
 enum class PlayableWorldProblemCode {
     UNSUPPORTED_SCHEMA,
+    CONTENT_METADATA_INVALID,
     MISSING_CHARACTER_ENTRY,
     AMBIGUOUS_CHARACTER_ENTRY,
     CHARACTER_PROFILE_MISSING,
@@ -277,6 +283,8 @@ data class ValidatedPlayableWorldContract internal constructor(
 
     fun action(id: DefinitionId): PlayableAction? = actionsById[id]
 
+    fun ending(id: DefinitionId): PlayableEnding? = endingsById[id]
+
     fun route(id: DefinitionId): PlayableRouteFixture? = routesById[id]
 
     fun simulate(routeId: DefinitionId): PlayableRouteSimulationResult {
@@ -317,6 +325,14 @@ object PlayableWorldValidator {
                 "Unsupported playable world schema: ${contract.schema}",
             )
         }
+        if (contract.contentVersion <= 0 ||
+            (contract.estimatedPlayMinutes != null && contract.estimatedPlayMinutes !in 15..240) ||
+            contract.catalogPriority !in -1_000..1_000
+        ) problems += problem(
+            PlayableWorldProblemCode.CONTENT_METADATA_INVALID,
+            "contentVersion",
+            "Content version must be positive, estimated play time 15 to 240 minutes, and catalog priority -1000 to 1000",
+        )
 
         val characterProfile = validateCharacter(contract.character, definition, entries, problems)
         validateRequiredModules(contract, modules, problems)
@@ -620,12 +636,26 @@ object PlayableWorldValidator {
     ) {
         contract.scenes.forEachIndexed { index, scene ->
             if (scene.label.isBlank()) problems += blankLabel("scenes[$index].label")
+            if (scene.description?.let { it.isBlank() || it.length > 2_000 } == true) {
+                problems += problem(
+                    PlayableWorldProblemCode.BLANK_LABEL,
+                    "scenes[$index].description",
+                    "Scene description must contain 1 to 2000 characters",
+                )
+            }
         }
         contract.objectives.forEachIndexed { index, objective ->
             if (objective.label.isBlank()) problems += blankLabel("objectives[$index].label")
         }
         contract.endings.forEachIndexed { index, ending ->
             if (ending.label.isBlank()) problems += blankLabel("endings[$index].label")
+            if (ending.summary?.let { it.isBlank() || it.length > 2_000 } == true) {
+                problems += problem(
+                    PlayableWorldProblemCode.BLANK_LABEL,
+                    "endings[$index].summary",
+                    "Ending summary must contain 1 to 2000 characters",
+                )
+            }
         }
     }
 

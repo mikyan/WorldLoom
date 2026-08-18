@@ -144,7 +144,19 @@ fun WorldloomApp(
                         onConfirm = { scope.launch { session.confirmCharacter() } },
                     )
 
-                    is GameSessionUiState.Ended -> EmptyState("本次游戏已${if (current.lifecycle.name == "COMPLETED") "完成" else "放弃"}。")
+                    is GameSessionUiState.Ended -> ReadyState(
+                        presentation = current.presentation,
+                        notice = current.notice,
+                        onAdjust = {},
+                        onCheck = {},
+                        onReplay = { scope.launch { session.replay() } },
+                        onAction = {},
+                        onWait = {},
+                        onActivity = {},
+                        onTravel = {},
+                        agentController = null,
+                        interactive = false,
+                    )
 
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
                 }
@@ -426,6 +438,7 @@ private fun ReadyState(
     onActivity: (io.worldloom.definition.DefinitionId) -> Unit,
     onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
+    interactive: Boolean = true,
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -446,7 +459,7 @@ private fun ReadyState(
 
         notice?.let { EmptyState(it.message, isError = true) }
 
-        agentController?.let { AgentPanel(it) }
+        if (interactive) agentController?.let { AgentPanel(it) }
 
         presentation.scene?.let { scene ->
             Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
@@ -455,12 +468,15 @@ private fun ReadyState(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text("当前场景 · ${scene.label}", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                    scene.description?.let {
+                        Text(it, color = MaterialTheme.colors.onSurface.copy(alpha = 0.78f))
+                    }
                     if (scene.participantIds.isNotEmpty()) {
                         Text("参与者：${scene.participantIds.joinToString { it.value }}")
                     }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(scene.actions, key = { it.id.value }) { action ->
-                            Button(onClick = { onAction(action.id) }) { Text(action.label) }
+                            Button(onClick = { onAction(action.id) }, enabled = interactive) { Text(action.label) }
                         }
                     }
                 }
@@ -476,12 +492,15 @@ private fun ReadyState(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         presentation.worldTimeMinutes?.let { Text("世界时间 · 第 $it 分钟", fontWeight = FontWeight.SemiBold) }
                         Spacer(Modifier.weight(1f))
-                        if (presentation.worldTimeMinutes != null) Button(onClick = { onWait(60) }) { Text("等待 1 小时") }
+                        if (presentation.worldTimeMinutes != null) Button(
+                            onClick = { onWait(60) },
+                            enabled = interactive,
+                        ) { Text("等待 1 小时") }
                     }
                     if (presentation.activities.isNotEmpty()) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(presentation.activities, key = { it.id.value }) { activity ->
-                                Button(onClick = { onActivity(activity.id) }) {
+                                Button(onClick = { onActivity(activity.id) }, enabled = interactive) {
                                     Text("${activity.label} · ${activity.durationMinutes} 分钟")
                                 }
                             }
@@ -490,7 +509,7 @@ private fun ReadyState(
                     if (presentation.travelRoutes.isNotEmpty()) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(presentation.travelRoutes, key = { it.id.value }) { route ->
-                                Button(onClick = { onTravel(route.id) }) {
+                                Button(onClick = { onTravel(route.id) }, enabled = interactive) {
                                     Text("${route.label} · ${route.durationMinutes} 分钟")
                                 }
                             }
@@ -530,6 +549,18 @@ private fun ReadyState(
             }
         }
 
+        presentation.endingSummary?.let { summary ->
+            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.secondary.copy(alpha = 0.16f)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("本次结局", color = MaterialTheme.colors.secondary, fontWeight = FontWeight.Bold)
+                    Text(summary)
+                }
+            }
+        }
+
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -542,7 +573,7 @@ private fun ReadyState(
                     ) {
                         Text(field.label, color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
                         Text(field.value.toString(), fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                        Button(onClick = { onAdjust(field.presentationId) }) {
+                        Button(onClick = { onAdjust(field.presentationId) }, enabled = interactive) {
                             Text("推进 ${signed(field.adjustmentStep)}")
                         }
                     }
@@ -556,7 +587,7 @@ private fun ReadyState(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(presentation.checks, key = { it.presentationId.value }) { check ->
-                    Button(onClick = { onCheck(check.presentationId) }) {
+                    Button(onClick = { onCheck(check.presentationId) }, enabled = interactive) {
                         Text(check.label)
                     }
                 }
