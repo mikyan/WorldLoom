@@ -37,6 +37,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 const val PLAYABLE_WORLD_CONTRACT_SCHEMA_V1: String = "worldloom.playable-world/v1"
+const val CURRENT_PLAYABLE_GUIDANCE_SCHEMA_VERSION: Int = 1
 
 private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.run-lifecycle.changed"),
@@ -161,6 +162,42 @@ data class PlayableRouteFixture(
     val expectedEndingId: DefinitionId,
 )
 
+@Serializable
+enum class PlayableTutorialTriggerKind { RUN_START, SCENE_ENTER }
+
+@Serializable
+enum class PlayableGuidanceTargetKind { ACTION, ACTIVITY, TRAVEL }
+
+@Serializable
+data class PlayableGuidanceTarget(
+    val kind: PlayableGuidanceTargetKind,
+    val id: DefinitionId,
+)
+
+@Serializable
+data class PlayableTutorialStep(
+    val id: DefinitionId,
+    val trigger: PlayableTutorialTriggerKind,
+    val text: String,
+    val target: PlayableGuidanceTarget,
+    val sceneId: DefinitionId? = null,
+)
+
+@Serializable
+data class PlayableSceneHint(
+    val id: DefinitionId,
+    val sceneId: DefinitionId,
+    val text: String,
+    val target: PlayableGuidanceTarget,
+)
+
+@Serializable
+data class PlayableGuidanceDefinition(
+    val schemaVersion: Int = CURRENT_PLAYABLE_GUIDANCE_SCHEMA_VERSION,
+    val tutorials: List<PlayableTutorialStep> = emptyList(),
+    val hints: List<PlayableSceneHint> = emptyList(),
+)
+
 /** Minimum topic-neutral content graph required before a package may claim to be playable. */
 @Serializable
 data class PlayableWorldContract(
@@ -180,6 +217,7 @@ data class PlayableWorldContract(
     val adventureState: AdventureStateDefinition? = null,
     val behaviors: List<PlayableBehaviorReference> = emptyList(),
     val npcs: List<PlayableNpcProfile> = emptyList(),
+    val guidance: PlayableGuidanceDefinition? = null,
     val goldenRoutes: List<PlayableRouteFixture>,
 )
 
@@ -241,6 +279,10 @@ enum class PlayableWorldProblemCode {
     BEHAVIOR_INVALID,
     BEHAVIOR_ID_MISMATCH,
     NPC_INVALID,
+    GUIDANCE_INVALID,
+    GUIDANCE_REFERENCE_UNKNOWN,
+    GUIDANCE_TARGET_NOT_VISIBLE,
+    GUIDANCE_DYNAMIC_DEAD_END,
     DEAD_END_SCENE,
     ENDING_UNREACHABLE,
     ROUTE_EMPTY,
@@ -366,6 +408,7 @@ object PlayableWorldValidator {
         validateScenes(contract, definition, scenes, actions, problems)
         validateNpcs(contract, definition, scenes, modules, problems)
         validateTemporal(contract, definition, scenes.keys, problems)
+        validateGuidance(contract, scenes, actions, problems)
         validateAdventureState(contract, definition, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
@@ -484,6 +527,135 @@ object PlayableWorldValidator {
                 PlayableWorldProblemCode.NPC_INVALID,
                 "$path.publicActionIds",
                 "NPC ACT capability requires a unique non-empty public action whitelist",
+            )
+        }
+    }
+
+    private fun validateGuidance(
+        contract: PlayableWorldContract,
+        scenes: Map<DefinitionId, PlayableScene>,
+        actions: Map<DefinitionId, PlayableAction>,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        val guidance = contract.guidance ?: return validateDynamicGuidanceDeadEnds(contract, scenes, actions, problems)
+        if (guidance.schemaVersion != CURRENT_PLAYABLE_GUIDANCE_SCHEMA_VERSION ||
+            guidance.tutorials.isEmpty() || guidance.hints.isEmpty()
+        ) problems += problem(
+            PlayableWorldProblemCode.GUIDANCE_INVALID,
+            "guidance",
+            "Guidance must use the supported schema and declare at least one tutorial and hint",
+        )
+        duplicateIds(
+            guidance.tutorials.map(PlayableTutorialStep::id) + guidance.hints.map(PlayableSceneHint::id),
+            "guidance",
+            problems,
+        )
+
+        guidance.tutorials.forEachIndexed { index, tutorial ->
+            val path = "guidance.tutorials[$index]"
+            if (tutorial.text.isBlank() || tutorial.text.length > 800) problems += problem(
+                PlayableWorldProblemCode.GUIDANCE_INVALID,
+                "$path.text",
+                "Tutorial text must contain 1 to 800 characters",
+            )
+            val triggerScene = when (tutorial.trigger) {
+                PlayableTutorialTriggerKind.RUN_START -> {
+                    if (tutorial.sceneId != null) problems += problem(
+                        PlayableWorldProblemCode.GUIDANCE_INVALID,
+                        "$path.sceneId",
+                        "RUN_START tutorial must use the initial scene implicitly",
+                    )
+                    contract.initialSceneId
+                }
+                PlayableTutorialTriggerKind.SCENE_ENTER -> tutorial.sceneId?.takeIf { it in scenes } ?: run {
+                    problems += problem(
+                        PlayableWorldProblemCode.GUIDANCE_REFERENCE_UNKNOWN,
+                        "$path.sceneId",
+                        "SCENE_ENTER tutorial must reference a declared scene",
+                    )
+                    null
+                }
+            }
+            triggerScene?.let { validateGuidanceTarget(contract, tutorial.target, it, actions, "$path.target", problems) }
+        }
+        guidance.hints.forEachIndexed { index, hint ->
+            val path = "guidance.hints[$index]"
+            if (hint.text.isBlank() || hint.text.length > 800) problems += problem(
+                PlayableWorldProblemCode.GUIDANCE_INVALID,
+                "$path.text",
+                "Hint text must contain 1 to 800 characters",
+            )
+            if (hint.sceneId !in scenes) {
+                problems += problem(
+                    PlayableWorldProblemCode.GUIDANCE_REFERENCE_UNKNOWN,
+                    "$path.sceneId",
+                    "Hint references an unknown scene: ${hint.sceneId}",
+                )
+            } else {
+                validateGuidanceTarget(contract, hint.target, hint.sceneId, actions, "$path.target", problems)
+            }
+        }
+
+        validateDynamicGuidanceDeadEnds(contract, scenes, actions, problems)
+    }
+
+    private fun validateDynamicGuidanceDeadEnds(
+        contract: PlayableWorldContract,
+        scenes: Map<DefinitionId, PlayableScene>,
+        actions: Map<DefinitionId, PlayableAction>,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        scenes.values.forEach { scene ->
+            val unconditionalAction = scene.actionIds.mapNotNull(actions::get).any { action ->
+                action.requiredQuestId == null && action.requiredQuestStageId == null
+            }
+            val activityAvailable = contract.temporal?.activities.orEmpty().any { scene.id in it.availableSceneIds }
+            val travelAvailable = contract.temporal?.routes.orEmpty().any { it.fromSceneId == scene.id }
+            if (!unconditionalAction && !activityAvailable && !travelAvailable) problems += problem(
+                PlayableWorldProblemCode.GUIDANCE_DYNAMIC_DEAD_END,
+                "scenes[${contract.scenes.indexOf(scene)}]",
+                "Scene can lose every progress option because it has no unconditional action, activity or travel route",
+            )
+        }
+    }
+
+    private fun validateGuidanceTarget(
+        contract: PlayableWorldContract,
+        target: PlayableGuidanceTarget,
+        expectedSceneId: DefinitionId,
+        actions: Map<DefinitionId, PlayableAction>,
+        path: String,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        val targetSceneId = when (target.kind) {
+            PlayableGuidanceTargetKind.ACTION -> actions[target.id]?.let { action ->
+                if (action.requiredQuestId != null || action.requiredQuestStageId != null) {
+                    problems += problem(
+                        PlayableWorldProblemCode.GUIDANCE_TARGET_NOT_VISIBLE,
+                        path,
+                        "Guidance action must be unconditionally visible when its trigger is shown",
+                    )
+                }
+                action.sceneId
+            }
+            PlayableGuidanceTargetKind.ACTIVITY -> contract.temporal?.activities
+                .orEmpty().firstOrNull { it.id == target.id }?.availableSceneIds?.singleOrNull {
+                    it == expectedSceneId
+                }
+            PlayableGuidanceTargetKind.TRAVEL -> contract.temporal?.routes
+                .orEmpty().firstOrNull { it.id == target.id }?.fromSceneId
+        }
+        if (targetSceneId == null) {
+            problems += problem(
+                PlayableWorldProblemCode.GUIDANCE_REFERENCE_UNKNOWN,
+                "$path.id",
+                "Guidance target is unknown or unavailable in its trigger scene: ${target.id}",
+            )
+        } else if (targetSceneId != expectedSceneId) {
+            problems += problem(
+                PlayableWorldProblemCode.GUIDANCE_TARGET_NOT_VISIBLE,
+                path,
+                "Guidance target belongs to $targetSceneId, not $expectedSceneId",
             )
         }
     }

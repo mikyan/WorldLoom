@@ -42,6 +42,7 @@ behaviors/               # 契约引用 Behavior 时按需提供
 - `endings`：从开局图可达的终局；
 - `presentationIds`：关键状态或判定的表现绑定；
 - `behaviors`：BehaviorId 与包内 AST 路径，可为空；
+- `guidance`：可选的版本化首次教程、场景提示及其 Action/Activity/Travel 目标；
 - `goldenRoutes`：至少一条从初始场景走到终局的确定性路线。
 
 行动结果的 `progression` 至少要包含下一场景、目标推进、结局或明确允许重试中的一项。含 CheckProfile 的行动必须覆盖该检查的全部结果档位，并至少把一个档位标记为 `FAILURE`；失败仍要产生新局面、代价、可见进展、重试机会或终局。
@@ -51,6 +52,42 @@ behaviors/               # 契约引用 Behavior 时按需提供
 `playableNpcs[].knowledge` 中的每项知识必须使用包内全局唯一的稳定 DefinitionId。`privateText` 只进入该 NPC 的私有上下文；需要允许角色公开时，同时提供 `publicSummary` 并设置 `revealable: true`。公开摘要应写成可直接进入玩家时间线的既成事实，不要依赖模型改写，也不要包含作者仍想保密的尾注。
 
 Runtime 只把当前 NPC 自身可揭示的 ID 放入 `npc.speak.revealKnowledgeIds`。提交后，Validator 会再次核对 NPC、Entity、Scene、知识 ID 和固定摘要；公开 Event 只保存 `publicSummary`。旧包中的 `privateKnowledge` 仍可读取，但不会自动变成可揭示知识，作者应显式迁移后再开放。
+
+## 教程、场景提示与脱困出口
+
+`guidance.schemaVersion` 当前为 `1`。教程使用 `RUN_START` 或 `SCENE_ENTER` 触发；`RUN_START` 固定对应 `initialSceneId`，`SCENE_ENTER` 必须显式填写 `sceneId`。提示始终绑定一个场景。教程和提示的 `target` 可引用以下通用目标：
+
+- `ACTION`：目标 Action 必须属于该场景；教程引用的 Action 还必须无任务条件，保证首次展示时真实可用；
+- `ACTIVITY`：目标 Activity 必须在该场景可用；
+- `TRAVEL`：目标 Route 的 `fromSceneId` 必须是该场景。
+
+示例：
+
+```json
+{
+  "guidance": {
+    "schemaVersion": 1,
+    "tutorials": [
+      {
+        "id": "example.tutorial.first-choice",
+        "trigger": "RUN_START",
+        "text": "先观察公开线索，再告诉主持人你准备怎么做。",
+        "target": {"kind": "ACTION", "id": "example.action.observe"}
+      }
+    ],
+    "hints": [
+      {
+        "id": "example.hint.rest",
+        "sceneId": "example.scene.shelter",
+        "text": "资源不足时可以先休整。",
+        "target": {"kind": "ACTIVITY", "id": "example.activity.rest"}
+      }
+    ]
+  }
+}
+```
+
+每个可达场景都必须至少有一个无条件 Action、当前场景 Activity 或出发 Route，避免玩家进入没有合法推进方式的动态死路。UI 只把建议转换为可编辑的自然语言草稿；它不会自动调用 Tool、执行行动或写入 EventLog。作者不能依靠教程文字补造未公开事实。
 
 ## 随机与黄金路线
 
@@ -76,6 +113,7 @@ RANDOM Check 的路线步骤必须记录与骰子表达式数量和面数一致�
 - 同类 ID 或引用重复；
 - 行动没有失败推进或结果档位不完整；
 - 可达场景没有后续行动；
+- Guidance 版本错误、目标悬空、场景外不可见或可达场景形成动态死路；
 - 声明的结局不可达；
 - 黄金路线使用了当前场景不存在的行动、非法随机记录或错误结局；
 - Behavior 文件非法、ID 不一致或越过命令白名单。

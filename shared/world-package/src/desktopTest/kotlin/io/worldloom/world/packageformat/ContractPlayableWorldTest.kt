@@ -37,6 +37,8 @@ class ContractPlayableWorldTest {
             assertTrue(contract.source.npcs.all { npc ->
                 npc.knowledge.isNotEmpty() && npc.knowledge.all { it.revealable && !it.publicSummary.isNullOrBlank() }
             })
+            assertEquals(2, assertNotNull(contract.source.guidance).tutorials.size)
+            assertTrue(assertNotNull(contract.source.guidance).hints.isNotEmpty())
             assertTrue(contract.scene(contract.source.initialSceneId)?.participantEntityIds.orEmpty().isNotEmpty())
             if (case.directory == "war-survival") {
                 assertEquals(1, contract.source.contentVersion)
@@ -67,6 +69,55 @@ class ContractPlayableWorldTest {
 
         assertEquals(listOf("legacy private fact"), legacy.privateKnowledge)
         assertTrue(legacy.knowledge.isEmpty())
+    }
+
+    @Test
+    fun guidanceRejectsUnknownOrConditionallyHiddenTargetsWithPaths() {
+        val loaded = load("war-survival")
+        val source = assertNotNull(loaded.playableContract).source
+        val guidance = assertNotNull(source.guidance)
+        val invalid = source.copy(
+            guidance = guidance.copy(
+                hints = guidance.hints.mapIndexed { index, hint ->
+                    if (index == 0) hint.copy(
+                        target = PlayableGuidanceTarget(
+                            PlayableGuidanceTargetKind.ACTION,
+                            DefinitionId("war.action.missing"),
+                        ),
+                    ) else hint
+                },
+            ),
+        )
+
+        val result = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(invalid, loaded.definition, loaded.modules, loaded.entries),
+        )
+
+        assertTrue(result.problems.any {
+            it.code == PlayableWorldProblemCode.GUIDANCE_REFERENCE_UNKNOWN &&
+                it.path == "guidance.hints[0].target.id"
+        })
+    }
+
+    @Test
+    fun dynamicallyLockableSceneWithoutActivityOrTravelIsRejectedAsDeadEnd() {
+        val loaded = load("station-ai")
+        val source = assertNotNull(loaded.playableContract).source
+        val locked = source.copy(
+            temporal = null,
+            actions = source.actions.map { action ->
+                if (action.sceneId == source.initialSceneId) action.copy(
+                    requiredQuestId = DefinitionId("station.quest.restore-grid"),
+                    requiredQuestStageId = DefinitionId("station.quest-stage.diagnose"),
+                ) else action
+            },
+        )
+
+        val result = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(locked, loaded.definition, loaded.modules, loaded.entries),
+        )
+
+        assertTrue(result.problems.any { it.code == PlayableWorldProblemCode.GUIDANCE_DYNAMIC_DEAD_END })
     }
 
     @Test

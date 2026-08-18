@@ -303,6 +303,44 @@
             "publicActionIds": ["war.npc-action.scout-cover", "war.npc-action.mark-route"]
         }
     ],
+    "guidance": {
+        "schemaVersion": 1,
+        "tutorials": [
+            {
+                "id": "war.tutorial.describe-action",
+                "trigger": "RUN_START",
+                "text": "你可以自由描述行动，也可以先采用建议。建议只会填入主持人输入框，发送前仍由你决定。",
+                "target": {"kind": "ACTION", "id": "war.action.search-supplies"}
+            },
+            {
+                "id": "war.tutorial.choose-route",
+                "trigger": "SCENE_ENTER",
+                "sceneId": "war.scene.drainage",
+                "text": "岔路代表真正的选择：可以先询问同伴，也可以直接描述想跟随的路线。",
+                "target": {"kind": "ACTION", "id": "war.action.follow-mara"}
+            }
+        ],
+        "hints": [
+            {
+                "id": "war.hint.ruins-search",
+                "sceneId": "war.scene.ruins",
+                "text": "巡逻队回来前，药房是眼下最明确的补给出口。",
+                "target": {"kind": "ACTION", "id": "war.action.search-supplies"}
+            },
+            {
+                "id": "war.hint.checkpoint-papers",
+                "sceneId": "war.scene.checkpoint",
+                "text": "如果掌握避难所的公开线索，可以尝试用名单与守卫交涉。",
+                "target": {"kind": "ACTION", "id": "war.action.present-papers"}
+            },
+            {
+                "id": "war.hint.detention-escape",
+                "sceneId": "war.scene.detention",
+                "text": "失败没有让游戏停住；换岗和破损围栏仍提供一次推进机会。",
+                "target": {"kind": "ACTION", "id": "war.action.escape-detention"}
+            }
+        ]
+    },
     "goldenRoutes": [
         {
             "id": "war.route.hopeful",

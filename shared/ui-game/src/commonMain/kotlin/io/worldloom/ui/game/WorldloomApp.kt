@@ -45,6 +45,7 @@ import io.worldloom.agent.runtime.GameTurnStatus
 import io.worldloom.agent.runtime.HostedTurnHistoryItem
 import io.worldloom.agent.runtime.NpcDialogueResult
 import io.worldloom.application.GamePresentation
+import io.worldloom.application.GuidancePresentation
 import io.worldloom.application.CharacterCreationPresentation
 import io.worldloom.application.request
 import io.worldloom.application.GameSession
@@ -158,6 +159,7 @@ fun WorldloomApp(
                         },
                         agentController = agentController,
                         agentHistoryKey = "${session.currentRunId?.value}:${current.presentation.lastSequence}",
+                        guidanceRunKey = session.currentRunId?.value.orEmpty(),
                         replayInspector = session as? ReplayInspector,
                         reduceMotion = reduceMotion,
                     )
@@ -520,6 +522,7 @@ private fun ReadyState(
     onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
     agentHistoryKey: String = "",
+    guidanceRunKey: String = "",
     interactive: Boolean = true,
     replayInspector: ReplayInspector? = null,
     reduceMotion: Boolean = false,
@@ -566,7 +569,7 @@ private fun ReadyState(
         replayVerification?.let { EmptyState(it, isError = it.contains("失败")) }
 
         if (interactive) agentController?.let {
-            AgentPanel(it, agentHistoryKey, reduceMotion)
+            AgentPanel(it, agentHistoryKey, guidanceRunKey, presentation.guidance, reduceMotion)
         }
 
         presentation.scene?.let { scene ->
@@ -922,6 +925,8 @@ private fun CredentialPanel(configuration: CredentialConfiguration) {
 private fun AgentPanel(
     controller: GameAgentController,
     historyKey: String,
+    guidanceRunKey: String,
+    guidance: GuidancePresentation,
     reduceMotion: Boolean,
 ) {
     val state by controller.state.collectAsState()
@@ -929,7 +934,9 @@ private fun AgentPanel(
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var runningJob by remember { mutableStateOf<Job?>(null) }
+    var guidanceState by remember(guidanceRunKey) { mutableStateOf(GuidanceInteractionState()) }
     val running = state is GameAgentState.Running
+    val tutorial = guidanceState.visibleTutorials(guidance).firstOrNull()
     LaunchedEffect(controller, historyKey) { controller.refreshHistory() }
 
     Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
@@ -952,6 +959,60 @@ private fun AgentPanel(
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
                         fontSize = 12.sp,
                     )
+                }
+            }
+            tutorial?.let { step ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = MaterialTheme.colors.secondary.copy(alpha = 0.14f),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("游玩引导", fontWeight = FontWeight.SemiBold)
+                        Text(step.text)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                Button(onClick = { input = step.suggestion.inputDraft }, enabled = !running) {
+                                    Text("采用建议 · ${step.suggestion.label}")
+                                }
+                            }
+                            item {
+                                Button(onClick = { guidanceState = guidanceState.complete(step.id, guidance) }) {
+                                    Text("知道了")
+                                }
+                            }
+                            item {
+                                Button(
+                                    onClick = { guidanceState = guidanceState.skip() },
+                                    colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                                ) { Text("跳过引导") }
+                            }
+                        }
+                    }
+                }
+            } ?: run {
+                if (guidance.tutorials.isNotEmpty()) {
+                    Button(
+                        onClick = { guidanceState = guidanceState.review() },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                    ) { Text("重新查看引导") }
+                }
+            }
+            guidance.diagnostic?.let { Text(it, color = MaterialTheme.colors.error) }
+            guidance.hints.firstOrNull()?.let { hint ->
+                Text("场景提示 · ${hint.text}", color = MaterialTheme.colors.onSurface.copy(alpha = 0.78f))
+            }
+            if (guidance.suggestions.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(guidance.suggestions, key = { "${it.targetKind}:${it.targetId.value}" }) { suggestion ->
+                        Button(
+                            onClick = { input = suggestion.inputDraft },
+                            enabled = !running,
+                            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                        ) { Text("建议 · ${suggestion.label}") }
+                    }
                 }
             }
             if (history.hasEarlier) {

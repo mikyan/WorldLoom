@@ -58,6 +58,7 @@ data class GamePresentation(
     val travelRoutes: List<PresentedTravelRoute> = emptyList(),
     val adventureState: AdventureStatePresentation? = null,
     val endingSummary: String? = null,
+    val guidance: GuidancePresentation = GuidancePresentation(),
     val timelineTotalCount: Int = timeline.size,
     val timelineTruncated: Boolean = false,
 )

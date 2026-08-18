@@ -2162,19 +2162,31 @@ class DefaultGameSession(
                 )
             }
         }
+        val activities = contract?.source?.temporal?.activities.orEmpty()
+            .filter { state.currentSceneId in it.availableSceneIds }
+            .map { PresentedActivity(it.id, it.label, it.durationMinutes) }
+        val travelRoutes = contract?.source?.temporal?.routes.orEmpty()
+            .filter { it.fromSceneId == state.currentSceneId }
+            .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) }
+        val guidance = contract?.let {
+            GuidanceProjector.project(
+                contract = it.source,
+                currentSceneId = state.currentSceneId,
+                actions = scene?.actions.orEmpty(),
+                activities = activities,
+                travelRoutes = travelRoutes,
+            )
+        } ?: GuidancePresentation()
         return presentation.copy(
             scene = scene,
             completedObjectiveIds = state.completedObjectiveIds,
             endingId = state.endingId,
             worldTimeMinutes = contract?.source?.temporal?.let { TemporalState.minute(state, it) },
-            activities = contract?.source?.temporal?.activities.orEmpty()
-                .filter { state.currentSceneId in it.availableSceneIds }
-                .map { PresentedActivity(it.id, it.label, it.durationMinutes) },
-            travelRoutes = contract?.source?.temporal?.routes.orEmpty()
-                .filter { it.fromSceneId == state.currentSceneId }
-                .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) },
+            activities = activities,
+            travelRoutes = travelRoutes,
             adventureState = contract?.source?.adventureState?.let { AdventureStateProjector.project(state, it) },
             endingSummary = state.endingId?.let { contract?.ending(it)?.summary },
+            guidance = guidance,
         )
     }
 

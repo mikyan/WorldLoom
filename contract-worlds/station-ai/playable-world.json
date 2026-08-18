@@ -254,6 +254,38 @@
             "publicActionIds": ["station.npc-action.inspect-console"]
         }
     ],
+    "guidance": {
+        "schemaVersion": 1,
+        "tutorials": [
+            {
+                "id": "station.tutorial.system-choice",
+                "trigger": "RUN_START",
+                "text": "先查看当前可执行的系统操作；建议会转换成自然语言草稿，不会绕过主持人和规则引擎。",
+                "target": {"kind": "ACTION", "id": "station.action.reroute-energy"}
+            },
+            {
+                "id": "station.tutorial.relay-return",
+                "trigger": "SCENE_ENTER",
+                "sceneId": "station.scene.relay",
+                "text": "外环节点处理完后，返回控制层仍是一条始终可用的恢复路径。",
+                "target": {"kind": "ACTION", "id": "station.action.return-core"}
+            }
+        ],
+        "hints": [
+            {
+                "id": "station.hint.recharge",
+                "sceneId": "station.scene.core",
+                "text": "能源紧张时，可以先执行低功率充能，再决定是否改写供能。",
+                "target": {"kind": "ACTIVITY", "id": "station.activity.recharge"}
+            },
+            {
+                "id": "station.hint.wait-cycle",
+                "sceneId": "station.scene.relay",
+                "text": "如果暂时没有可靠判断，可以等待一个诊断周期获取新的公开结果。",
+                "target": {"kind": "ACTIVITY", "id": "station.activity.wait-cycle"}
+            }
+        ]
+    },
     "goldenRoutes": [
         {
             "id": "station.route.golden",

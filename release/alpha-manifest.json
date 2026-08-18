@@ -17,6 +17,7 @@
         "snapshot": 1,
         "gmTurn": 3,
         "gmContinuity": 1,
+        "playableGuidance": 1,
         "npcWork": 1,
         "npcAddress": 1,
         "npcKnowledgeReveal": 1
