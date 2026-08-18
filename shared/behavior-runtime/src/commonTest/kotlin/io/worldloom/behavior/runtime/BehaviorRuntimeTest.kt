@@ -20,6 +20,8 @@ import io.worldloom.world.CommandId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.InitialGameStateFactory
 import io.worldloom.world.RunId
+import io.worldloom.world.ComponentInstance
+import io.worldloom.rules.module.api.RegisteredWorldModules
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,6 +29,79 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class BehaviorRuntimeTest {
+    @Test
+    fun eachEffectReadsTheLatestStateWhileTheTriggerContextStaysFrozen() = runTest {
+        val fixture = fixture()
+        val componentValue = ComponentFieldExpression(
+            entity = PathExpression("event.subject"),
+            componentId = DefinitionId("test.status"),
+            fieldId = DefinitionId("test.energy"),
+        )
+        val source = behavior().copy(
+            effects = behavior().effects + behavior().effects.single().copy(
+                arguments = behavior().effects.single().arguments + ("delta" to componentValue),
+            ),
+        )
+        val validated = assertIs<BehaviorValidationResult.Valid>(
+            BehaviorValidator.validate(source, fixture.definition, mapOf("event.subject" to ValueType.TEXT)),
+        ).behavior
+        var latest = fixture.state
+        val deltas = mutableListOf<Long>()
+        val runtime = BehaviorRuntime { submission ->
+            val payload = assertIs<AdjustNumericComponentCommand>(submission.envelope.payload)
+            deltas += payload.delta
+            val entity = latest.entities.getValue(payload.entityId)
+            val component = entity.components.getValue(payload.componentId)
+            val current = (component.fields.getValue(payload.fieldId) as IntegerValue).value
+            latest = latest.copy(
+                lastSequence = latest.lastSequence + 1,
+                entities = latest.entities + (
+                    payload.entityId to entity.copy(
+                        components = entity.components + (
+                            payload.componentId to ComponentInstance(
+                                payload.componentId,
+                                component.fields + (payload.fieldId to IntegerValue(current + payload.delta)),
+                            )
+                        ),
+                    )
+                ),
+            )
+            BehaviorCommandSubmitResult.Accepted(latest.lastSequence)
+        }
+
+        assertIs<BehaviorExecutionResult.Applied>(
+            runtime.execute(
+                validated,
+                BehaviorEventContext(
+                    DefinitionId("worldloom.event.tick"),
+                    "event.tick.latest",
+                    mapOf("event.subject" to TextValue("player")),
+                ),
+                fixture.state,
+                ActorId("system.behavior"),
+                BehaviorCommandIdSource { _, index -> CommandId("command.latest.$index") },
+                stateProvider = { latest },
+            ),
+        )
+        assertEquals(listOf(-1L, 1L), deltas)
+    }
+
+    @Test
+    fun worldRegistryRejectsCommandsAndTriggersThatWereNotEnabled() {
+        val fixture = fixture()
+        val result = assertIs<BehaviorValidationResult.Invalid>(
+            BehaviorValidator.validate(
+                behavior(),
+                fixture.definition,
+                mapOf("event.subject" to ValueType.TEXT),
+                BehaviorCommandRegistry.forWorld(RegisteredWorldModules(emptyList())),
+                allowedEventTypes = setOf(DefinitionId("worldloom.event.other")),
+            ),
+        )
+        assertTrue(result.problems.any { it.code == BehaviorProblemCode.COMMAND_NOT_ALLOWED })
+        assertTrue(result.problems.any { it.code == BehaviorProblemCode.TRIGGER_NOT_ALLOWED })
+    }
+
     @Test
     fun validatedBehaviorSubmitsWhitelistedCommandThroughAuthoritativeSink() = runTest {
         val fixture = fixture()

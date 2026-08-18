@@ -1,7 +1,7 @@
 # Worldloom 项目设计文档
 
 文档状态：Draft 0.7<br>
-更新日期：2026-08-18
+更新日期：2026-08-19
 
 ## 1. 产品定义
 
@@ -706,7 +706,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成二十轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成二十一轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -720,11 +720,15 @@ platform/
 
 库存、状态、关系、任务和进度钟是五个可选规则模块。世界包以带命名空间的 Definition 声明物品、容量、Condition 叠加与持续时间、角色关系边界和可见性、任务阶段、进度钟及结局谓词；每类修改使用独立 Command/Event/权限/Tool。模块投影在进入主持人玩家可见上下文与共享 UI 前排除 `PRIVATE` 项，EventLog 则保留完整权威事实以供恢复和审计。Runtime 不读取具体世界 ID 或题材键。
 
+世界包在 `playable-world/v1` 中引用的 Behavior 会在加载时按启用模块构建 Command 白名单，并校验触发事件、表达式路径、类型和参数。事件批次提交成功后，Dispatcher 以 `EventId + BehaviorId + ordinal` 创建稳定工作项；执行时 guard 读取冻结的触发值与最新 `GameState`，每个 effect 都重新提交到对应 CommandValidator 和 WorldEngine。工作项记录 root/parent event、因果深度、派生 Command ID/签名与提交序列，SQLDelight 队列以修订号防止重复执行，并通过补扫 EventLog 覆盖“事实已提交但工作项尚未创建”的终止窗口。
+
+每条因果链独立限制深度、触发次数、重复签名和派生 Command 数。超限或执行失败会把当前工作项标记为暂停并给出可诊断通知，不回滚已经提交的事实，也不阻塞其他根事件。回放以 EventLog 为事实来源，只校验完成工作项与派生事件的 causation/correlation、顺序和命令审计，不重新运行 Behavior、Agent 或随机服务。
+
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，二十轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，二十一轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
 
-从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七轮补齐正式建角入口，第十八轮由主持人回合接管 `ACTIVE` Run，第十九轮加入时间、活动、旅行和计划触发，第二十轮加入库存、状态、关系、任务与进度钟；下一阶段让 Behavior 和 NPC 参与同一权威游玩闭环。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
+从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七轮补齐正式建角入口，第十八轮由主持人回合接管 `ACTIVE` Run，第十九轮加入时间、活动、旅行和计划触发，第二十轮加入库存、状态、关系、任务与进度钟，第二十一轮让 Behavior 通过可恢复队列参与同一权威游玩闭环；下一阶段补齐 NPC 场景参与。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
 
 ## 8. 世界包格式
 

@@ -8,7 +8,10 @@ struct ComposeView: UIViewControllerRepresentable {
             manifestSources: loadContractSources(fileName: "manifest.json"),
             worldSources: loadContractSources(fileName: "world.json"),
             playableSources: loadContractSources(fileName: "playable-world.json"),
-            characterProfileSources: loadContractSources(fileName: "character-profile.json")
+            characterProfileSources: loadContractSources(fileName: "character-profile.json"),
+            activityBehaviorSources: loadContractSources(fileName: "behaviors/activity-starts-quest.json"),
+            questBehaviorSources: loadContractSources(fileName: "behaviors/quest-raises-threat.json"),
+            timedBehaviorSources: loadContractSources(fileName: "behaviors/timed-supply.json")
         )
     }
 

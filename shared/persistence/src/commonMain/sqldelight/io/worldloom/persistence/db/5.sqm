@@ -1,0 +1,10 @@
+CREATE TABLE behavior_work (
+    run_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    parent_sequence INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    work_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, work_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);

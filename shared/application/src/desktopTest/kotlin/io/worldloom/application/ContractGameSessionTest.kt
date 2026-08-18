@@ -26,6 +26,9 @@ class ContractGameSessionTest {
                 "world.json" to resource("war-survival/world.json"),
                 "playable-world.json" to resource("war-survival/playable-world.json"),
                 "character-profile.json" to resource("war-survival/character-profile.json"),
+                "behaviors/activity-starts-quest.json" to resource("war-survival/behaviors/activity-starts-quest.json"),
+                "behaviors/quest-raises-threat.json" to resource("war-survival/behaviors/quest-raises-threat.json"),
+                "behaviors/timed-supply.json" to resource("war-survival/behaviors/timed-supply.json"),
             ),
         )
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -74,6 +77,9 @@ class ContractGameSessionTest {
                 "world.json" to resource("war-survival/world.json"),
                 "playable-world.json" to resource("war-survival/playable-world.json"),
                 "character-profile.json" to resource("war-survival/character-profile.json"),
+                "behaviors/activity-starts-quest.json" to resource("war-survival/behaviors/activity-starts-quest.json"),
+                "behaviors/quest-raises-threat.json" to resource("war-survival/behaviors/quest-raises-threat.json"),
+                "behaviors/timed-supply.json" to resource("war-survival/behaviors/timed-supply.json"),
             ),
         )
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -104,6 +110,9 @@ class ContractGameSessionTest {
                     "world.json" to resource("$directory/world.json"),
                     "playable-world.json" to resource("$directory/playable-world.json"),
                     "character-profile.json" to resource("$directory/character-profile.json"),
+                    "behaviors/activity-starts-quest.json" to resource("$directory/behaviors/activity-starts-quest.json"),
+                    "behaviors/quest-raises-threat.json" to resource("$directory/behaviors/quest-raises-threat.json"),
+                    "behaviors/timed-supply.json" to resource("$directory/behaviors/timed-supply.json"),
                 ),
             )
         }

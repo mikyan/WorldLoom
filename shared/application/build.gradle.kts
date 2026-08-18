@@ -36,6 +36,7 @@ kotlin {
             api(projects.shared.domainRules)
             api(projects.shared.ruleModuleRegistry)
             api(projects.shared.worldPackage)
+            api(projects.shared.behaviorRuntime)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }

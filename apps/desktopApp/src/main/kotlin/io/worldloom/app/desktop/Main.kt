@@ -18,6 +18,7 @@ import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
+import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.createDesktopCredentialVault
@@ -41,6 +42,7 @@ fun main() {
         catalog,
         eventStore = SqlDelightEventStore(database),
         characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+        behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
     )
     val dataDirectory = worldloomDataDirectory()
     val vault = createDesktopCredentialVault(dataDirectory.resolve("credentials"))
@@ -113,6 +115,9 @@ private fun loadContractWorldCatalog(): StaticWorldCatalog {
                 "world.json" to classLoader.readResource("$directory/world.json"),
                 "playable-world.json" to classLoader.readResource("$directory/playable-world.json"),
                 "character-profile.json" to classLoader.readResource("$directory/character-profile.json"),
+                "behaviors/activity-starts-quest.json" to classLoader.readResource("$directory/behaviors/activity-starts-quest.json"),
+                "behaviors/quest-raises-threat.json" to classLoader.readResource("$directory/behaviors/quest-raises-threat.json"),
+                "behaviors/timed-supply.json" to classLoader.readResource("$directory/behaviors/timed-supply.json"),
             ),
         )
     }

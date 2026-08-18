@@ -346,7 +346,11 @@
             {"endingId": "war.ending.hopeful", "completedQuestId": "war.quest.survive"}
         ]
     },
-    "behaviors": [],
+    "behaviors": [
+        {"id": "war.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
+        {"id": "war.behavior.quest-raises-threat", "path": "behaviors/quest-raises-threat.json"},
+        {"id": "war.behavior.nightfall-supply", "path": "behaviors/timed-supply.json"}
+    ],
     "goldenRoutes": [
         {
             "id": "war.route.golden",

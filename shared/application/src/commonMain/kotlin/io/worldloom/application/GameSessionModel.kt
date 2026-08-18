@@ -75,6 +75,7 @@ enum class SessionErrorCode {
     CHECK_REJECTED,
     CHARACTER_CREATION_REJECTED,
     PERSISTENCE_REJECTED,
+    BEHAVIOR_PAUSED,
 }
 
 data class SessionError(

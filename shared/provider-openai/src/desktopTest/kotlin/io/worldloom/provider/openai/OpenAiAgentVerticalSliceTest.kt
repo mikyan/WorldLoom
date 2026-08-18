@@ -87,6 +87,9 @@ class OpenAiAgentVerticalSliceTest {
         val world = checkNotNull(loader.getResource("station-ai/world.json")).readText()
         val playable = checkNotNull(loader.getResource("station-ai/playable-world.json")).readText()
         val profile = checkNotNull(loader.getResource("station-ai/character-profile.json")).readText()
+        val activityBehavior = checkNotNull(loader.getResource("station-ai/behaviors/activity-starts-quest.json")).readText()
+        val questBehavior = checkNotNull(loader.getResource("station-ai/behaviors/quest-raises-threat.json")).readText()
+        val timedBehavior = checkNotNull(loader.getResource("station-ai/behaviors/timed-supply.json")).readText()
         return assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(
                 listOf(
@@ -96,6 +99,9 @@ class OpenAiAgentVerticalSliceTest {
                             "world.json" to world,
                             "playable-world.json" to playable,
                             "character-profile.json" to profile,
+                            "behaviors/activity-starts-quest.json" to activityBehavior,
+                            "behaviors/quest-raises-threat.json" to questBehavior,
+                            "behaviors/timed-supply.json" to timedBehavior,
                         ),
                     ),
                 ),

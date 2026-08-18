@@ -50,13 +50,13 @@
 
 ## 21. Behavior 推进冒险
 
-- [ ] 21.1 实现 post-commit Event Dispatcher 与按稳定键排序的可恢复 Behavior 执行队列
-- [ ] 21.2 从固定世界包构建已验证 Behavior Registry，只注册 manifest 启用且版本兼容的 Behavior 与 Command 白名单
-- [ ] 21.3 基于最新 GameState 和冻结触发上下文求值 guard，并将每个 effect 重新提交到 CommandValidator/WorldEngine
-- [ ] 21.4 记录 root/parent event、behaviorId、因果深度、触发次数和派生 Command，支持诊断与审计
-- [ ] 21.5 实现因果深度、每链触发数、重复签名和派生 Command 数限制，失败时暂停相关链而不破坏已提交事实
-- [ ] 21.6 扩展重放验证，校验 Behavior 派生事件顺序、参数与随机记录，而不重新执行 Agent 或重新掷骰
-- [ ] 21.7 用黄金世界覆盖场景解锁、任务推进、定时事件、失败分支和结局触发，并补充递归/竞态/重启恢复测试
+- [x] 21.1 实现 post-commit Event Dispatcher 与按稳定键排序的可恢复 Behavior 执行队列
+- [x] 21.2 从固定世界包构建已验证 Behavior Registry，只注册 manifest 启用且版本兼容的 Behavior 与 Command 白名单
+- [x] 21.3 基于最新 GameState 和冻结触发上下文求值 guard，并将每个 effect 重新提交到 CommandValidator/WorldEngine
+- [x] 21.4 记录 root/parent event、behaviorId、因果深度、触发次数和派生 Command，支持诊断与审计
+- [x] 21.5 实现因果深度、每链触发数、重复签名和派生 Command 数限制，失败时暂停相关链而不破坏已提交事实
+- [x] 21.6 扩展重放验证，校验 Behavior 派生事件顺序、参数与随机记录，而不重新执行 Agent 或重新掷骰
+- [x] 21.7 用黄金世界覆盖场景解锁、任务推进、定时事件、失败分支和结局触发，并补充递归/竞态/重启恢复测试
 
 ## 22. NPC 场景参与
 

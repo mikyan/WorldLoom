@@ -185,6 +185,9 @@ class TemporalContractGameSessionTest {
             "world.json" to resource("$directory/world.json"),
             "playable-world.json" to resource("$directory/playable-world.json"),
             "character-profile.json" to resource("$directory/character-profile.json"),
+            "behaviors/activity-starts-quest.json" to resource("$directory/behaviors/activity-starts-quest.json"),
+            "behaviors/quest-raises-threat.json" to resource("$directory/behaviors/quest-raises-threat.json"),
+            "behaviors/timed-supply.json" to resource("$directory/behaviors/timed-supply.json"),
         ),
     )
 

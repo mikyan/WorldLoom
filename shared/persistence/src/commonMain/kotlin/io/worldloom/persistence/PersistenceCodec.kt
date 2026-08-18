@@ -33,6 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
+import io.worldloom.behavior.runtime.BehaviorWorkItem
 
 sealed interface PersistenceDecodeResult<out T> {
     data class Success<T>(val value: T) : PersistenceDecodeResult<T>
@@ -93,6 +94,10 @@ object PersistenceCodec {
     fun encodeGameTurn(turn: GameTurn): String = json.encodeToString(turn)
 
     fun decodeGameTurn(source: String): PersistenceDecodeResult<GameTurn> = decode("gm_turn", source)
+
+    fun encodeBehaviorWork(item: BehaviorWorkItem): String = json.encodeToString(item)
+
+    fun decodeBehaviorWork(source: String): PersistenceDecodeResult<BehaviorWorkItem> = decode("behavior_work", source)
 
     private inline fun <reified T> decode(
         label: String,

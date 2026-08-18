@@ -72,6 +72,22 @@ import io.worldloom.rules.UpdateConditionCommand
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
 import io.worldloom.world.packageformat.PlayableActionResolution
+import io.worldloom.behavior.runtime.BEHAVIOR_WORK_ORDER
+import io.worldloom.behavior.runtime.BehaviorCommandIdSource
+import io.worldloom.behavior.runtime.BehaviorCommandSink
+import io.worldloom.behavior.runtime.BehaviorCommandSubmission
+import io.worldloom.behavior.runtime.BehaviorCommandSubmitResult
+import io.worldloom.behavior.runtime.BehaviorDispatchLimits
+import io.worldloom.behavior.runtime.BehaviorExecutionResult
+import io.worldloom.behavior.runtime.BehaviorRuntime
+import io.worldloom.behavior.runtime.BehaviorWorkCreateResult
+import io.worldloom.behavior.runtime.BehaviorWorkId
+import io.worldloom.behavior.runtime.BehaviorWorkItem
+import io.worldloom.behavior.runtime.BehaviorWorkStatus
+import io.worldloom.behavior.runtime.BehaviorWorkStore
+import io.worldloom.behavior.runtime.BehaviorWorkUpdateResult
+import io.worldloom.behavior.runtime.InMemoryBehaviorWorkStore
+import io.worldloom.world.CommandId
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +105,8 @@ class DefaultGameSession(
     private val randomServiceFactory: (RunId) -> RandomService = { SeededRandomService(0x574F524C444C4F4F) },
     private val snapshotInterval: Long = 10,
     private val characterDraftStore: CharacterCreationDraftStore = InMemoryCharacterCreationDraftStore(),
+    private val behaviorWorkStore: BehaviorWorkStore = InMemoryBehaviorWorkStore(),
+    private val behaviorDispatchLimits: BehaviorDispatchLimits = BehaviorDispatchLimits(),
 ) : GameSession {
     init {
         require(snapshotInterval > 0) { "snapshotInterval must be positive" }
@@ -427,13 +445,15 @@ class DefaultGameSession(
                 playableContract = playable,
             )
             mutableState.value = GameSessionUiState.Ready(enrichPresentation(presentation, currentState, playable))
+            dispatchBehaviors()
             LoadResult.Success
         }
     }
 
     override suspend fun perform(action: GameSessionAction): ActionResult = mutex.withLock {
         withContext(workerDispatcher) {
-            when (action) {
+            val beforeSequence = loaded?.currentState?.lastSequence
+            val result = when (action) {
                 is GameSessionAction.AdjustPresentedField -> adjustPresentedField(action.presentationId)
                 is GameSessionAction.ResolvePresentedCheck -> resolvePresentedCheck(action.presentationId)
                 is GameSessionAction.PerformAvailableAction -> executeAuthoritative(
@@ -462,6 +482,8 @@ class DefaultGameSession(
                     ),
                 )
             }
+            if (result == ActionResult.Success && beforeSequence != null) dispatchBehaviors()
+            result
         }
     }
 
@@ -622,7 +644,10 @@ class DefaultGameSession(
         authorization: CommandAuthorization,
     ): ActionResult = mutex.withLock {
         withContext(workerDispatcher) {
-            executeAuthoritative(command, authorization)
+            val beforeSequence = loaded?.currentState?.lastSequence
+            val result = executeAuthoritative(command, authorization)
+            if (result == ActionResult.Success && beforeSequence != null) dispatchBehaviors()
+            result
         }
     }
 
@@ -657,6 +682,9 @@ class DefaultGameSession(
                     SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before replaying events"),
                 )
             val events = eventStore.read(session.currentState.runId)
+            validateBehaviorAudit(session.currentState.runId, events)?.let { error ->
+                return@withContext failReplay(error)
+            }
             val replayed = when (
                 val replay = EventReplayer.replay(session.initialState, session.definition, events, reducer)
             ) {
@@ -881,6 +909,9 @@ class DefaultGameSession(
         }
         val action = contract.action(request.actionId)
             ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Playable action is missing"))
+        if (!actionUnlocked(action, session.currentState)) {
+            return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Action quest requirement is not satisfied"))
+        }
         val baseState = session.currentState
         var candidateState = baseState
         val events = mutableListOf<EventEnvelope>()
@@ -1251,6 +1282,292 @@ class DefaultGameSession(
         return ActionResult.Success
     }
 
+    /** Scans committed facts so a crash between Event append and queue creation is recoverable. */
+    private suspend fun dispatchBehaviors() {
+        val session = loaded ?: return
+        val behaviors = session.playableContract?.behaviors.orEmpty()
+        if (behaviors.isEmpty()) return
+        while (true) {
+            val events = eventStore.read(session.currentState.runId)
+            val before = behaviorWorkStore.list(session.currentState.runId)
+            for (event in events) {
+                val context = BehaviorEventProjector.project(event) ?: continue
+                val origin = before.firstOrNull { item ->
+                    event.causationId.value.startsWith("behavior.${item.id.value}.")
+                }
+                val rootEventId = origin?.rootEventId ?: event.eventId
+                val depth = origin?.let { it.causalDepth + 1 } ?: 0
+                behaviors.asSequence()
+                    .filter { it.source.trigger.eventType == context.eventType }
+                    .sortedWith(compareByDescending<io.worldloom.behavior.runtime.ValidatedBehavior> { it.source.policy.priority }
+                        .thenBy { it.source.id.value })
+                    .forEach { behavior ->
+                        repeat(behavior.source.policy.maxFiringsPerEvent) { ordinal ->
+                            val id = BehaviorWorkId("${event.eventId.value}:${behavior.source.id.value}:$ordinal")
+                            behaviorWorkStore.create(
+                                BehaviorWorkItem(
+                                    id = id,
+                                    runId = session.currentState.runId,
+                                    rootEventId = rootEventId,
+                                    parentEventId = event.eventId,
+                                    parentSequence = event.sequence,
+                                    parentEventType = context.eventType,
+                                    behaviorId = behavior.source.id,
+                                    priority = behavior.source.policy.priority,
+                                    causalDepth = depth,
+                                    triggerOrdinal = ordinal,
+                                    signature = "${behavior.source.id.value}|${context.eventType.value}",
+                                ),
+                            )
+                        }
+                    }
+            }
+            val all = behaviorWorkStore.list(session.currentState.runId)
+            val next = all.filter { it.status == BehaviorWorkStatus.PENDING || it.status == BehaviorWorkStatus.RUNNING }
+                .sortedWith(BEHAVIOR_WORK_ORDER)
+                .firstOrNull() ?: return
+            val behavior = behaviors.firstOrNull { it.source.id == next.behaviorId }
+            if (behavior == null) {
+                pauseBehaviorChain(next, "Behavior is no longer registered by the fixed world package")
+                continue
+            }
+            val chain = all.filter { it.rootEventId == next.rootEventId }
+            val derivedCommands = chain.filter { it.status == BehaviorWorkStatus.COMPLETED }.sumOf { it.derivedCommandCount }
+            val limitMessage = when {
+                next.causalDepth > behaviorDispatchLimits.maximumCausalDepth -> "Behavior causal depth limit was reached"
+                chain.size > behaviorDispatchLimits.maximumFiringsPerChain -> "Behavior firing limit was reached"
+                chain.count { it.signature == next.signature } > behaviorDispatchLimits.maximumRepeatedSignature ->
+                    "Behavior repeated-signature limit was reached"
+                derivedCommands + behavior.source.effects.size > behaviorDispatchLimits.maximumDerivedCommandsPerChain ->
+                    "Behavior derived-command limit was reached"
+                else -> null
+            }
+            if (limitMessage != null) {
+                pauseBehaviorChain(next, limitMessage)
+                continue
+            }
+            val running = when (val updated = behaviorWorkStore.update(
+                next.revision,
+                next.copy(status = BehaviorWorkStatus.RUNNING, message = null),
+            )) {
+                is BehaviorWorkUpdateResult.Updated -> updated.item
+                is BehaviorWorkUpdateResult.Conflict -> continue
+                is BehaviorWorkUpdateResult.Failure -> {
+                    publishBehaviorNotice(session, updated.message)
+                    return
+                }
+            }
+            val parentEvent = events.firstOrNull { it.eventId == running.parentEventId }
+            val context = parentEvent?.let(BehaviorEventProjector::project)
+            if (context == null) {
+                pauseBehaviorChain(running, "Behavior parent Event is unavailable")
+                continue
+            }
+            val commandAudits = linkedMapOf<CommandId, String>()
+            val runtime = BehaviorRuntime(
+                BehaviorCommandSink { submission ->
+                    commandAudits[submission.envelope.commandId] = behaviorCommandSignature(submission.envelope.payload)
+                    executeBehaviorSubmission(submission)
+                },
+            )
+            val result = runtime.execute(
+                behavior = behavior,
+                event = context,
+                state = session.currentState,
+                actorId = ActorId("system.behavior"),
+                commandIds = BehaviorCommandIdSource { _, effectIndex ->
+                    CommandId("behavior.${running.id.value}.$effectIndex")
+                },
+                stateProvider = { session.currentState },
+            )
+            when (result) {
+                is BehaviorExecutionResult.Applied -> completeBehaviorWork(
+                    running,
+                    result.commandCount,
+                    result.finalSequence,
+                    commandAudits,
+                )
+                BehaviorExecutionResult.ConditionFalse,
+                BehaviorExecutionResult.NotTriggered,
+                -> completeBehaviorWork(running, 0, session.currentState.lastSequence, emptyMap())
+                is BehaviorExecutionResult.Failed -> pauseBehaviorChain(running, result.message)
+            }
+        }
+    }
+
+    private suspend fun executeBehaviorSubmission(
+        submission: BehaviorCommandSubmission,
+    ): BehaviorCommandSubmitResult {
+        val session = loaded ?: return BehaviorCommandSubmitResult.Rejected("Run is not loaded")
+        val existing = eventStore.read(session.currentState.runId).filter {
+            it.causationId == submission.envelope.commandId
+        }
+        if (existing.isNotEmpty()) return BehaviorCommandSubmitResult.Accepted(existing.maxOf(EventEnvelope::sequence))
+        val authorization = CommandAuthorization(submission.envelope.actorId, setOf(submission.requiredPermission))
+        val events = when (submission.envelope.payload) {
+            is AdjustNumericComponentCommand -> {
+                val validated = when (
+                    val validation = CommandValidator.validate(
+                        session.currentState,
+                        session.definition,
+                        authorization,
+                        submission.envelope,
+                    )
+                ) {
+                    is CommandValidationResult.Valid -> validation.command
+                    is CommandValidationResult.Invalid -> return BehaviorCommandSubmitResult.Rejected(validation.error.message)
+                }
+                WorldEngine.handle(validated, idSource.nextEventId())
+            }
+            is ChangeInventoryCommand,
+            is UpdateConditionCommand,
+            is AdjustRelationshipCommand,
+            is AdvanceQuestCommand,
+            is AdvanceProgressClockCommand,
+            -> {
+                val adventure = session.playableContract?.source?.adventureState
+                    ?: return BehaviorCommandSubmitResult.Rejected("World has no adventure-state definition")
+                val validated = when (
+                    val validation = AdventureCommandValidator.validate(
+                        session.currentState,
+                        session.modules,
+                        authorization,
+                        submission.envelope,
+                        adventure,
+                    )
+                ) {
+                    is AdventureCommandValidationResult.Valid -> validation.command
+                    is AdventureCommandValidationResult.Invalid -> return BehaviorCommandSubmitResult.Rejected(validation.error.message)
+                }
+                AdventureRuleEngine.handle(
+                    validated,
+                    session.currentState,
+                    adventure,
+                    List(AdventureRuleEngine.requiredEventCount(validated, session.currentState, adventure)) {
+                        idSource.nextEventId()
+                    },
+                )
+            }
+            else -> return BehaviorCommandSubmitResult.Rejected("Behavior command is not supported by the application gateway")
+        }
+        val candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+            is StateReductionResult.Success -> reduction.state
+            is StateReductionResult.Failure -> return BehaviorCommandSubmitResult.Rejected(reduction.error.message)
+        }
+        when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return BehaviorCommandSubmitResult.Rejected(append.error.message)
+        }
+        session.currentState = candidate
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(session.currentState.runId), notice)
+        return BehaviorCommandSubmitResult.Accepted(candidate.lastSequence)
+    }
+
+    private suspend fun completeBehaviorWork(
+        item: BehaviorWorkItem,
+        commandCount: Int,
+        sequence: Long,
+        commandAudits: Map<CommandId, String>,
+    ) {
+        val orderedAudits = commandAudits.entries.sortedBy { entry ->
+            entry.key.value.substringAfterLast('.').toIntOrNull() ?: Int.MAX_VALUE
+        }
+        when (
+            val result = behaviorWorkStore.update(
+                item.revision,
+                item.copy(
+                    status = BehaviorWorkStatus.COMPLETED,
+                    derivedCommandCount = commandCount,
+                    derivedCommandIds = orderedAudits.map { it.key },
+                    derivedCommandSignatures = orderedAudits.map { it.value },
+                    committedThroughSequence = sequence,
+                    message = null,
+                ),
+            )
+        ) {
+            is BehaviorWorkUpdateResult.Updated -> Unit
+            is BehaviorWorkUpdateResult.Conflict -> Unit
+            is BehaviorWorkUpdateResult.Failure -> loaded?.let { publishBehaviorNotice(it, result.message) }
+        }
+    }
+
+    private suspend fun pauseBehaviorChain(item: BehaviorWorkItem, message: String) {
+        behaviorWorkStore.list(item.runId)
+            .filter { it.rootEventId == item.rootEventId && it.status != BehaviorWorkStatus.COMPLETED && it.status != BehaviorWorkStatus.PAUSED }
+            .forEach { pending ->
+                behaviorWorkStore.update(
+                    pending.revision,
+                    pending.copy(status = BehaviorWorkStatus.PAUSED, message = message),
+                )
+            }
+        loaded?.let { publishBehaviorNotice(it, message) }
+    }
+
+    private fun behaviorCommandSignature(payload: io.worldloom.world.GameCommandPayload): String = when (payload) {
+        is AdjustNumericComponentCommand -> listOf(
+            "numeric",
+            payload.entityId.value,
+            payload.componentId.value,
+            payload.fieldId.value,
+            payload.delta,
+        ).joinToString("|")
+        is ChangeInventoryCommand -> listOf("inventory", payload.itemId.value, payload.quantity, payload.operation.name).joinToString("|")
+        is UpdateConditionCommand -> listOf(
+            "condition",
+            payload.conditionId.value,
+            payload.stackDelta,
+            payload.elapsedMinutes,
+        ).joinToString("|")
+        is AdjustRelationshipCommand -> listOf("relationship", payload.relationshipId.value, payload.delta).joinToString("|")
+        is AdvanceQuestCommand -> listOf(
+            "quest",
+            payload.questId.value,
+            payload.stageId.value,
+            payload.status.name,
+        ).joinToString("|")
+        is AdvanceProgressClockCommand -> listOf("clock", payload.clockId.value, payload.delta).joinToString("|")
+        else -> payload::class.simpleName ?: "unknown"
+    }
+
+    private suspend fun validateBehaviorAudit(
+        runId: RunId,
+        events: List<EventEnvelope>,
+    ): SessionError? {
+        val completed = behaviorWorkStore.list(runId).filter { it.status == BehaviorWorkStatus.COMPLETED }
+        for (item in completed) {
+            if (item.derivedCommandIds.size != item.derivedCommandCount ||
+                item.derivedCommandSignatures.size != item.derivedCommandCount ||
+                item.derivedCommandSignatures.any(String::isBlank)
+            ) {
+                return SessionError(SessionErrorCode.REPLAY_REJECTED, "Behavior command audit is incomplete: ${item.id.value}")
+            }
+            var previousSequence = item.parentSequence
+            for (commandId in item.derivedCommandIds) {
+                val derived = events.filter { it.causationId == commandId }.sortedBy(EventEnvelope::sequence)
+                if (derived.isEmpty() || derived.first().sequence <= previousSequence ||
+                    derived.any { it.correlationId != item.parentEventId.value }
+                ) {
+                    return SessionError(SessionErrorCode.REPLAY_REJECTED, "Behavior-derived Event audit is inconsistent: ${item.id.value}")
+                }
+                previousSequence = derived.last().sequence
+            }
+            val committedThrough = item.committedThroughSequence
+            if (committedThrough != null && previousSequence > committedThrough) {
+                return SessionError(SessionErrorCode.REPLAY_REJECTED, "Behavior committed sequence is inconsistent: ${item.id.value}")
+            }
+        }
+        return null
+    }
+
+    private suspend fun publishBehaviorNotice(session: LoadedSession, message: String) {
+        publishReady(
+            session,
+            eventStore.read(session.currentState.runId),
+            SessionError(SessionErrorCode.BEHAVIOR_PAUSED, message),
+        )
+    }
+
     private fun reduceAll(
         initial: GameState,
         definition: ValidatedWorldDefinition,
@@ -1365,7 +1682,9 @@ class DefaultGameSession(
     private fun LoadedSession.availableActions(): List<SessionAvailableAction> {
         val contract = playableContract ?: return emptyList()
         val scene = currentState.currentSceneId?.let(contract::scene) ?: return emptyList()
-        return scene.actionIds.mapNotNull(contract::action).map { action ->
+        return scene.actionIds.mapNotNull(contract::action).filter { action ->
+            actionUnlocked(action, currentState)
+        }.map { action ->
             SessionAvailableAction(
                 actionId = action.id,
                 label = action.label ?: action.id.value,
@@ -1420,7 +1739,9 @@ class DefaultGameSession(
                     id = sceneId,
                     label = configured.label,
                     participantIds = state.sceneParticipantIds.sortedBy(EntityId::value),
-                    actions = configured.actionIds.mapNotNull(contract::action).map { action ->
+                    actions = configured.actionIds.mapNotNull(contract::action).filter { action ->
+                        actionUnlocked(action, state)
+                    }.map { action ->
                         PresentedAction(action.id, action.label ?: action.id.value)
                     },
                 )
@@ -1439,5 +1760,12 @@ class DefaultGameSession(
                 .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) },
             adventureState = contract?.source?.adventureState?.let { AdventureStateProjector.project(state, it) },
         )
+    }
+
+    private fun actionUnlocked(action: io.worldloom.world.packageformat.PlayableAction, state: GameState): Boolean {
+        val requiredQuestId = action.requiredQuestId
+        val requiredStageId = action.requiredQuestStageId
+        return requiredQuestId == null || requiredStageId == null ||
+            AdventureState.questStage(state, requiredQuestId) == requiredStageId
     }
 }

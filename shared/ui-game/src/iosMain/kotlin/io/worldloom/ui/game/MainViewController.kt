@@ -16,6 +16,7 @@ import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
+import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.IosKeychainCredentialVault
@@ -33,9 +34,19 @@ fun MainViewController(
     worldSources: List<String>,
     playableSources: List<String>,
     characterProfileSources: List<String>,
+    activityBehaviorSources: List<String>,
+    questBehaviorSources: List<String>,
+    timedBehaviorSources: List<String>,
 ): UIViewController {
     require(
-        listOf(worldSources, playableSources, characterProfileSources).all { it.size == manifestSources.size },
+        listOf(
+            worldSources,
+            playableSources,
+            characterProfileSources,
+            activityBehaviorSources,
+            questBehaviorSources,
+            timedBehaviorSources,
+        ).all { it.size == manifestSources.size },
     ) { "Contract world source counts must match" }
     val catalog = loadCatalog(manifestSources.indices.map { index ->
         ContractSources(
@@ -43,6 +54,9 @@ fun MainViewController(
             worldSources[index],
             playableSources[index],
             characterProfileSources[index],
+            activityBehaviorSources[index],
+            questBehaviorSources[index],
+            timedBehaviorSources[index],
         )
     })
     val driver = IosPersistenceDriverFactory().create()
@@ -51,6 +65,7 @@ fun MainViewController(
         catalog,
         eventStore = SqlDelightEventStore(database),
         characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+        behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
     )
     val vault = IosKeychainCredentialVault()
     val providerClient = createOpenAiHttpClient()
@@ -88,6 +103,9 @@ private data class ContractSources(
     val world: String,
     val playable: String,
     val characterProfile: String,
+    val activityBehavior: String,
+    val questBehavior: String,
+    val timedBehavior: String,
 )
 
 private fun loadCatalog(sources: List<ContractSources>): StaticWorldCatalog =
@@ -100,6 +118,9 @@ private fun loadCatalog(sources: List<ContractSources>): StaticWorldCatalog =
                         "world.json" to source.world,
                         "playable-world.json" to source.playable,
                         "character-profile.json" to source.characterProfile,
+                        "behaviors/activity-starts-quest.json" to source.activityBehavior,
+                        "behaviors/quest-raises-threat.json" to source.questBehavior,
+                        "behaviors/timed-supply.json" to source.timedBehavior,
                     ),
                 )
             },

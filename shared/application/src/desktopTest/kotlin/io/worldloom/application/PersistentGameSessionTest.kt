@@ -6,12 +6,15 @@ import io.worldloom.definition.IntegerValue
 import io.worldloom.content.schema.CharacterValueAssignment
 import io.worldloom.persistence.SqlDelightEventStore
 import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
+import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.rules.CheckResolvedEvent
 import io.worldloom.rules.DiceRandomRequest
 import io.worldloom.rules.RandomRecordId
 import io.worldloom.rules.RandomServiceResult
 import io.worldloom.rules.SeededRandomService
+import io.worldloom.rules.QuestStatus
+import io.worldloom.behavior.runtime.BehaviorWorkStatus
 import io.worldloom.world.RunId
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandAuthorization
@@ -24,6 +27,56 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 
 class PersistentGameSessionTest {
+    @Test
+    fun behaviorQueueAndDerivedFactsResumeWithoutDuplicateExecution() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(
+                listOf(WorldPackageSource(resource("station-ai/manifest.json"), contractFiles("station-ai"))),
+            ),
+        ).catalog
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val eventStore = SqlDelightEventStore(database)
+        val workStore = SqlDelightBehaviorWorkStore(database)
+        val first = DefaultGameSession(
+            catalog = catalog,
+            eventStore = eventStore,
+            idSource = SequentialSessionIdSource("behavior-resume"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+            behaviorWorkStore = workStore,
+        )
+        assertIs<LoadResult.Success>(first.load(DefinitionId("contract.station-ai")))
+        assertIs<ActionResult.Success>(first.confirmCharacter())
+        assertIs<ActionResult.Success>(first.perform(GameSessionAction.PerformActivity(DefinitionId("station.activity.wait-cycle"))))
+        val runId = RunId("behavior-resume.run.1")
+        val eventCount = eventStore.read(runId).size
+        val work = workStore.list(runId)
+        assertEquals(2, work.count { it.status == BehaviorWorkStatus.COMPLETED })
+
+        val resumedStore = SqlDelightEventStore(WorldloomDatabase(driver))
+        val resumedWork = SqlDelightBehaviorWorkStore(WorldloomDatabase(driver))
+        val resumed = DefaultGameSession(
+            catalog = catalog,
+            eventStore = resumedStore,
+            idSource = SequentialSessionIdSource("behavior-resume"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
+            behaviorWorkStore = resumedWork,
+        )
+        assertIs<LoadResult.Success>(resumed.resume(DefinitionId("contract.station-ai"), runId))
+        val presentation = assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation
+        val adventure = assertNotNull(presentation.adventureState)
+        assertEquals(QuestStatus.ACTIVE, adventure.quests.single().status)
+        assertEquals(1, adventure.clocks.single().value)
+        assertEquals(eventCount, resumedStore.read(runId).size)
+        assertEquals(work, resumedWork.list(runId))
+        driver.close()
+    }
+
     @Test
     fun resumesAnInProgressDraftAndConfirmsItExactlyOnce() = runTest {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -239,5 +292,8 @@ class PersistentGameSessionTest {
         "world.json" to resource("$directory/world.json"),
         "playable-world.json" to resource("$directory/playable-world.json"),
         "character-profile.json" to resource("$directory/character-profile.json"),
+        "behaviors/activity-starts-quest.json" to resource("$directory/behaviors/activity-starts-quest.json"),
+        "behaviors/quest-raises-threat.json" to resource("$directory/behaviors/quest-raises-threat.json"),
+        "behaviors/timed-supply.json" to resource("$directory/behaviors/timed-supply.json"),
     )
 }

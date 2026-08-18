@@ -53,16 +53,18 @@ class BehaviorRuntime(
         state: GameState,
         actorId: ActorId,
         commandIds: BehaviorCommandIdSource,
+        stateProvider: () -> GameState = { state },
+        onCommandAccepted: suspend (effectIndex: Int, sequence: Long) -> Unit = { _, _ -> },
     ): BehaviorExecutionResult {
         if (behavior.source.trigger.eventType != event.eventType) return BehaviorExecutionResult.NotTriggered
-        val condition = evaluate(behavior.source.condition, event.values, state)
+        val condition = evaluate(behavior.source.condition, event.values, stateProvider())
             ?: return BehaviorExecutionResult.Failed("Behavior condition could not be evaluated")
         if ((condition as? BooleanValue)?.value != true) return BehaviorExecutionResult.ConditionFalse
         var sequence = state.lastSequence
         behavior.source.effects.forEachIndexed { index, effect ->
             val schema = behavior.commandSchemas.getValue(effect.commandId)
             val arguments = effect.arguments.mapValues { (_, expression) ->
-                evaluate(expression, event.values, state)
+                evaluate(expression, event.values, stateProvider())
                     ?: return BehaviorExecutionResult.Failed("Behavior effect argument could not be evaluated")
             }
             val payload = try {
@@ -80,7 +82,10 @@ class BehaviorRuntime(
                 payload = payload,
             )
             when (val submitted = sink.submit(BehaviorCommandSubmission(envelope, schema.permission))) {
-                is BehaviorCommandSubmitResult.Accepted -> sequence = submitted.sequence
+                is BehaviorCommandSubmitResult.Accepted -> {
+                    sequence = submitted.sequence
+                    onCommandAccepted(index, sequence)
+                }
                 is BehaviorCommandSubmitResult.Rejected -> return BehaviorExecutionResult.Failed(submitted.message)
             }
         }

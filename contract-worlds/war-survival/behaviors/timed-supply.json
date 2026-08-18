@@ -1,0 +1,18 @@
+{
+    "schema": "worldloom.behavior/v1",
+    "id": "war.behavior.nightfall-supply",
+    "trigger": {"eventType": "worldloom.event.schedule.fired"},
+    "condition": {"kind": "value", "value": {"kind": "boolean", "value": true}},
+    "effects": [
+        {
+            "commandId": "worldloom.command.inventory.change",
+            "arguments": {
+                "itemId": {"kind": "value", "value": {"kind": "definition-reference", "value": "war.item.bread"}},
+                "quantity": {"kind": "value", "value": {"kind": "integer", "value": 1}},
+                "operation": {"kind": "value", "value": {"kind": "text", "value": "ACQUIRE"}}
+            }
+        }
+    ],
+    "policy": {"priority": 5, "maxFiringsPerEvent": 1},
+    "visibility": "PUBLIC"
+}

@@ -23,7 +23,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.shared.domainWorld)
+            api(projects.shared.domainRules)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

@@ -58,7 +58,7 @@ class AdventureStateContractGameSessionTest {
         assertEquals(480, adventure.conditions.single().remainingMinutes)
         assertEquals(1, adventure.relationships.single().value)
         assertEquals(QuestStatus.COMPLETED, adventure.quests.single().status)
-        assertEquals(3, adventure.clocks.single().value)
+        assertEquals(6, adventure.clocks.single().value)
         assertEquals("war.ending.hopeful", completed.presentation.endingId?.value)
 
         val beforeReplay = completed.presentation
@@ -159,6 +159,9 @@ class AdventureStateContractGameSessionTest {
             "world.json" to resource("$directory/world.json"),
             "playable-world.json" to resource("$directory/playable-world.json"),
             "character-profile.json" to resource("$directory/character-profile.json"),
+            "behaviors/activity-starts-quest.json" to resource("$directory/behaviors/activity-starts-quest.json"),
+            "behaviors/quest-raises-threat.json" to resource("$directory/behaviors/quest-raises-threat.json"),
+            "behaviors/timed-supply.json" to resource("$directory/behaviors/timed-supply.json"),
         ),
     )
 

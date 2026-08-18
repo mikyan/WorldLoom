@@ -39,6 +39,17 @@ CREATE TABLE gm_turn (
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE behavior_work (
+    run_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    parent_sequence INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    work_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, work_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_session (
     run_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -219,6 +230,26 @@ WHERE run_id = ?;
 upsertGmTurn:
 INSERT OR REPLACE INTO gm_turn(run_id, turn_id, revision, turn_schema_version, turn_json)
 VALUES (?, ?, ?, ?, ?);
+
+selectBehaviorWork:
+SELECT work_json
+FROM behavior_work
+WHERE run_id = ? AND work_id = ?;
+
+selectBehaviorWorks:
+SELECT work_json
+FROM behavior_work
+WHERE run_id = ?
+ORDER BY parent_sequence, work_id;
+
+insertBehaviorWork:
+INSERT OR IGNORE INTO behavior_work(run_id, work_id, revision, parent_sequence, status, work_json)
+VALUES (?, ?, ?, ?, ?, ?);
+
+updateBehaviorWork:
+UPDATE behavior_work
+SET revision = ?, parent_sequence = ?, status = ?, work_json = ?
+WHERE run_id = ? AND work_id = ? AND revision = ?;
 
 selectAgentSession:
 SELECT session_id, owner_agent_id, owner_actor_id, revision, messages_json, session_schema_version

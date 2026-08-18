@@ -1,0 +1,17 @@
+{
+    "schema": "worldloom.behavior/v1",
+    "id": "war.behavior.quest-raises-threat",
+    "trigger": {"eventType": "worldloom.event.quest.advanced"},
+    "condition": {"kind": "value", "value": {"kind": "boolean", "value": true}},
+    "effects": [
+        {
+            "commandId": "worldloom.command.progress-clock.advance",
+            "arguments": {
+                "clockId": {"kind": "value", "value": {"kind": "definition-reference", "value": "war.clock.patrol-threat"}},
+                "delta": {"kind": "value", "value": {"kind": "integer", "value": 1}}
+            }
+        }
+    ],
+    "policy": {"priority": 10, "maxFiringsPerEvent": 1},
+    "visibility": "PUBLIC"
+}

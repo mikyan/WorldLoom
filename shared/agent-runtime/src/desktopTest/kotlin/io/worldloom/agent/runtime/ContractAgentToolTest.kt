@@ -205,6 +205,9 @@ class ContractAgentToolTest {
             "world.json" to resourceText("$directory/world.json"),
             "playable-world.json" to resourceText("$directory/playable-world.json"),
             "character-profile.json" to resourceText("$directory/character-profile.json"),
+            "behaviors/activity-starts-quest.json" to resourceText("$directory/behaviors/activity-starts-quest.json"),
+            "behaviors/quest-raises-threat.json" to resourceText("$directory/behaviors/quest-raises-threat.json"),
+            "behaviors/timed-supply.json" to resourceText("$directory/behaviors/timed-supply.json"),
         ),
     )
 

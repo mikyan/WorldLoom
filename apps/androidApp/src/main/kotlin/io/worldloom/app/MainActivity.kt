@@ -20,6 +20,7 @@ import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
+import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.provider.openai.OPENAI_API_KEY
 import io.worldloom.provider.openai.OpenAiConfigurableAdapter
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
             catalog = loadContractWorldCatalog(),
             eventStore = SqlDelightEventStore(database),
             characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+            behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
         )
         val vault = AndroidKeystoreCredentialVault(applicationContext)
         val client = createOpenAiHttpClient()
@@ -87,6 +89,9 @@ class MainActivity : ComponentActivity() {
                     "world.json" to readAsset("$directory/world.json"),
                     "playable-world.json" to readAsset("$directory/playable-world.json"),
                     "character-profile.json" to readAsset("$directory/character-profile.json"),
+                    "behaviors/activity-starts-quest.json" to readAsset("$directory/behaviors/activity-starts-quest.json"),
+                    "behaviors/quest-raises-threat.json" to readAsset("$directory/behaviors/quest-raises-threat.json"),
+                    "behaviors/timed-supply.json" to readAsset("$directory/behaviors/timed-supply.json"),
                 ),
             )
         }

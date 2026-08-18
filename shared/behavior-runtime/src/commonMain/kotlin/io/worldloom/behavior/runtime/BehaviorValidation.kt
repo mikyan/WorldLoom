@@ -12,6 +12,14 @@ import io.worldloom.world.AdjustNumericComponentCommand
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.EntityId
 import io.worldloom.world.GameCommandPayload
+import io.worldloom.rules.AdjustRelationshipCommand
+import io.worldloom.rules.AdvanceProgressClockCommand
+import io.worldloom.rules.AdvanceQuestCommand
+import io.worldloom.rules.ChangeInventoryCommand
+import io.worldloom.rules.InventoryOperation
+import io.worldloom.rules.QuestStatus
+import io.worldloom.rules.UpdateConditionCommand
+import io.worldloom.rules.module.api.RegisteredWorldModules
 
 data class BehaviorCommandSchema(
     val argumentTypes: Map<String, ValueType>,
@@ -25,8 +33,21 @@ class BehaviorCommandRegistry(
     val schemas = schemas.toMap()
 
     companion object {
-        fun standard(): BehaviorCommandRegistry = BehaviorCommandRegistry(
-            mapOf(
+        private val NUMERIC_CAPABILITY = io.worldloom.definition.DefinitionId("worldloom.command.numeric-adjust")
+
+        fun standard(): BehaviorCommandRegistry = BehaviorCommandRegistry(standardSchemas())
+
+        fun forWorld(modules: RegisteredWorldModules): BehaviorCommandRegistry = BehaviorCommandRegistry(
+            standardSchemas().filterKeys { commandId ->
+                val capabilityId = when (commandId.value) {
+                    "worldloom.command.adjust-numeric-component" -> NUMERIC_CAPABILITY
+                    else -> commandId
+                }
+                modules.capability(capabilityId) != null
+            },
+        )
+
+        private fun standardSchemas(): Map<io.worldloom.definition.DefinitionId, BehaviorCommandSchema> = mapOf(
                 io.worldloom.definition.DefinitionId("worldloom.command.adjust-numeric-component") to BehaviorCommandSchema(
                     argumentTypes = mapOf(
                         "entityId" to ValueType.TEXT,
@@ -44,8 +65,78 @@ class BehaviorCommandRegistry(
                         )
                     },
                 ),
-            ),
-        )
+                io.worldloom.definition.DefinitionId("worldloom.command.inventory.change") to BehaviorCommandSchema(
+                    argumentTypes = mapOf(
+                        "itemId" to ValueType.DEFINITION_REFERENCE,
+                        "quantity" to ValueType.INTEGER,
+                        "operation" to ValueType.TEXT,
+                    ),
+                    permission = CommandPermission.MANAGE_INVENTORY,
+                    build = { arguments ->
+                        ChangeInventoryCommand(
+                            itemId = (arguments.getValue("itemId") as DefinitionReferenceValue).value,
+                            quantity = (arguments.getValue("quantity") as IntegerValue).value,
+                            operation = InventoryOperation.valueOf((arguments.getValue("operation") as TextValue).value),
+                        )
+                    },
+                ),
+                io.worldloom.definition.DefinitionId("worldloom.command.condition.update") to BehaviorCommandSchema(
+                    argumentTypes = mapOf(
+                        "conditionId" to ValueType.DEFINITION_REFERENCE,
+                        "stackDelta" to ValueType.INTEGER,
+                        "elapsedMinutes" to ValueType.INTEGER,
+                    ),
+                    permission = CommandPermission.UPDATE_CONDITION,
+                    build = { arguments ->
+                        UpdateConditionCommand(
+                            conditionId = (arguments.getValue("conditionId") as DefinitionReferenceValue).value,
+                            stackDelta = (arguments.getValue("stackDelta") as IntegerValue).value,
+                            elapsedMinutes = (arguments.getValue("elapsedMinutes") as IntegerValue).value,
+                        )
+                    },
+                ),
+                io.worldloom.definition.DefinitionId("worldloom.command.relationship.adjust") to BehaviorCommandSchema(
+                    argumentTypes = mapOf(
+                        "relationshipId" to ValueType.DEFINITION_REFERENCE,
+                        "delta" to ValueType.INTEGER,
+                    ),
+                    permission = CommandPermission.UPDATE_RELATIONSHIP,
+                    build = { arguments ->
+                        AdjustRelationshipCommand(
+                            relationshipId = (arguments.getValue("relationshipId") as DefinitionReferenceValue).value,
+                            delta = (arguments.getValue("delta") as IntegerValue).value,
+                        )
+                    },
+                ),
+                io.worldloom.definition.DefinitionId("worldloom.command.quest.advance") to BehaviorCommandSchema(
+                    argumentTypes = mapOf(
+                        "questId" to ValueType.DEFINITION_REFERENCE,
+                        "stageId" to ValueType.DEFINITION_REFERENCE,
+                        "status" to ValueType.TEXT,
+                    ),
+                    permission = CommandPermission.UPDATE_QUEST,
+                    build = { arguments ->
+                        AdvanceQuestCommand(
+                            questId = (arguments.getValue("questId") as DefinitionReferenceValue).value,
+                            stageId = (arguments.getValue("stageId") as DefinitionReferenceValue).value,
+                            status = QuestStatus.valueOf((arguments.getValue("status") as TextValue).value),
+                        )
+                    },
+                ),
+                io.worldloom.definition.DefinitionId("worldloom.command.progress-clock.advance") to BehaviorCommandSchema(
+                    argumentTypes = mapOf(
+                        "clockId" to ValueType.DEFINITION_REFERENCE,
+                        "delta" to ValueType.INTEGER,
+                    ),
+                    permission = CommandPermission.ADVANCE_PROGRESS_CLOCK,
+                    build = { arguments ->
+                        AdvanceProgressClockCommand(
+                            clockId = (arguments.getValue("clockId") as DefinitionReferenceValue).value,
+                            delta = (arguments.getValue("delta") as IntegerValue).value,
+                        )
+                    },
+                ),
+            )
     }
 }
 
@@ -58,6 +149,7 @@ enum class BehaviorProblemCode {
     COMMAND_NOT_ALLOWED,
     COMMAND_ARGUMENT_MISSING,
     COMMAND_ARGUMENT_UNKNOWN,
+    TRIGGER_NOT_ALLOWED,
 }
 
 data class BehaviorProblem(val code: BehaviorProblemCode, val path: String, val message: String)
@@ -79,6 +171,7 @@ object BehaviorValidator {
         definition: ValidatedWorldDefinition,
         pathTypes: Map<String, ValueType>,
         commands: BehaviorCommandRegistry = BehaviorCommandRegistry.standard(),
+        allowedEventTypes: Set<io.worldloom.definition.DefinitionId>? = null,
     ): BehaviorValidationResult {
         val problems = mutableListOf<BehaviorProblem>()
         if (behavior.schema != BEHAVIOR_SCHEMA_V1) {
@@ -86,6 +179,9 @@ object BehaviorValidator {
         }
         if (behavior.effects.isEmpty()) {
             problems += problem(BehaviorProblemCode.EMPTY_EFFECTS, "effects", "Behavior requires at least one effect")
+        }
+        if (allowedEventTypes != null && behavior.trigger.eventType !in allowedEventTypes) {
+            problems += problem(BehaviorProblemCode.TRIGGER_NOT_ALLOWED, "trigger.eventType", "Trigger event is not registered by the world")
         }
         val conditionType = infer(behavior.condition, definition, pathTypes, "condition", problems)
         if (conditionType != null && conditionType != ValueType.BOOLEAN) {

@@ -28,7 +28,7 @@ kotlin {
             api(projects.shared.domainRules)
             api(projects.shared.ruleModuleRegistry)
             api(projects.shared.contentSchema)
-            implementation(projects.shared.behaviorRuntime)
+            api(projects.shared.behaviorRuntime)
             implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {

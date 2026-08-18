@@ -4,6 +4,8 @@ import io.worldloom.behavior.runtime.BehaviorCodec
 import io.worldloom.behavior.runtime.BehaviorDecodeResult
 import io.worldloom.behavior.runtime.BehaviorValidationResult
 import io.worldloom.behavior.runtime.BehaviorValidator
+import io.worldloom.behavior.runtime.BehaviorCommandRegistry
+import io.worldloom.behavior.runtime.ValidatedBehavior
 import io.worldloom.content.schema.CharacterCreationProfileCodec
 import io.worldloom.content.schema.CharacterCreationProfileDecodeResult
 import io.worldloom.content.schema.CharacterCreationProfileValidator
@@ -13,6 +15,7 @@ import io.worldloom.definition.CheckResolutionMode
 import io.worldloom.definition.DefinitionId
 import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.rules.module.api.RegisteredWorldModules
+import io.worldloom.rules.module.api.RuleCapabilityKind
 import io.worldloom.rules.ACTIVITY_MODULE_ID
 import io.worldloom.rules.TemporalAdventureDefinition
 import io.worldloom.rules.TemporalAdventureDefinitionValidator
@@ -34,6 +37,16 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 const val PLAYABLE_WORLD_CONTRACT_SCHEMA_V1: String = "worldloom.playable-world/v1"
+
+private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
+    DefinitionId("worldloom.event.run-lifecycle.changed"),
+    DefinitionId("worldloom.event.player.created"),
+    DefinitionId("worldloom.event.scene.entered"),
+    DefinitionId("worldloom.event.scene.exited"),
+    DefinitionId("worldloom.event.action-outcome.applied"),
+    DefinitionId("worldloom.event.schedule.fired"),
+    DefinitionId("worldloom.event.adventure-ending.reached"),
+)
 
 @Serializable
 data class PlayableCharacterEntry(
@@ -75,6 +88,8 @@ data class PlayableAction(
     val sceneId: DefinitionId,
     val label: String? = null,
     val checkProfileId: DefinitionId? = null,
+    val requiredQuestId: DefinitionId? = null,
+    val requiredQuestStageId: DefinitionId? = null,
     val resolutions: List<PlayableActionResolution>,
 )
 
@@ -175,6 +190,7 @@ enum class PlayableWorldProblemCode {
     ACTION_SCENE_UNKNOWN,
     ACTION_NOT_AVAILABLE_IN_SCENE,
     ACTION_CHECK_UNKNOWN,
+    ACTION_REQUIREMENT_INVALID,
     ACTION_OUTCOME_MISMATCH,
     ACTION_FAILURE_MISSING,
     PROGRESSION_EMPTY,
@@ -228,6 +244,7 @@ sealed interface PlayableRouteSimulationResult {
 data class ValidatedPlayableWorldContract internal constructor(
     val source: PlayableWorldContract,
     val characterProfile: ValidatedCharacterCreationProfile?,
+    val behaviors: List<ValidatedBehavior>,
     private val definition: ValidatedWorldDefinition,
     private val scenesById: Map<DefinitionId, PlayableScene>,
     private val actionsById: Map<DefinitionId, PlayableAction>,
@@ -302,12 +319,13 @@ object PlayableWorldValidator {
         validateAdventureState(contract, definition, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
-        validateBehaviors(contract, definition, entries, problems)
+        val behaviors = validateBehaviors(contract, definition, modules, entries, problems)
         validateGraph(contract, scenes, actions, endings, problems)
 
         val candidate = ValidatedPlayableWorldContract(
             contract,
             characterProfile,
+            behaviors,
             definition,
             scenes,
             actions,
@@ -604,6 +622,19 @@ object PlayableWorldValidator {
                     "Action CheckProfile is not declared: ${action.checkProfileId}",
                 )
             }
+            val requiredQuest = action.requiredQuestId?.let { questId ->
+                contract.adventureState?.quests?.firstOrNull { it.id == questId }
+            }
+            if ((action.requiredQuestId == null) != (action.requiredQuestStageId == null) ||
+                (action.requiredQuestId != null && requiredQuest == null) ||
+                (action.requiredQuestStageId != null && requiredQuest?.stages?.none { it.id == action.requiredQuestStageId } != false)
+            ) {
+                problems += problem(
+                    PlayableWorldProblemCode.ACTION_REQUIREMENT_INVALID,
+                    "$path.requiredQuestStageId",
+                    "Action quest requirement must reference one configured quest stage",
+                )
+            }
             if (check != null) {
                 val expected = check.outcomes.map { it.id }.toSet()
                 val actual = outcomeIds.toSet()
@@ -719,9 +750,15 @@ object PlayableWorldValidator {
     private fun validateBehaviors(
         contract: PlayableWorldContract,
         definition: ValidatedWorldDefinition,
+        modules: RegisteredWorldModules,
         entries: Map<String, ByteArray>,
         problems: MutableList<PlayableWorldProblem>,
-    ) {
+    ): List<ValidatedBehavior> {
+        val validatedBehaviors = mutableListOf<ValidatedBehavior>()
+        val allowedEventTypes = modules.capabilities(RuleCapabilityKind.EVENT).map { it.id }.toMutableSet().apply {
+            addAll(CORE_BEHAVIOR_EVENT_TYPES)
+        }
+        val commands = BehaviorCommandRegistry.forWorld(modules)
         duplicateIds(contract.behaviors.map(PlayableBehaviorReference::id), "behaviors", problems)
         contract.behaviors.forEachIndexed { index, reference ->
             val path = "behaviors[$index]"
@@ -749,8 +786,16 @@ object PlayableWorldValidator {
                             "Behavior entry declares ${decoded.behavior.id}, expected ${reference.id}",
                         )
                     }
-                    when (val validated = BehaviorValidator.validate(decoded.behavior, definition, emptyMap())) {
-                        is BehaviorValidationResult.Valid -> Unit
+                    when (
+                        val validated = BehaviorValidator.validate(
+                            decoded.behavior,
+                            definition,
+                            emptyMap(),
+                            commands,
+                            allowedEventTypes,
+                        )
+                    ) {
+                        is BehaviorValidationResult.Valid -> validatedBehaviors += validated.behavior
                         is BehaviorValidationResult.Invalid -> validated.problems.forEach { behaviorProblem ->
                             problems += problem(
                                 PlayableWorldProblemCode.BEHAVIOR_INVALID,
@@ -762,6 +807,9 @@ object PlayableWorldValidator {
                 }
             }
         }
+        return validatedBehaviors.sortedWith(
+            compareByDescending<ValidatedBehavior> { it.source.policy.priority }.thenBy { it.source.id.value },
+        )
     }
 
     private fun validateGraph(

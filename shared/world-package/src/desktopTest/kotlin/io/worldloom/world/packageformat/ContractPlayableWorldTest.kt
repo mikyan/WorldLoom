@@ -31,6 +31,7 @@ class ContractPlayableWorldTest {
             assertEquals(case.expectedGoldenEnding, result.endingId)
             assertTrue(result.trace.isNotEmpty())
             assertEquals(setOf(case.creationMode), assertNotNull(contract.characterProfile).source.modes)
+            assertEquals(3, contract.behaviors.size)
         }
     }
 

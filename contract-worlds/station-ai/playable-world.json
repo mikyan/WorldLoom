@@ -22,13 +22,14 @@
             "id": "station.scene.core",
             "label": "主反应堆控制层",
             "actionIds": [
-                "station.action.reroute-energy"
+                "station.action.reroute-energy",
+                "station.action.open-relay"
             ]
         },
         {
             "id": "station.scene.relay",
             "label": "外环中继节点",
-            "actionIds": []
+            "actionIds": ["station.action.return-core"]
         }
     ],
     "actions": [
@@ -56,6 +57,42 @@
                         ],
                         "endingId": "station.ending.degraded"
                     }
+                }
+            ]
+        },
+        {
+            "id": "station.action.open-relay",
+            "sceneId": "station.scene.core",
+            "label": "开启外环中继通道",
+            "requiredQuestId": "station.quest.restore-grid",
+            "requiredQuestStageId": "station.quest-stage.diagnose",
+            "resolutions": [
+                {
+                    "outcomeId": "station.outcome.stable",
+                    "kind": "SUCCESS",
+                    "progression": {"nextSceneId": "station.scene.relay"}
+                },
+                {
+                    "outcomeId": "station.outcome.degraded",
+                    "kind": "FAILURE",
+                    "progression": {"retryAllowed": true}
+                }
+            ]
+        },
+        {
+            "id": "station.action.return-core",
+            "sceneId": "station.scene.relay",
+            "label": "返回主反应堆控制层",
+            "resolutions": [
+                {
+                    "outcomeId": "station.outcome.stable",
+                    "kind": "SUCCESS",
+                    "progression": {"nextSceneId": "station.scene.core"}
+                },
+                {
+                    "outcomeId": "station.outcome.degraded",
+                    "kind": "FAILURE",
+                    "progression": {"retryAllowed": true}
                 }
             ]
         }
@@ -191,7 +228,11 @@
             {"endingId": "station.ending.degraded", "clockId": "station.clock.cascade", "minimumClockValue": 4}
         ]
     },
-    "behaviors": [],
+    "behaviors": [
+        {"id": "station.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
+        {"id": "station.behavior.quest-raises-cascade", "path": "behaviors/quest-raises-threat.json"},
+        {"id": "station.behavior.coolant-cycle-supply", "path": "behaviors/timed-supply.json"}
+    ],
     "goldenRoutes": [
         {
             "id": "station.route.golden",
