@@ -1,0 +1,24 @@
+{
+    "schemaVersion": 1,
+    "id": "station.character-profile.ai-core",
+    "modes": [
+        "POINT_BUY"
+    ],
+    "fields": [
+        {
+            "componentId": "station.capacity",
+            "fieldId": "station.energy",
+            "defaultValue": {
+                "kind": "integer",
+                "value": 70
+            },
+            "minimumInteger": 70,
+            "maximumInteger": 100,
+            "pointCostPerStep": 1
+        }
+    ],
+    "fixedOptions": [],
+    "templates": [],
+    "pointBuyBudget": 30,
+    "narrativeMaximumCharacters": 5000
+}

@@ -7,14 +7,55 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import io.worldloom.content.schema.CharacterCreationMode
+import io.worldloom.world.EventAppendResult
+import io.worldloom.world.EventEnvelope
+import io.worldloom.world.EventStore
+import io.worldloom.world.EventStoreError
+import io.worldloom.world.EventStoreErrorCode
+import io.worldloom.world.InMemoryEventStore
+import io.worldloom.world.RunId
 
 class ContractGameSessionTest {
+    @Test
+    fun rejectedConfirmationKeepsTheDraftAndPregameFacts() = runTest {
+        val source = WorldPackageSource(
+            resource("war-survival/manifest.json"),
+            mapOf(
+                "world.json" to resource("war-survival/world.json"),
+                "playable-world.json" to resource("war-survival/playable-world.json"),
+                "character-profile.json" to resource("war-survival/character-profile.json"),
+            ),
+        )
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(listOf(source)),
+        ).catalog
+        val store = RejectSecondAppendStore()
+        val session = DefaultGameSession(
+            catalog,
+            store,
+            SequentialSessionIdSource("reject-character"),
+            StandardTestDispatcher(testScheduler),
+        )
+
+        assertIs<LoadResult.Success>(session.load(catalog.entries.single().id))
+        val failure = assertIs<ActionResult.Failure>(session.confirmCharacter())
+
+        assertEquals(SessionErrorCode.EVENT_STORE_REJECTED, failure.error.code)
+        assertIs<GameSessionUiState.CharacterCreation>(session.state.value)
+        assertEquals(1, store.read(RunId("reject-character.run.1")).size)
+    }
+
     @Test
     fun bothContractWorldsExposeAndReplayTheirConfiguredCheck() = runTest {
         val sources = listOf("war-survival", "station-ai").map { directory ->
             WorldPackageSource(
                 manifestJson = resource("$directory/manifest.json"),
-                files = mapOf("world.json" to resource("$directory/world.json")),
+                files = mapOf(
+                    "world.json" to resource("$directory/world.json"),
+                    "playable-world.json" to resource("$directory/playable-world.json"),
+                    "character-profile.json" to resource("$directory/character-profile.json"),
+                ),
             )
         }
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -28,6 +69,14 @@ class ContractGameSessionTest {
                 workerDispatcher = StandardTestDispatcher(testScheduler),
             )
             assertIs<LoadResult.Success>(session.load(entry.id))
+            val creation = assertIs<GameSessionUiState.CharacterCreation>(session.state.value)
+            val expectedMode = if (entry.id.value.contains("war-survival")) {
+                CharacterCreationMode.FIXED
+            } else {
+                CharacterCreationMode.POINT_BUY
+            }
+            assertEquals(expectedMode, creation.presentation.selectedMode)
+            assertIs<ActionResult.Success>(session.confirmCharacter())
             val loaded = assertIs<GameSessionUiState.Ready>(session.state.value)
             val check = loaded.presentation.checks.single()
 
@@ -36,8 +85,8 @@ class ContractGameSessionTest {
             )
             val resolved = assertIs<GameSessionUiState.Ready>(session.state.value)
 
-            assertEquals(1, resolved.presentation.lastSequence)
-            assertTrue(resolved.presentation.timeline.single().summary.contains("检定"))
+            assertEquals(6, resolved.presentation.lastSequence)
+            assertTrue(resolved.presentation.timeline.any { it.summary.contains("检定") })
             assertIs<SessionReplayResult.Success>(session.replay())
             assertEquals(resolved.presentation, assertIs<GameSessionUiState.Ready>(session.state.value).presentation)
         }
@@ -45,4 +94,27 @@ class ContractGameSessionTest {
 
     private fun resource(path: String): String =
         assertNotNull(javaClass.classLoader.getResource(path), "Missing resource $path").readText()
+
+    private class RejectSecondAppendStore : EventStore {
+        private val delegate = InMemoryEventStore()
+        private var appendCount = 0
+
+        override suspend fun append(
+            runId: RunId,
+            expectedSequence: Long,
+            events: List<EventEnvelope>,
+        ): EventAppendResult {
+            appendCount += 1
+            return if (appendCount == 2) {
+                EventAppendResult.Failure(
+                    EventStoreError(EventStoreErrorCode.SEQUENCE_CONFLICT, "Injected confirmation failure"),
+                )
+            } else {
+                delegate.append(runId, expectedSequence, events)
+            }
+        }
+
+        override suspend fun read(runId: RunId, afterSequence: Long): List<EventEnvelope> =
+            delegate.read(runId, afterSequence)
+    }
 }

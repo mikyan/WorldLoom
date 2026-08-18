@@ -236,6 +236,7 @@ object CharacterCreationProfileValidator {
         CharacterProfileProblem(code, path, message)
 }
 
+@Serializable
 data class CharacterCreationRequest(
     val entityId: String,
     val mode: CharacterCreationMode,

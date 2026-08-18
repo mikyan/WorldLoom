@@ -4,6 +4,8 @@ import io.worldloom.definition.DefinitionId
 import io.worldloom.definition.WorldDefinition
 import io.worldloom.definition.WorldDefinitionCodec
 import io.worldloom.definition.WorldDefinitionDecodeResult
+import io.worldloom.definition.DefinitionValidationResult
+import io.worldloom.definition.WorldDefinitionValidator
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.rules.module.api.WorldManifest
 import io.worldloom.rules.module.api.WorldManifestCodec
@@ -11,6 +13,11 @@ import io.worldloom.rules.module.api.WorldManifestDecodeResult
 import io.worldloom.rules.module.registry.ModuleRegistrationResult
 import io.worldloom.rules.module.registry.RuleModuleRegistry
 import io.worldloom.rules.module.registry.StandardRuleModules
+import io.worldloom.world.packageformat.PlayableWorldContractCodec
+import io.worldloom.world.packageformat.PlayableWorldContractDecodeResult
+import io.worldloom.world.packageformat.PlayableWorldValidationResult
+import io.worldloom.world.packageformat.PlayableWorldValidator
+import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
 
 data class WorldCatalogEntry(
     val id: DefinitionId,
@@ -22,6 +29,7 @@ data class LoadedWorldPackage(
     val manifest: WorldManifest,
     val definition: WorldDefinition,
     val modules: RegisteredWorldModules,
+    val playableContract: ValidatedPlayableWorldContract? = null,
 )
 
 /** Serialized, declarative files from one world package. No executable code is accepted here. */
@@ -114,7 +122,53 @@ class StaticWorldCatalog private constructor(
                         manifest.worldDefinitionPath,
                     )
                 }
-                if (packages.put(definition.id, LoadedWorldPackage(manifest, definition, modules)) != null) {
+                val validatedDefinition = when (val validation = WorldDefinitionValidator.validate(definition)) {
+                    is DefinitionValidationResult.Valid -> validation.definition
+                    is DefinitionValidationResult.Invalid -> {
+                        val first = validation.problems.first()
+                        return StaticWorldCatalogResult.Failure(
+                            index,
+                            "world-package.definition.invalid",
+                            first.message,
+                            "${manifest.worldDefinitionPath}:${first.path}",
+                        )
+                    }
+                }
+                val playableContract = manifest.playableContractPath?.let { path ->
+                    val sourceText = source.files[path] ?: return StaticWorldCatalogResult.Failure(
+                        index,
+                        "world-package.playable_contract.missing",
+                        "Playable world contract file is missing: $path",
+                        path,
+                    )
+                    val contract = when (val decoded = PlayableWorldContractCodec.decode(sourceText)) {
+                        is PlayableWorldContractDecodeResult.Success -> decoded.contract
+                        is PlayableWorldContractDecodeResult.Failure -> return StaticWorldCatalogResult.Failure(
+                            index,
+                            "world-package.playable_contract.invalid",
+                            decoded.message,
+                            path,
+                        )
+                    }
+                    val entries = source.files.mapValues { it.value.encodeToByteArray() }
+                    when (val validation = PlayableWorldValidator.validate(contract, validatedDefinition, modules, entries)) {
+                        is PlayableWorldValidationResult.Valid -> validation.contract
+                        is PlayableWorldValidationResult.Invalid -> {
+                            val first = validation.problems.first()
+                            return StaticWorldCatalogResult.Failure(
+                                index,
+                                "world-package.playable_contract.${first.code.name.lowercase()}",
+                                first.message,
+                                "$path:${first.path}",
+                            )
+                        }
+                    }
+                }
+                if (packages.put(
+                        definition.id,
+                        LoadedWorldPackage(manifest, definition, modules, playableContract),
+                    ) != null
+                ) {
                     return StaticWorldCatalogResult.Failure(
                         sourceIndex = index,
                         code = "catalog.duplicate_world",

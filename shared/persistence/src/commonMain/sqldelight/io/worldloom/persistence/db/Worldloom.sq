@@ -22,6 +22,13 @@ CREATE TABLE state_snapshot (
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE character_creation_draft (
+    run_id TEXT NOT NULL PRIMARY KEY,
+    draft_schema_version INTEGER NOT NULL,
+    draft_json TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_session (
     run_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -176,6 +183,18 @@ selectSnapshot:
 SELECT run_id, sequence, state_schema_version, state_json
 FROM state_snapshot
 WHERE run_id = ?;
+
+upsertCharacterCreationDraft:
+INSERT OR REPLACE INTO character_creation_draft(run_id, draft_schema_version, draft_json)
+VALUES (?, ?, ?);
+
+selectCharacterCreationDraft:
+SELECT draft_schema_version, draft_json
+FROM character_creation_draft
+WHERE run_id = ?;
+
+deleteCharacterCreationDraft:
+DELETE FROM character_creation_draft WHERE run_id = ?;
 
 selectAgentSession:
 SELECT session_id, owner_agent_id, owner_actor_id, revision, messages_json, session_schema_version

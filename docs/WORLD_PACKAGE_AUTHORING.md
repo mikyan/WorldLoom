@@ -33,7 +33,7 @@ behaviors/               # 契约引用 Behavior 时按需提供
 
 契约必须包含：
 
-- `character`：`profilePath` 或 `prebuiltPlayerEntityId` 二选一；
+- `character`：`profilePath` 或 `prebuiltPlayerEntityId` 二选一；使用 Profile 时还必须提供指向 `initialEntities` 模板的稳定 `playerEntityId`；
 - `initialSceneId`：唯一开局场景；
 - `requiredModuleIds`：路线实际依赖且已在 manifest 启用的模块；
 - `scenes`：场景 ID、玩家标签和当前可用 Action；
@@ -84,4 +84,4 @@ JDK 17 或更高版本下运行：
 ./gradlew.bat :shared:world-package:desktopTest
 ```
 
-Unix 与 macOS 使用 `./gradlew`。内置战争世界当前只是可逐步填充的可玩契约骨架；角色生命周期、主持人回合、场景事件、通用冒险模块和完整短篇会在后续迭代依次接入。
+Unix 与 macOS 使用 `./gradlew`。角色生命周期、Profile 驱动建角、原子角色事件和草稿恢复已经接入；内置战争世界仍是可逐步填充的可玩契约骨架，主持人回合、场景事件、通用冒险模块和完整短篇会在后续迭代依次接入。

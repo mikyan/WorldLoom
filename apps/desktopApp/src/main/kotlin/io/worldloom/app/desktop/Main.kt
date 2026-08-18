@@ -14,6 +14,7 @@ import io.worldloom.application.WorldPackageSource
 import io.worldloom.ui.game.WorldloomApp
 import io.worldloom.persistence.DesktopPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
@@ -35,7 +36,11 @@ private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 fun main() {
     val catalog = loadContractWorldCatalog()
     val database = createDatabase()
-    val session = DefaultGameSession(catalog, eventStore = SqlDelightEventStore(database))
+    val session = DefaultGameSession(
+        catalog,
+        eventStore = SqlDelightEventStore(database),
+        characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+    )
     val dataDirectory = worldloomDataDirectory()
     val vault = createDesktopCredentialVault(dataDirectory.resolve("credentials"))
     val providerClient = createOpenAiHttpClient()
@@ -102,7 +107,11 @@ private fun loadContractWorldCatalog(): StaticWorldCatalog {
     val sources = CONTRACT_WORLD_DIRECTORIES.map { directory ->
         WorldPackageSource(
             manifestJson = classLoader.readResource("$directory/manifest.json"),
-            files = mapOf("world.json" to classLoader.readResource("$directory/world.json")),
+            files = mapOf(
+                "world.json" to classLoader.readResource("$directory/world.json"),
+                "playable-world.json" to classLoader.readResource("$directory/playable-world.json"),
+                "character-profile.json" to classLoader.readResource("$directory/character-profile.json"),
+            ),
         )
     }
     return when (val result = StaticWorldCatalog.fromPackageSources(sources)) {

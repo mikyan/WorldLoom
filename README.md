@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成十六轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础，以及用于内置剧本验收的 `playable-world/v1` 可玩世界契约。
+> 项目已经完成十七轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础、`playable-world/v1` 可玩世界契约，以及从建角到正式开局的权威 Run 生命周期。
 
 ## 产品方向
 
@@ -25,7 +25,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [十五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [十七轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -81,6 +81,8 @@ docs/
 ```
 
 当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool/Behavior → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI 适配器支持流式文本与工具调用，Provider 设置可在运行时切换并持久化，但供应商 DTO 不进入领域层。
+
+选择内置世界后，新 Run 会经过 `CREATED → CHARACTER_CREATION → ACTIVE`：战争契约使用固定角色，空间站契约使用点数分配，同一共享 UI 从 Profile 生成表单。角色确认以一个原子 Event 批次创建玩家 Entity、初始组件和开局场景；未确认草稿独立持久化，可在重启后继续，且不会提前成为世界事实。
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 

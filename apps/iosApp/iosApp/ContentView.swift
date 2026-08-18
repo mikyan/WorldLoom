@@ -6,7 +6,9 @@ struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         MainViewControllerKt.MainViewController(
             manifestSources: loadContractSources(fileName: "manifest.json"),
-            worldSources: loadContractSources(fileName: "world.json")
+            worldSources: loadContractSources(fileName: "world.json"),
+            playableSources: loadContractSources(fileName: "playable-world.json"),
+            characterProfileSources: loadContractSources(fileName: "character-profile.json")
         )
     }
 

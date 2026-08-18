@@ -47,6 +47,7 @@ class ContractAgentToolTest {
                 workerDispatcher = StandardTestDispatcher(testScheduler),
             )
             assertIs<LoadResult.Success>(session.load(DefinitionId(case.worldId)))
+            assertIs<io.worldloom.application.ActionResult.Success>(session.confirmCharacter())
             val provider = ContractProvider(case.profileId)
             val result = AgentRuntime(provider, DefaultAgentToolGateway(session)).run(
                 AgentRunRequest(
@@ -64,14 +65,18 @@ class ContractAgentToolTest {
             assertIs<AgentRunResult.Completed>(result)
             assertTrue(provider.requests.first().tools.any { it.name == RESOLVE_CHECK_TOOL_ID.value })
             val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
-            assertEquals(1, ready.presentation.lastSequence)
-            assertEquals(1, ready.presentation.timeline.size)
+            assertEquals(6, ready.presentation.lastSequence)
+            assertTrue(ready.presentation.timeline.isNotEmpty())
         }
     }
 
     private fun loadPackage(directory: String): WorldPackageSource = WorldPackageSource(
         manifestJson = resourceText("$directory/manifest.json"),
-        files = mapOf("world.json" to resourceText("$directory/world.json")),
+        files = mapOf(
+            "world.json" to resourceText("$directory/world.json"),
+            "playable-world.json" to resourceText("$directory/playable-world.json"),
+            "character-profile.json" to resourceText("$directory/character-profile.json"),
+        ),
     )
 
     private fun resourceText(path: String): String =

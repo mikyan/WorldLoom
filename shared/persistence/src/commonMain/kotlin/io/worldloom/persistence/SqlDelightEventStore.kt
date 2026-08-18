@@ -35,11 +35,19 @@ class SqlDelightEventStore(
                     "Run already exists: ${initialState.runId.value}",
                 )
             }
-            queries.insertRun(
-                initialState.runId.value,
-                initialState.worldDefinitionId.value,
-                CURRENT_SAVE_DATA_SCHEMA_VERSION.toLong(),
-            )
+            database.transaction {
+                queries.insertRun(
+                    initialState.runId.value,
+                    initialState.worldDefinitionId.value,
+                    CURRENT_SAVE_DATA_SCHEMA_VERSION.toLong(),
+                )
+                queries.upsertSnapshot(
+                    run_id = initialState.runId.value,
+                    sequence = initialState.lastSequence,
+                    state_schema_version = CURRENT_STATE_SNAPSHOT_SCHEMA_VERSION.toLong(),
+                    state_json = PersistenceCodec.encodeState(initialState),
+                )
+            }
             DurableStoreWriteResult.Success
         } catch (_: Exception) {
             durableFailure(DurableStoreErrorCode.STORAGE_FAILURE, "Unable to initialize the persistent run")

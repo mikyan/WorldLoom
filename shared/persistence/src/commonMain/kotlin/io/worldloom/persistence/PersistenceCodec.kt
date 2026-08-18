@@ -5,6 +5,11 @@ import io.worldloom.world.EventEnvelope
 import io.worldloom.world.GameEventPayload
 import io.worldloom.world.GameState
 import io.worldloom.world.NumericComponentAdjustedEvent
+import io.worldloom.world.PlayerComponentInitializedEvent
+import io.worldloom.world.PlayerEnteredInitialSceneEvent
+import io.worldloom.world.PlayerEntityCreatedEvent
+import io.worldloom.world.RunLifecycleChangedEvent
+import io.worldloom.application.CharacterCreationDraft
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -30,6 +35,10 @@ object PersistenceCodec {
             polymorphic(GameEventPayload::class) {
                 subclass(NumericComponentAdjustedEvent::class)
                 subclass(CheckResolvedEvent::class)
+                subclass(RunLifecycleChangedEvent::class)
+                subclass(PlayerEntityCreatedEvent::class)
+                subclass(PlayerComponentInitializedEvent::class)
+                subclass(PlayerEnteredInitialSceneEvent::class)
             }
         }
         classDiscriminator = "kind"
@@ -46,6 +55,11 @@ object PersistenceCodec {
     fun encodeState(state: GameState): String = json.encodeToString(state)
 
     fun decodeState(source: String): PersistenceDecodeResult<GameState> = decode("state", source)
+
+    fun encodeCharacterDraft(draft: CharacterCreationDraft): String = json.encodeToString(draft)
+
+    fun decodeCharacterDraft(source: String): PersistenceDecodeResult<CharacterCreationDraft> =
+        decode("character_draft", source)
 
     private inline fun <reified T> decode(
         label: String,

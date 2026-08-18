@@ -84,25 +84,24 @@ class DefaultGameSessionTest {
     }
 
     @Test
-    fun invalidWorldFailsBeforeCreatingAState() = runTest {
+    fun invalidWorldIsRejectedByTheCatalogBoundary() = runTest {
         val invalid = worldSource().copy(schemaVersion = 999)
-        val catalog = catalog(invalid)
-        val session = DefaultGameSession(
-            catalog = catalog,
-            workerDispatcher = StandardTestDispatcher(testScheduler),
-        )
+        val result = StaticWorldCatalog.fromPackageSources(listOf(packageSource(invalid)))
 
-        val failure = assertIs<LoadResult.Failure>(session.load(catalog.entries.single().id))
-
-        assertEquals(SessionErrorCode.INVALID_WORLD_DEFINITION, failure.error.code)
-        assertIs<GameSessionUiState.Failed>(session.state.value)
+        assertIs<StaticWorldCatalogResult.Failure>(result)
     }
 
     private fun catalog(vararg definitions: WorldDefinition): StaticWorldCatalog =
         assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(
                 definitions.map { definition ->
-                    WorldPackageSource(
+                    packageSource(definition)
+                },
+            ),
+        ).catalog
+
+    private fun packageSource(definition: WorldDefinition): WorldPackageSource =
+        WorldPackageSource(
                         manifestJson = WorldManifestCodec.encode(
                             WorldManifest(
                                 schemaVersion = CURRENT_WORLD_MANIFEST_SCHEMA_VERSION,
@@ -123,9 +122,6 @@ class DefaultGameSessionTest {
                         ),
                         files = mapOf("world.json" to WorldDefinitionCodec.encode(definition)),
                     )
-                },
-            ),
-        ).catalog
 
     companion object {
         fun worldSource(

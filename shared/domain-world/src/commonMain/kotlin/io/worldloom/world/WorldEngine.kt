@@ -1,6 +1,13 @@
 package io.worldloom.world
 
 object WorldEngine {
+    fun requiredEventCount(command: ValidatedCommand): Int = when (command) {
+        is ValidatedCommand.AdjustNumericComponent,
+        is ValidatedCommand.ChangeRunLifecycle,
+        -> 1
+        is ValidatedCommand.CreatePlayerCharacter -> command.payload.entity.components.size + 3
+    }
+
     /**
      * Produces facts from a validated command. Event identity is supplied explicitly so the
      * authoritative engine never consults system time, a UUID generator, or implicit randomness.
@@ -8,10 +15,21 @@ object WorldEngine {
     fun handle(
         command: ValidatedCommand,
         eventId: EventId,
-    ): List<EventEnvelope> =
-        when (command) {
-            is ValidatedCommand.AdjustNumericComponent -> listOf(command.toEvent(eventId))
+    ): List<EventEnvelope> = handle(command, listOf(eventId))
+
+    fun handle(
+        command: ValidatedCommand,
+        eventIds: List<EventId>,
+    ): List<EventEnvelope> {
+        require(eventIds.size == requiredEventCount(command)) {
+            "Expected ${requiredEventCount(command)} event IDs, received ${eventIds.size}"
         }
+        return when (command) {
+            is ValidatedCommand.AdjustNumericComponent -> listOf(command.toEvent(eventIds.single()))
+            is ValidatedCommand.ChangeRunLifecycle -> listOf(command.toEvent(eventIds.single()))
+            is ValidatedCommand.CreatePlayerCharacter -> command.toEvents(eventIds)
+        }
+    }
 
     private fun ValidatedCommand.AdjustNumericComponent.toEvent(eventId: EventId): EventEnvelope =
         EventEnvelope(
@@ -30,4 +48,44 @@ object WorldEngine {
                 newValue = newValue,
             ),
         )
+
+    private fun ValidatedCommand.ChangeRunLifecycle.toEvent(eventId: EventId): EventEnvelope =
+        event(
+            eventId = eventId,
+            sequenceOffset = 1,
+            payload = RunLifecycleChangedEvent(previousLifecycle = previousLifecycle, lifecycle = payload.lifecycle),
+        )
+
+    private fun ValidatedCommand.CreatePlayerCharacter.toEvents(eventIds: List<EventId>): List<EventEnvelope> {
+        val payloads = buildList {
+            add(PlayerEntityCreatedEvent(entityId = entityId, profileId = payload.profileId))
+            payload.entity.components
+                .sortedBy { it.definitionId.value }
+                .forEach { add(PlayerComponentInitializedEvent(entityId = entityId, component = it)) }
+            add(PlayerEnteredInitialSceneEvent(entityId = entityId, sceneId = payload.initialSceneId))
+            add(
+                RunLifecycleChangedEvent(
+                    previousLifecycle = RunLifecycle.CHARACTER_CREATION,
+                    lifecycle = RunLifecycle.ACTIVE,
+                ),
+            )
+        }
+        return payloads.mapIndexed { index, eventPayload ->
+            event(eventIds[index], index + 1L, eventPayload)
+        }
+    }
+
+    private fun ValidatedCommand.event(
+        eventId: EventId,
+        sequenceOffset: Long,
+        payload: GameEventPayload,
+    ): EventEnvelope = EventEnvelope(
+        schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+        eventId = eventId,
+        runId = envelope.runId,
+        sequence = envelope.expectedSequence + sequenceOffset,
+        causationId = envelope.commandId,
+        correlationId = envelope.correlationId ?: envelope.commandId.value,
+        payload = payload,
+    )
 }

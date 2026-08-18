@@ -10,13 +10,13 @@
 
 ## 17. 跑团创建与角色创建
 
-- [ ] 17.1 定义版本化 Run 生命周期 `CREATED → CHARACTER_CREATION → ACTIVE → COMPLETED/ABANDONED` 及合法状态转换
-- [ ] 17.2 定义角色创建请求、Command、Event、玩家 Entity 和初始组件批次的 Schema、权限与幂等语义
-- [ ] 17.3 实现 `CharacterCreationCoordinator`，从固定世界版本读取 Profile/Definition、校验选择并提交权威创建 Command
-- [ ] 17.4 实现 Definition/Preset 驱动的共享角色创建 UI，支持固定角色、模板和点数模式；叙事输入只作为可选候选生成路径
-- [ ] 17.5 让 WorldEngine 原子生成角色创建 Events，并由 Reducer/EventLog 唯一重建初始 GameState
-- [ ] 17.6 持久化创建中状态与已确认 Run，覆盖退出恢复、重复确认、事件追加失败和旧存档兼容
-- [ ] 17.7 为两个契约世界配置不同的创建 Profile，验证 Runtime、UI 与存档均无需题材分支
+- [x] 17.1 定义版本化 Run 生命周期 `CREATED → CHARACTER_CREATION → ACTIVE → COMPLETED/ABANDONED` 及合法状态转换
+- [x] 17.2 定义角色创建请求、Command、Event、玩家 Entity 和初始组件批次的 Schema、权限与幂等语义
+- [x] 17.3 实现 `CharacterCreationCoordinator`，从固定世界版本读取 Profile/Definition、校验选择并提交权威创建 Command
+- [x] 17.4 实现 Definition/Preset 驱动的共享角色创建 UI，支持固定角色、模板和点数模式；叙事输入只作为可选候选生成路径
+- [x] 17.5 让 WorldEngine 原子生成角色创建 Events，并由 Reducer/EventLog 唯一重建初始 GameState
+- [x] 17.6 持久化创建中状态与已确认 Run，覆盖退出恢复、重复确认、事件追加失败和旧存档兼容
+- [x] 17.7 为两个契约世界配置不同的创建 Profile，验证 Runtime、UI 与存档均无需题材分支
 
 ## 18. 主持人 Agent 与游戏回合编排
 

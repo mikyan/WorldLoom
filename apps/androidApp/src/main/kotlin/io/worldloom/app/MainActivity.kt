@@ -16,6 +16,7 @@ import io.worldloom.platform.credentials.AndroidKeystoreCredentialVault
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.persistence.AndroidPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
         val session = DefaultGameSession(
             catalog = loadContractWorldCatalog(),
             eventStore = SqlDelightEventStore(database),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
         )
         val vault = AndroidKeystoreCredentialVault(applicationContext)
         val client = createOpenAiHttpClient()
@@ -79,7 +81,11 @@ class MainActivity : ComponentActivity() {
         val sources = CONTRACT_WORLD_DIRECTORIES.map { directory ->
             WorldPackageSource(
                 manifestJson = readAsset("$directory/manifest.json"),
-                files = mapOf("world.json" to readAsset("$directory/world.json")),
+                files = mapOf(
+                    "world.json" to readAsset("$directory/world.json"),
+                    "playable-world.json" to readAsset("$directory/playable-world.json"),
+                    "character-profile.json" to readAsset("$directory/character-profile.json"),
+                ),
             )
         }
         return when (val result = StaticWorldCatalog.fromPackageSources(sources)) {

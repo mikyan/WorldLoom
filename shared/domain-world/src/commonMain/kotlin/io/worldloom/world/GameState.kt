@@ -8,6 +8,24 @@ import io.worldloom.definition.ValidatedWorldDefinition
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class RunLifecycle {
+    CREATED,
+    CHARACTER_CREATION,
+    ACTIVE,
+    COMPLETED,
+    ABANDONED,
+}
+
+object RunLifecycleTransitions {
+    fun allows(from: RunLifecycle, to: RunLifecycle): Boolean = when (from) {
+        RunLifecycle.CREATED -> to in setOf(RunLifecycle.CHARACTER_CREATION, RunLifecycle.ABANDONED)
+        RunLifecycle.CHARACTER_CREATION -> to in setOf(RunLifecycle.ACTIVE, RunLifecycle.ABANDONED)
+        RunLifecycle.ACTIVE -> to in setOf(RunLifecycle.COMPLETED, RunLifecycle.ABANDONED)
+        RunLifecycle.COMPLETED, RunLifecycle.ABANDONED -> false
+    }
+}
+
+@Serializable
 data class ComponentInstance(
     val definitionId: DefinitionId,
     val fields: Map<DefinitionId, TypedValue>,
@@ -32,6 +50,10 @@ data class GameState(
     val entities: Map<EntityId, EntityState>,
     val variables: Map<DefinitionId, TypedValue>,
     val moduleStates: Map<DefinitionId, ModuleState>,
+    /** Defaults preserve snapshots created before explicit Run lifecycle events existed. */
+    val lifecycle: RunLifecycle = RunLifecycle.ACTIVE,
+    val playerEntityId: EntityId? = null,
+    val currentSceneId: DefinitionId? = null,
 )
 
 object InitialGameStateFactory {
@@ -52,6 +74,21 @@ object InitialGameStateFactory {
             variables = emptyMap(),
             moduleStates = emptyMap(),
         )
+
+    /** Creates the immutable base for a Run whose player Entity must be produced by authoritative Events. */
+    fun createForCharacterCreation(
+        definition: ValidatedWorldDefinition,
+        runId: RunId,
+        playerEntityId: EntityId,
+    ): GameState {
+        val base = create(definition, runId)
+        return base.copy(
+            entities = base.entities - playerEntityId,
+            lifecycle = RunLifecycle.CREATED,
+            playerEntityId = null,
+            currentSceneId = null,
+        )
+    }
 
     private fun EntitySeed.toState(entityId: EntityId): EntityState =
         EntityState(

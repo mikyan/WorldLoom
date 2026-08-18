@@ -12,6 +12,7 @@ import io.worldloom.application.WorldPackageSource
 import platform.UIKit.UIViewController
 import io.worldloom.persistence.IosPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.db.WorldloomDatabase
@@ -29,14 +30,26 @@ import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
 fun MainViewController(
     manifestSources: List<String>,
     worldSources: List<String>,
+    playableSources: List<String>,
+    characterProfileSources: List<String>,
 ): UIViewController {
-    require(manifestSources.size == worldSources.size) { "Manifest and world source counts must match" }
-    val catalog = loadCatalog(manifestSources.zip(worldSources))
+    require(
+        listOf(worldSources, playableSources, characterProfileSources).all { it.size == manifestSources.size },
+    ) { "Contract world source counts must match" }
+    val catalog = loadCatalog(manifestSources.indices.map { index ->
+        ContractSources(
+            manifestSources[index],
+            worldSources[index],
+            playableSources[index],
+            characterProfileSources[index],
+        )
+    })
     val driver = IosPersistenceDriverFactory().create()
     val database = WorldloomDatabase(driver)
     val session = DefaultGameSession(
         catalog,
         eventStore = SqlDelightEventStore(database),
+        characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
     )
     val vault = IosKeychainCredentialVault()
     val providerClient = createOpenAiHttpClient()
@@ -68,11 +81,25 @@ fun MainViewController(
     }
 }
 
-private fun loadCatalog(sources: List<Pair<String, String>>): StaticWorldCatalog =
+private data class ContractSources(
+    val manifest: String,
+    val world: String,
+    val playable: String,
+    val characterProfile: String,
+)
+
+private fun loadCatalog(sources: List<ContractSources>): StaticWorldCatalog =
     when (
         val result = StaticWorldCatalog.fromPackageSources(
-            sources.map { (manifest, world) ->
-                WorldPackageSource(manifest, mapOf("world.json" to world))
+            sources.map { source ->
+                WorldPackageSource(
+                    source.manifest,
+                    mapOf(
+                        "world.json" to source.world,
+                        "playable-world.json" to source.playable,
+                        "character-profile.json" to source.characterProfile,
+                    ),
+                )
             },
         )
     ) {

@@ -5,6 +5,7 @@ import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.EntityId
 import io.worldloom.world.RunId
+import io.worldloom.world.RunLifecycle
 import kotlinx.coroutines.flow.StateFlow
 
 data class PresentedField(
@@ -43,6 +44,7 @@ enum class SessionErrorCode {
     EVENT_STORE_REJECTED,
     REPLAY_REJECTED,
     CHECK_REJECTED,
+    CHARACTER_CREATION_REJECTED,
     PERSISTENCE_REJECTED,
 }
 
@@ -61,6 +63,10 @@ sealed interface GameSessionUiState {
         val presentation: GamePresentation,
         val notice: SessionError? = null,
     ) : GameSessionUiState
+
+    data class CharacterCreation(val presentation: CharacterCreationPresentation) : GameSessionUiState
+
+    data class Ended(val worldId: DefinitionId, val lifecycle: RunLifecycle) : GameSessionUiState
 
     data class Failed(val error: SessionError) : GameSessionUiState
 }
@@ -124,6 +130,15 @@ interface GameSession {
     suspend fun load(worldId: DefinitionId): LoadResult
 
     suspend fun resume(worldId: DefinitionId, runId: RunId): LoadResult
+
+    suspend fun updateCharacter(request: io.worldloom.content.schema.CharacterCreationRequest): ActionResult =
+        ActionResult.Failure(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Character creation is unavailable"))
+
+    suspend fun confirmCharacter(): ActionResult =
+        ActionResult.Failure(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Character creation is unavailable"))
+
+    suspend fun abandonCharacter(): ActionResult =
+        ActionResult.Failure(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Character creation is unavailable"))
 
     suspend fun perform(action: GameSessionAction): ActionResult
 

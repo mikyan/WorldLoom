@@ -8,6 +8,7 @@ import io.worldloom.content.schema.CharacterCreationProfileCodec
 import io.worldloom.content.schema.CharacterCreationProfileDecodeResult
 import io.worldloom.content.schema.CharacterCreationProfileValidator
 import io.worldloom.content.schema.CharacterProfileValidationResult
+import io.worldloom.content.schema.ValidatedCharacterCreationProfile
 import io.worldloom.definition.CheckResolutionMode
 import io.worldloom.definition.DefinitionId
 import io.worldloom.definition.ValidatedWorldDefinition
@@ -23,6 +24,8 @@ const val PLAYABLE_WORLD_CONTRACT_SCHEMA_V1: String = "worldloom.playable-world/
 @Serializable
 data class PlayableCharacterEntry(
     val profilePath: String? = null,
+    /** Stable player Entity template selected by the world package for profile-based creation. */
+    val playerEntityId: String? = null,
     val prebuiltPlayerEntityId: String? = null,
 )
 
@@ -143,6 +146,8 @@ enum class PlayableWorldProblemCode {
     CHARACTER_PROFILE_MISSING,
     CHARACTER_PROFILE_INVALID,
     PREBUILT_PLAYER_UNKNOWN,
+    PLAYER_ENTITY_MISSING,
+    PLAYER_ENTITY_UNKNOWN,
     REQUIRED_MODULE_MISSING,
     DUPLICATE_ID,
     BLANK_LABEL,
@@ -201,6 +206,7 @@ sealed interface PlayableRouteSimulationResult {
 @ConsistentCopyVisibility
 data class ValidatedPlayableWorldContract internal constructor(
     val source: PlayableWorldContract,
+    val characterProfile: ValidatedCharacterCreationProfile?,
     private val definition: ValidatedWorldDefinition,
     private val scenesById: Map<DefinitionId, PlayableScene>,
     private val actionsById: Map<DefinitionId, PlayableAction>,
@@ -249,7 +255,7 @@ object PlayableWorldValidator {
             )
         }
 
-        validateCharacter(contract.character, definition, entries, problems)
+        val characterProfile = validateCharacter(contract.character, definition, entries, problems)
         validateRequiredModules(contract, modules, problems)
 
         val scenes = index(contract.scenes, PlayableScene::id, "scenes", problems)
@@ -274,6 +280,7 @@ object PlayableWorldValidator {
 
         val candidate = ValidatedPlayableWorldContract(
             contract,
+            characterProfile,
             definition,
             scenes,
             actions,
@@ -308,14 +315,15 @@ object PlayableWorldValidator {
         definition: ValidatedWorldDefinition,
         entries: Map<String, ByteArray>,
         problems: MutableList<PlayableWorldProblem>,
-    ) {
+    ): ValidatedCharacterCreationProfile? {
+        var validatedProfile: ValidatedCharacterCreationProfile? = null
         if (character.profilePath == null && character.prebuiltPlayerEntityId == null) {
             problems += problem(
                 PlayableWorldProblemCode.MISSING_CHARACTER_ENTRY,
                 "character",
                 "A character profile or prebuilt player is required",
             )
-            return
+            return null
         }
         if (character.profilePath != null && character.prebuiltPlayerEntityId != null) {
             problems += problem(
@@ -330,6 +338,22 @@ object PlayableWorldValidator {
                     PlayableWorldProblemCode.PREBUILT_PLAYER_UNKNOWN,
                     "character.prebuiltPlayerEntityId",
                     "Prebuilt player entity is not initialized: $entityId",
+                )
+            }
+        }
+        if (character.profilePath != null && character.playerEntityId == null) {
+            problems += problem(
+                PlayableWorldProblemCode.PLAYER_ENTITY_MISSING,
+                "character.playerEntityId",
+                "Profile-based character creation requires a stable player Entity ID",
+            )
+        }
+        character.playerEntityId?.let { entityId ->
+            if (definition.source.initialEntities.none { it.entityId == entityId }) {
+                problems += problem(
+                    PlayableWorldProblemCode.PLAYER_ENTITY_UNKNOWN,
+                    "character.playerEntityId",
+                    "Player Entity template is not initialized: $entityId",
                 )
             }
         }
@@ -353,7 +377,7 @@ object PlayableWorldValidator {
                 is CharacterCreationProfileDecodeResult.Success -> when (
                     val validated = CharacterCreationProfileValidator.validate(decoded.profile, definition)
                 ) {
-                    is CharacterProfileValidationResult.Valid -> Unit
+                    is CharacterProfileValidationResult.Valid -> validatedProfile = validated.profile
                     is CharacterProfileValidationResult.Invalid -> validated.problems.forEach { profileProblem ->
                         problems += problem(
                             PlayableWorldProblemCode.CHARACTER_PROFILE_INVALID,
@@ -364,6 +388,7 @@ object PlayableWorldValidator {
                 }
             }
         }
+        return validatedProfile
     }
 
     private fun validateRequiredModules(

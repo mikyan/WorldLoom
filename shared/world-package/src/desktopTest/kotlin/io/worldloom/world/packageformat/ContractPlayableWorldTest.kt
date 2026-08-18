@@ -6,6 +6,7 @@ import io.worldloom.definition.WorldDefinitionDecodeResult
 import io.worldloom.rules.module.api.WorldManifestCodec
 import io.worldloom.rules.module.api.WorldManifestDecodeResult
 import io.worldloom.rules.module.registry.StandardRuleModules
+import io.worldloom.content.schema.CharacterCreationMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -16,8 +17,8 @@ class ContractPlayableWorldTest {
     @Test
     fun warAndStationUseTheSamePlayableContractLoader() {
         val cases = listOf(
-            ContractCase("war-survival", 3, DefinitionId("war.ending.hopeful")),
-            ContractCase("station-ai", 1, DefinitionId("station.ending.stable")),
+            ContractCase("war-survival", 3, DefinitionId("war.ending.hopeful"), CharacterCreationMode.FIXED),
+            ContractCase("station-ai", 1, DefinitionId("station.ending.stable"), CharacterCreationMode.POINT_BUY),
         )
 
         cases.forEach { case ->
@@ -29,6 +30,7 @@ class ContractPlayableWorldTest {
             val result = assertIs<PlayableRouteSimulationResult.Complete>(contract.simulate(routes.first().id))
             assertEquals(case.expectedGoldenEnding, result.endingId)
             assertTrue(result.trace.isNotEmpty())
+            assertEquals(setOf(case.creationMode), assertNotNull(contract.characterProfile).source.modes)
         }
     }
 
@@ -84,5 +86,6 @@ class ContractPlayableWorldTest {
         val directory: String,
         val routeCount: Int,
         val expectedGoldenEnding: DefinitionId,
+        val creationMode: CharacterCreationMode,
     )
 }

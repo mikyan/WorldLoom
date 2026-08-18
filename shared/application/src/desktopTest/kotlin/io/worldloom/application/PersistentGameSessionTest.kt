@@ -2,7 +2,10 @@ package io.worldloom.application
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.worldloom.definition.DefinitionId
+import io.worldloom.definition.IntegerValue
+import io.worldloom.content.schema.CharacterValueAssignment
 import io.worldloom.persistence.SqlDelightEventStore
+import io.worldloom.persistence.SqlDelightCharacterCreationDraftStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.rules.CheckResolvedEvent
 import io.worldloom.rules.DiceRandomRequest
@@ -19,11 +22,83 @@ import kotlin.test.assertNotNull
 
 class PersistentGameSessionTest {
     @Test
+    fun resumesAnInProgressDraftAndConfirmsItExactlyOnce() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(
+                listOf(
+                    WorldPackageSource(
+                        resource("station-ai/manifest.json"),
+                        contractFiles("station-ai"),
+                    ),
+                ),
+            ),
+        ).catalog
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val drafts = SqlDelightCharacterCreationDraftStore(database)
+        val first = DefaultGameSession(
+            catalog,
+            SqlDelightEventStore(database),
+            SequentialSessionIdSource("draft"),
+            StandardTestDispatcher(testScheduler),
+            characterDraftStore = drafts,
+        )
+        val worldId = DefinitionId("contract.station-ai")
+        assertIs<LoadResult.Success>(first.load(worldId))
+        val creating = assertIs<GameSessionUiState.CharacterCreation>(first.state.value).presentation
+        assertIs<ActionResult.Success>(
+            first.updateCharacter(
+                creating.request(
+                    values = listOf(
+                        CharacterValueAssignment(
+                            creating.fields.single().componentId,
+                            creating.fields.single().fieldId,
+                            IntegerValue(75),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resumedStore = SqlDelightEventStore(WorldloomDatabase(driver))
+        val resumed = DefaultGameSession(
+            catalog,
+            resumedStore,
+            SequentialSessionIdSource("draft"),
+            StandardTestDispatcher(testScheduler),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
+        )
+        val runId = RunId("draft.run.1")
+        assertIs<LoadResult.Success>(resumed.resume(worldId, runId))
+        val restored = assertIs<GameSessionUiState.CharacterCreation>(resumed.state.value).presentation
+        assertEquals(IntegerValue(75), restored.fields.single().value)
+        assertIs<ActionResult.Success>(resumed.confirmCharacter())
+        assertEquals(5, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
+        assertEquals(5, resumedStore.read(runId).size)
+        assertIs<ActionResult.Success>(resumed.confirmCharacter())
+        assertEquals(5, resumedStore.read(runId).size)
+        assertEquals(null, drafts.load(runId))
+
+        val afterCommitRestart = DefaultGameSession(
+            catalog,
+            SqlDelightEventStore(WorldloomDatabase(driver)),
+            SequentialSessionIdSource("draft"),
+            StandardTestDispatcher(testScheduler),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
+        )
+        assertIs<LoadResult.Success>(afterCommitRestart.resume(worldId, runId))
+        assertIs<ActionResult.Success>(afterCommitRestart.confirmCharacter())
+        assertEquals(5, resumedStore.read(runId).size)
+        driver.close()
+    }
+
+    @Test
     fun bothContractWorldsPersistAndResumeThroughTheSameSessionPath() = runTest {
         val sources = listOf("war-survival", "station-ai").map { directory ->
             WorldPackageSource(
                 manifestJson = resource("$directory/manifest.json"),
-                files = mapOf("world.json" to resource("$directory/world.json")),
+                files = contractFiles(directory),
             )
         }
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -31,7 +106,9 @@ class PersistentGameSessionTest {
         ).catalog
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         WorldloomDatabase.Schema.create(driver).value
-        val store = SqlDelightEventStore(WorldloomDatabase(driver))
+        val database = WorldloomDatabase(driver)
+        val store = SqlDelightEventStore(database)
+        val drafts = SqlDelightCharacterCreationDraftStore(database)
 
         catalog.entries.forEachIndexed { index, entry ->
             val prefix = "contract-save-$index"
@@ -41,8 +118,11 @@ class PersistentGameSessionTest {
                 idSource = SequentialSessionIdSource(prefix),
                 workerDispatcher = StandardTestDispatcher(testScheduler),
                 snapshotInterval = 1,
+                characterDraftStore = drafts,
             )
             assertIs<LoadResult.Success>(session.load(entry.id))
+            assertIs<GameSessionUiState.CharacterCreation>(session.state.value)
+            assertIs<ActionResult.Success>(session.confirmCharacter())
             val check = assertIs<GameSessionUiState.Ready>(session.state.value).presentation.checks.single()
             assertIs<ActionResult.Success>(session.perform(GameSessionAction.ResolvePresentedCheck(check.presentationId)))
 
@@ -52,9 +132,10 @@ class PersistentGameSessionTest {
                 idSource = SequentialSessionIdSource(prefix),
                 workerDispatcher = StandardTestDispatcher(testScheduler),
                 snapshotInterval = 1,
+                characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
             )
             assertIs<LoadResult.Success>(resumed.resume(entry.id, RunId("$prefix.run.1")))
-            assertEquals(1, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
+            assertEquals(6, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
         }
         driver.close()
     }
@@ -73,9 +154,11 @@ class PersistentGameSessionTest {
             workerDispatcher = StandardTestDispatcher(testScheduler),
             randomServiceFactory = { SeededRandomService(123) },
             snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
         )
         val worldId = DefinitionId("contract.war-survival")
         assertIs<LoadResult.Success>(firstSession.load(worldId))
+        assertIs<ActionResult.Success>(firstSession.confirmCharacter())
         val firstCheck = assertIs<GameSessionUiState.Ready>(firstSession.state.value).presentation.checks.single()
         assertIs<ActionResult.Success>(
             firstSession.perform(GameSessionAction.ResolvePresentedCheck(firstCheck.presentationId)),
@@ -89,18 +172,19 @@ class PersistentGameSessionTest {
             workerDispatcher = StandardTestDispatcher(testScheduler),
             randomServiceFactory = { SeededRandomService(123) },
             snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
         )
         assertIs<LoadResult.Success>(resumedSession.resume(worldId, runId))
         val resumed = assertIs<GameSessionUiState.Ready>(resumedSession.state.value)
-        assertEquals(1, resumed.presentation.lastSequence)
+        assertEquals(6, resumed.presentation.lastSequence)
         assertIs<ActionResult.Success>(
             resumedSession.perform(
                 GameSessionAction.ResolvePresentedCheck(resumed.presentation.checks.single().presentationId),
             ),
         )
 
-        val records = recreatedStore.read(runId).map { event ->
-            assertIs<CheckResolvedEvent>(event.payload).record.randomRecord
+        val records = recreatedStore.read(runId).mapNotNull { event ->
+            (event.payload as? CheckResolvedEvent)?.record?.randomRecord
         }.map { assertNotNull(it) }
         val expectedService = SeededRandomService(123)
         val expected = listOf("first", "second").map { suffix ->
@@ -111,14 +195,14 @@ class PersistentGameSessionTest {
 
         assertEquals(2, records.map { it.id }.toSet().size)
         assertEquals(expected, records.map { it.results })
-        assertEquals(2, assertIs<GameSessionUiState.Ready>(resumedSession.state.value).presentation.lastSequence)
+        assertEquals(7, assertIs<GameSessionUiState.Ready>(resumedSession.state.value).presentation.lastSequence)
         driver.close()
     }
 
     private fun catalog(): StaticWorldCatalog {
         val source = WorldPackageSource(
             manifestJson = resource("war-survival/manifest.json"),
-            files = mapOf("world.json" to resource("war-survival/world.json")),
+            files = contractFiles("war-survival"),
         )
         return assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(listOf(source)),
@@ -127,4 +211,10 @@ class PersistentGameSessionTest {
 
     private fun resource(path: String): String =
         assertNotNull(javaClass.classLoader.getResource(path), "Missing resource $path").readText()
+
+    private fun contractFiles(directory: String): Map<String, String> = mapOf(
+        "world.json" to resource("$directory/world.json"),
+        "playable-world.json" to resource("$directory/playable-world.json"),
+        "character-profile.json" to resource("$directory/character-profile.json"),
+    )
 }

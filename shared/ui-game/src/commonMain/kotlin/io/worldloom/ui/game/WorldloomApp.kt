@@ -40,12 +40,17 @@ import androidx.compose.ui.unit.sp
 import io.worldloom.agent.runtime.GameAgentController
 import io.worldloom.agent.runtime.GameAgentState
 import io.worldloom.application.GamePresentation
+import io.worldloom.application.CharacterCreationPresentation
+import io.worldloom.application.request
 import io.worldloom.application.GameSession
 import io.worldloom.application.GameSessionAction
 import io.worldloom.application.GameSessionUiState
 import io.worldloom.application.LoadResult
 import io.worldloom.application.SessionError
 import io.worldloom.application.WorldCatalogEntry
+import io.worldloom.content.schema.CharacterCreationMode
+import io.worldloom.content.schema.CharacterValueAssignment
+import io.worldloom.definition.IntegerValue
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.CredentialConfigurationState
 import io.worldloom.provider.api.ProviderConfiguration
@@ -120,11 +125,125 @@ fun WorldloomApp(
                         agentController = agentController,
                     )
 
+                    is GameSessionUiState.CharacterCreation -> CharacterCreationState(
+                        presentation = current.presentation,
+                        onUpdate = { request -> scope.launch { session.updateCharacter(request) } },
+                        onConfirm = { scope.launch { session.confirmCharacter() } },
+                    )
+
+                    is GameSessionUiState.Ended -> EmptyState("本次游戏已${if (current.lifecycle.name == "COMPLETED") "完成" else "放弃"}。")
+
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun CharacterCreationState(
+    presentation: CharacterCreationPresentation,
+    onUpdate: (io.worldloom.content.schema.CharacterCreationRequest) -> Unit,
+    onConfirm: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Text("创建角色", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${presentation.profileId} · 确认后进入主持人回合",
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
+            )
+        }
+        presentation.notice?.let { notice -> item { EmptyState(notice.message, isError = true) } }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(presentation.modes, key = { it.name }) { mode ->
+                    Button(
+                        onClick = { onUpdate(presentation.request(mode = mode, optionId = null)) },
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = if (mode == presentation.selectedMode) {
+                                MaterialTheme.colors.primary
+                            } else {
+                                MaterialTheme.colors.secondary
+                            },
+                        ),
+                    ) { Text(modeLabel(mode)) }
+                }
+            }
+        }
+        if (presentation.options.isNotEmpty()) {
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(presentation.options, key = { it.id.value }) { option ->
+                        Button(
+                            onClick = { onUpdate(presentation.request(optionId = option.id)) },
+                        ) { Text(option.label) }
+                    }
+                }
+            }
+        }
+        items(presentation.fields, key = { "${it.componentId}:${it.fieldId}" }) { field ->
+            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(field.fieldId.value, fontWeight = FontWeight.SemiBold)
+                        Text(field.value.toString(), color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f))
+                    }
+                    if (presentation.selectedMode == CharacterCreationMode.POINT_BUY && field.value is IntegerValue) {
+                        Button(onClick = { onUpdate(presentation.withInteger(field.fieldId, -1)) }) { Text("−") }
+                        Button(onClick = { onUpdate(presentation.withInteger(field.fieldId, 1)) }) { Text("+") }
+                    }
+                }
+            }
+        }
+        if (presentation.selectedMode == CharacterCreationMode.NARRATIVE) {
+            item {
+                OutlinedTextField(
+                    value = presentation.narrativeBackground,
+                    onValueChange = { onUpdate(presentation.request(narrativeBackground = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("角色背景") },
+                )
+            }
+        }
+        item {
+            val budget = presentation.pointBuyBudget
+            if (budget != null) Text("点数：${presentation.pointsSpent} / $budget")
+            presentation.problems.firstOrNull()?.let { Text(it.message, color = MaterialTheme.colors.error) }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onConfirm, enabled = presentation.problems.isEmpty()) { Text("确认角色并开始游戏") }
+        }
+    }
+}
+
+private fun CharacterCreationPresentation.withInteger(
+    fieldId: io.worldloom.definition.DefinitionId,
+    delta: Long,
+): io.worldloom.content.schema.CharacterCreationRequest {
+    val values = fields.map { field ->
+        val current = field.value
+        val value = if (field.fieldId == fieldId && current is IntegerValue) {
+            IntegerValue((current.value + delta).coerceIn(field.minimumInteger ?: Long.MIN_VALUE, field.maximumInteger ?: Long.MAX_VALUE))
+        } else {
+            current
+        }
+        CharacterValueAssignment(field.componentId, field.fieldId, value)
+    }
+    return request(values = values)
+}
+
+private fun modeLabel(mode: CharacterCreationMode): String = when (mode) {
+    CharacterCreationMode.FIXED -> "固定角色"
+    CharacterCreationMode.TEMPLATE -> "角色模板"
+    CharacterCreationMode.POINT_BUY -> "点数分配"
+    CharacterCreationMode.NARRATIVE -> "叙事背景"
 }
 
 @Composable

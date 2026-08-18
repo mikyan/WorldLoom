@@ -60,6 +60,7 @@ class OpenAiAgentVerticalSliceTest {
             idSource = SequentialSessionIdSource("provider-e2e"),
         )
         assertIs<LoadResult.Success>(session.load(catalog.entries.single().id))
+        assertIs<io.worldloom.application.ActionResult.Success>(session.confirmCharacter())
         val controller = DefaultGameAgentController(
             runtime = AgentRuntime(provider, DefaultAgentToolGateway(session)),
             gameSession = session,
@@ -71,12 +72,12 @@ class OpenAiAgentVerticalSliceTest {
         assertTrue(agentState is GameAgentState.Completed, agentState.toString())
         assertEquals("能源已降低。", agentState.text)
         val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
-        assertEquals(70, ready.presentation.fields.single().value)
-        assertEquals(1, ready.presentation.lastSequence)
-        assertEquals(1, ready.presentation.timeline.size)
+        assertEquals(60, ready.presentation.fields.single().value)
+        assertEquals(6, ready.presentation.lastSequence)
+        assertTrue(ready.presentation.timeline.isNotEmpty())
         assertEquals(2, requests.size)
         assertTrue(requests[1].contains("\"role\":\"tool\""))
-        assertTrue(requests[1].contains("70"))
+        assertTrue(requests[1].contains("60"))
         assertFalse(requests.any { it.contains("fixture-secret") })
     }
 
@@ -84,9 +85,20 @@ class OpenAiAgentVerticalSliceTest {
         val loader = checkNotNull(Thread.currentThread().contextClassLoader)
         val manifest = checkNotNull(loader.getResource("station-ai/manifest.json")).readText()
         val world = checkNotNull(loader.getResource("station-ai/world.json")).readText()
+        val playable = checkNotNull(loader.getResource("station-ai/playable-world.json")).readText()
+        val profile = checkNotNull(loader.getResource("station-ai/character-profile.json")).readText()
         return assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(
-                listOf(WorldPackageSource(manifest, mapOf("world.json" to world))),
+                listOf(
+                    WorldPackageSource(
+                        manifest,
+                        mapOf(
+                            "world.json" to world,
+                            "playable-world.json" to playable,
+                            "character-profile.json" to profile,
+                        ),
+                    ),
+                ),
             ),
         ).catalog
     }

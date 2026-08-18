@@ -35,6 +35,7 @@ kotlin {
         commonMain.dependencies {
             api(projects.shared.domainRules)
             api(projects.shared.agentRuntime)
+            implementation(projects.shared.application)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.sqldelight.runtime)
