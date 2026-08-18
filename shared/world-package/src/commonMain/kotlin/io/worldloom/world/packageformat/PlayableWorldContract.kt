@@ -47,6 +47,7 @@ private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.schedule.fired"),
     DefinitionId("worldloom.event.adventure-ending.reached"),
     DefinitionId("worldloom.event.npc.public-action"),
+    DefinitionId("worldloom.event.npc.addressed"),
 )
 
 @Serializable

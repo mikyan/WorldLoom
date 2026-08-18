@@ -192,8 +192,13 @@ class NpcSceneOrchestrator(
             val current = gameSession.commandContext()
                 ?: return@withLock GameTurnFollowUpResult.Failed("NPC Run context disappeared")
             val profile = current.npcProfiles.firstOrNull { it.id == work.npcId }
+            val sourceEvent = gameSession.committedEvents(work.sourceSequence - 1, work.sourceSequence)
+                .firstOrNull { it.eventId == work.sourceEventId }
+            val directedToProfile = sourceEvent?.targetNpcId == profile?.id
             if (profile == null || profile.entityId !in current.currentSceneParticipantIds ||
-                work.eventType !in profile.wakeEventTypes || work.sceneId != current.currentSceneId
+                sourceEvent == null ||
+                (!directedToProfile && work.eventType !in profile.wakeEventTypes) ||
+                work.sceneId != current.currentSceneId
             ) {
                 update(work, work.copy(status = NpcWorkStatus.SKIPPED, revision = work.revision + 1))
                 continue
@@ -209,7 +214,9 @@ class NpcSceneOrchestrator(
             val trigger = NpcTrigger(
                 id = work.sourceEventId,
                 kind = work.eventType.value,
-                input = "处理当前场景中序列 ${work.sourceSequence} 的已提交事件。公开反应必须调用获准的 NPC 工具。",
+                input = sourceEvent.publicInput?.let { playerInput ->
+                    "玩家只对你说：$playerInput\n如需公开回应，必须调用获准的 NPC 工具。"
+                } ?: "处理当前场景中序列 ${work.sourceSequence} 的已提交事件。公开反应必须调用获准的 NPC 工具。",
                 sourceSequence = work.sourceSequence,
                 sourceEventIds = setOf(work.sourceEventId),
                 relatedEntityIds = current.currentSceneParticipantIds.mapTo(mutableSetOf()) { it.value },
@@ -259,7 +266,10 @@ class NpcSceneOrchestrator(
     private suspend fun enqueue(event: SessionCommittedEvent, profiles: List<SessionNpcProfile>, runId: RunId) {
         val sceneId = event.sceneId ?: return
         profiles.asSequence()
-            .filter { event.eventType in it.wakeEventTypes && it.entityId in event.participantIds }
+            .filter { profile ->
+                profile.entityId in event.participantIds &&
+                    (event.targetNpcId?.let { it == profile.id } ?: (event.eventType in profile.wakeEventTypes))
+            }
             .sortedBy { it.id.value }
             .take(policy.maxWakesPerEvent)
             .forEach { profile ->

@@ -27,11 +27,39 @@ import io.worldloom.world.EventEnvelope
 import io.worldloom.world.EventId
 import io.worldloom.world.GameState
 import io.worldloom.world.RunId
+import io.worldloom.world.EntityId
+import io.worldloom.world.NpcAddressedEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class PersistenceCodecTest {
+    @Test
+    fun roundTripsDirectedNpcDialogueEvent() {
+        val event = EventEnvelope(
+            schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+            eventId = EventId("event.dialogue.1"),
+            runId = RunId("run.dialogue"),
+            sequence = 1,
+            causationId = CommandId("command.dialogue.1"),
+            correlationId = "command.dialogue.1",
+            payload = NpcAddressedEvent(
+                targetNpcId = DefinitionId("test.npc.guide"),
+                targetEntityId = EntityId("npc-guide"),
+                sceneId = DefinitionId("test.scene.room"),
+                content = "What did you see?",
+                idempotencyKey = "dialogue.call.1",
+            ),
+        )
+
+        assertEquals(
+            event,
+            assertIs<PersistenceDecodeResult.Success<EventEnvelope>>(
+                PersistenceCodec.decodeEvent(PersistenceCodec.encodeEvent(event)),
+            ).value,
+        )
+    }
+
     @Test
     fun roundTripsEveryAdventureStateEvent() {
         val payloads = listOf(

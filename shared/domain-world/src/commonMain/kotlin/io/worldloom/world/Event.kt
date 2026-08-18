@@ -11,6 +11,8 @@ const val CURRENT_RUN_LIFECYCLE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_SCENE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION: Int = 1
+const val CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION: Int = 1
+val NPC_ADDRESSED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.addressed")
 
 @Polymorphic
 interface GameEventPayload
@@ -96,6 +98,17 @@ data class NpcPublicActionPublishedEvent(
     val kind: NpcPublicActionKind,
     val actionId: DefinitionId? = null,
     val content: String,
+) : GameEventPayload
+
+@Serializable
+@SerialName("npc-addressed")
+data class NpcAddressedEvent(
+    val schemaVersion: Int = CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION,
+    val targetNpcId: DefinitionId,
+    val targetEntityId: EntityId,
+    val sceneId: DefinitionId,
+    val content: String,
+    val idempotencyKey: String,
 ) : GameEventPayload
 
 @Serializable

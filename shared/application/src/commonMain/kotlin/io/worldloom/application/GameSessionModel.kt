@@ -100,7 +100,10 @@ data class PresentedScene(
     val participantIds: List<EntityId>,
     val actions: List<PresentedAction>,
     val description: String? = null,
+    val addressableNpcs: List<PresentedNpc> = emptyList(),
 )
+
+data class PresentedNpc(val id: DefinitionId, val entityId: EntityId, val displayName: String)
 
 data class PresentedAction(val id: DefinitionId, val label: String)
 
@@ -168,6 +171,7 @@ sealed interface GameSessionAction {
     data class PerformActivity(val activityId: DefinitionId) : GameSessionAction
 
     data class Travel(val routeId: DefinitionId) : GameSessionAction
+
 }
 
 /** Typed application boundary used by UI and Agent tools before commands enter the world engine. */
@@ -232,6 +236,12 @@ sealed interface GameSessionCommand {
         val actionId: DefinitionId? = null,
         val content: String,
     ) : GameSessionCommand
+
+    data class AddressNpc(
+        val npcId: DefinitionId,
+        val content: String,
+        val idempotencyKey: String,
+    ) : GameSessionCommand
 }
 
 data class SessionCommandContext(
@@ -270,6 +280,8 @@ data class SessionCommittedEvent(
     val eventType: DefinitionId,
     val sceneId: DefinitionId?,
     val participantIds: Set<EntityId>,
+    val targetNpcId: DefinitionId? = null,
+    val publicInput: String? = null,
 )
 
 /** Explicitly public NPC Tool output; private model text and memory are never represented here. */

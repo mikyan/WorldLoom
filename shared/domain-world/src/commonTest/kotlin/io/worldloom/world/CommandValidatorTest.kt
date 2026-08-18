@@ -65,4 +65,76 @@ class CommandValidatorTest {
 
         assertEquals(CommandValidationErrorCode.SEQUENCE_CONFLICT, invalid.error.code)
     }
+
+    @Test
+    fun validatesCurrentSceneNpcAddressAndReplaysItsPublicEvent() {
+        val world = testWorld(namespace = "dialogue")
+        val runId = RunId("run.dialogue")
+        val sceneId = io.worldloom.definition.DefinitionId("dialogue.scene.room")
+        val npcId = io.worldloom.definition.DefinitionId("dialogue.npc.guide")
+        val state = InitialGameStateFactory.create(world.definition, runId).copy(
+            lifecycle = RunLifecycle.ACTIVE,
+            playerEntityId = world.entityId,
+            currentSceneId = sceneId,
+            sceneParticipantIds = setOf(world.entityId),
+        )
+        val actorId = ActorId("system.player")
+        val envelope = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = CommandId("command.dialogue.1"),
+            runId = runId,
+            actorId = actorId,
+            expectedSequence = 0,
+            payload = AddressNpcCommand(
+                targetNpcId = npcId,
+                targetEntityId = world.entityId,
+                sceneId = sceneId,
+                content = "  Tell me what happened.  ",
+                idempotencyKey = "dialogue.turn.1",
+            ),
+        )
+
+        val valid = assertIs<CommandValidationResult.Valid>(
+            CommandValidator.validate(
+                state,
+                world.definition,
+                CommandAuthorization(actorId, setOf(CommandPermission.ADDRESS_NPC)),
+                envelope,
+                npcAddressPolicy = NpcAddressCommandPolicy(npcId, world.entityId, sceneId),
+            ),
+        )
+        val event = WorldEngine.handle(valid.command, EventId("event.dialogue.1")).single()
+        val payload = assertIs<NpcAddressedEvent>(event.payload)
+        assertEquals("Tell me what happened.", payload.content)
+        assertEquals(
+            1,
+            assertIs<StateReductionResult.Success>(StateReducer.reduce(state, world.definition, event)).state.lastSequence,
+        )
+
+        val outside = assertIs<CommandValidationResult.Invalid>(
+            CommandValidator.validate(
+                state.copy(sceneParticipantIds = emptySet()),
+                world.definition,
+                CommandAuthorization(actorId, setOf(CommandPermission.ADDRESS_NPC)),
+                envelope,
+                npcAddressPolicy = NpcAddressCommandPolicy(npcId, world.entityId, sceneId),
+            ),
+        )
+        assertEquals(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, outside.error.code)
+        val tooLong = envelope.copy(
+            payload = (envelope.payload as AddressNpcCommand).copy(content = "x".repeat(501)),
+        )
+        assertEquals(
+            CommandValidationErrorCode.NPC_ADDRESS_MISMATCH,
+            assertIs<CommandValidationResult.Invalid>(
+                CommandValidator.validate(
+                    state,
+                    world.definition,
+                    CommandAuthorization(actorId, setOf(CommandPermission.ADDRESS_NPC)),
+                    tooLong,
+                    npcAddressPolicy = NpcAddressCommandPolicy(npcId, world.entityId, sceneId),
+                ),
+            ).error.code,
+        )
+    }
 }

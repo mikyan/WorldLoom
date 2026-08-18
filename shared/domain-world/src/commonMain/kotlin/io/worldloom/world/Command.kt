@@ -11,6 +11,7 @@ const val CURRENT_RUN_LIFECYCLE_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION: Int = 1
+const val CURRENT_ADDRESS_NPC_COMMAND_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameCommandPayload
@@ -68,6 +69,18 @@ data class PublishNpcActionCommand(
     val content: String,
 ) : GameCommandPayload
 
+/** Player-visible speech addressed to one configured NPC in the current scene. */
+@Serializable
+@SerialName("address-npc")
+data class AddressNpcCommand(
+    val schemaVersion: Int = CURRENT_ADDRESS_NPC_COMMAND_SCHEMA_VERSION,
+    val targetNpcId: DefinitionId,
+    val targetEntityId: EntityId,
+    val sceneId: DefinitionId,
+    val content: String,
+    val idempotencyKey: String,
+) : GameCommandPayload
+
 @Serializable
 data class CommandEnvelope(
     val schemaVersion: Int,
@@ -94,6 +107,7 @@ enum class CommandPermission {
     UPDATE_QUEST,
     ADVANCE_PROGRESS_CLOCK,
     PUBLISH_NPC_ACTION,
+    ADDRESS_NPC,
 }
 
 data class CommandAuthorization(

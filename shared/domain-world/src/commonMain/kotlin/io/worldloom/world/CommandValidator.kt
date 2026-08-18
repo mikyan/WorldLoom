@@ -34,6 +34,8 @@ enum class CommandValidationErrorCode {
     ACTION_OUTCOME_MISMATCH,
     NPC_ACTION_POLICY_REQUIRED,
     NPC_ACTION_MISMATCH,
+    NPC_ADDRESS_POLICY_REQUIRED,
+    NPC_ADDRESS_MISMATCH,
     CURRENT_SCENE_MISMATCH,
     PARTICIPANT_NOT_FOUND,
     UNSUPPORTED_COMMAND_PAYLOAD,
@@ -83,6 +85,11 @@ sealed interface ValidatedCommand {
         override val envelope: CommandEnvelope,
         val payload: PublishNpcActionCommand,
     ) : ValidatedCommand
+
+    data class AddressNpc(
+        override val envelope: CommandEnvelope,
+        val payload: AddressNpcCommand,
+    ) : ValidatedCommand
 }
 
 /** Pinned world/profile references supplied by application after package validation. */
@@ -110,6 +117,13 @@ data class NpcPublicActionCommandPolicy(
     val sceneId: DefinitionId,
     val allowedActionIds: Set<DefinitionId>,
     val canSpeak: Boolean,
+)
+
+/** Exact addressable NPC identity pinned by the validated world package and current scene. */
+data class NpcAddressCommandPolicy(
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
 )
 
 /** Shared envelope checks used before dispatching a payload to its owning module validator. */
@@ -163,6 +177,7 @@ object CommandValidator {
         characterCreationPolicy: CharacterCreationCommandPolicy? = null,
         actionOutcomePolicy: ActionOutcomeCommandPolicy? = null,
         npcPublicActionPolicy: NpcPublicActionCommandPolicy? = null,
+        npcAddressPolicy: NpcAddressCommandPolicy? = null,
     ): CommandValidationResult {
         CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
             return CommandValidationResult.Invalid(it)
@@ -193,12 +208,60 @@ object CommandValidator {
                 payload,
                 npcPublicActionPolicy,
             )
+            is AddressNpcCommand -> validateNpcAddress(
+                state,
+                authorization,
+                envelope,
+                payload,
+                npcAddressPolicy,
+            )
             else -> invalid(
                 CommandValidationErrorCode.UNSUPPORTED_COMMAND_PAYLOAD,
                 "payload",
                 "Command payload is not handled by the core world validator",
             )
         }
+    }
+
+    private fun validateNpcAddress(
+        state: GameState,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+        payload: AddressNpcCommand,
+        policy: NpcAddressCommandPolicy?,
+    ): CommandValidationResult {
+        if (CommandPermission.ADDRESS_NPC !in authorization.permissions) {
+            return invalid(CommandValidationErrorCode.PERMISSION_DENIED, "payload", "Actor cannot address NPCs")
+        }
+        if (payload.schemaVersion != CURRENT_ADDRESS_NPC_COMMAND_SCHEMA_VERSION) {
+            return invalid(CommandValidationErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC address schema")
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return invalid(CommandValidationErrorCode.RUN_LIFECYCLE_INVALID, "payload", "NPC dialogue requires an ACTIVE Run")
+        }
+        val expected = policy ?: return invalid(
+            CommandValidationErrorCode.NPC_ADDRESS_POLICY_REQUIRED,
+            "payload",
+            "Validated NPC address policy is required",
+        )
+        if (
+            payload.targetNpcId != expected.npcId ||
+            payload.targetEntityId != expected.entityId ||
+            payload.sceneId != expected.sceneId ||
+            payload.sceneId != state.currentSceneId ||
+            payload.targetEntityId !in state.sceneParticipantIds ||
+            payload.targetEntityId !in state.entities
+        ) {
+            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload", "NPC is not addressable in the current scene")
+        }
+        val content = payload.content.trim()
+        if (content.length !in 1..500) {
+            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload.content", "Player dialogue must contain 1 to 500 characters")
+        }
+        if (!payload.idempotencyKey.isStableIdempotencyKey()) {
+            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload.idempotencyKey", "NPC dialogue idempotency key is invalid")
+        }
+        return CommandValidationResult.Valid(ValidatedCommand.AddressNpc(envelope, payload.copy(content = content)))
     }
 
     private fun validateNpcPublicAction(
@@ -590,3 +653,6 @@ object CommandValidator {
         message: String,
     ): CommandValidationError = CommandValidationError(code, path, message)
 }
+
+internal fun String.isStableIdempotencyKey(): Boolean =
+    length in 1..160 && first().isLetterOrDigit() && all { it.isLetterOrDigit() || it in "._:-" }

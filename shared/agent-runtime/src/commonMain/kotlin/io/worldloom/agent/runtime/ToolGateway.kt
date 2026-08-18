@@ -40,6 +40,7 @@ val QUEST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.quest.advance")
 val PROGRESS_CLOCK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.progress-clock.advance")
 val NPC_SPEAK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.speak")
 val NPC_ACT_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.act")
+val NPC_ADDRESS_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.address")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -248,6 +249,12 @@ class DefaultAgentToolGateway(
                 content = call.requireString("content"),
             )
 
+            NPC_ADDRESS_TOOL_ID.value -> GameSessionCommand.AddressNpc(
+                npcId = DefinitionId(call.requireString("npcId")),
+                content = call.requireString("content"),
+                idempotencyKey = call.id,
+            )
+
             else -> return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
@@ -260,18 +267,22 @@ class DefaultAgentToolGateway(
         ) {
             ActionResult.Success -> {
                 val committedThrough = session.commandContext()?.lastSequence ?: before.presentation.lastSequence
-                when (
-                    val followUps = followUpDispatcher.dispatch(
+                val worldChanged = committedThrough > before.presentation.lastSequence
+                val followUps = if (worldChanged) {
+                    followUpDispatcher.dispatch(
                         GameTurnFollowUpRequest(
                             runId = context.runId,
                             afterSequence = before.presentation.lastSequence,
                             committedThroughSequence = committedThrough,
                         ),
                     )
-                ) {
+                } else {
+                    GameTurnFollowUpResult.Completed()
+                }
+                when (followUps) {
                     is GameTurnFollowUpResult.Completed -> ToolInvocationResult.Success(
-                        successOutput(followUps.publicResults, identity, context),
-                        worldChanged = true,
+                        successOutput(followUps.publicResults, identity, context, worldChanged),
+                        worldChanged = worldChanged,
                     )
                     is GameTurnFollowUpResult.Failed -> ToolInvocationResult.Failure(
                         ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, followUps.message),
@@ -299,12 +310,13 @@ class DefaultAgentToolGateway(
         publicFollowUps: List<PublicFollowUp>,
         identity: AgentIdentity,
         context: SessionCommandContext,
+        worldChanged: Boolean,
     ): String {
         val ready = session.state.value as? GameSessionUiState.Ready
         val npcProfile = context.npcProfiles.firstOrNull { it.actorId == identity.actorId }
         return buildJsonObject {
             put("status", "success")
-            put("worldChanged", true)
+            put("worldChanged", worldChanged)
             ready?.presentation?.let { presentation ->
                 put("lastSequence", presentation.lastSequence)
                 put("visibleFields", buildJsonArray {
@@ -364,6 +376,8 @@ private data class StandardAgentTool(
     } else if (capabilityId == NPC_ACT_TOOL_ID) {
         context.npcProfiles.any { it.actorId == identity.actorId && it.publicActionIds.isNotEmpty() &&
             it.entityId in currentParticipants(context) }
+    } else if (capabilityId == NPC_ADDRESS_TOOL_ID) {
+        context.npcProfiles.any { it.canSpeak && it.entityId in currentParticipants(context) }
     } else {
         enabledByManifest(context.modules)
     }
@@ -466,6 +480,11 @@ private data class StandardAgentTool(
         NPC_ACT_TOOL_ID -> definition.withAllowed(
             "actionId",
             context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.publicActionIds.orEmpty().map { it.value },
+        )
+        NPC_ADDRESS_TOOL_ID -> definition.withAllowed(
+            "npcId",
+            context.npcProfiles.filter { it.canSpeak && it.entityId in currentParticipants(context) }
+                .map { it.id.value },
         )
 
         else -> definition
@@ -674,6 +693,18 @@ private object StandardAgentTools {
         ),
         StandardAgentTool(
             definition = ProviderToolDefinition(
+                name = NPC_ADDRESS_TOOL_ID.value,
+                description = "Address one dialogue-enabled NPC who is present in the current scene.",
+                parameters = listOf(
+                    stringParameter("npcId", "Current-scene NPC identifier."),
+                    stringParameter("content", "Player-visible speech, 1 to 500 characters."),
+                ),
+            ),
+            capabilityId = NPC_ADDRESS_TOOL_ID,
+            permission = CommandPermission.ADDRESS_NPC,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
                 name = NPC_ACT_TOOL_ID.value,
                 description = "Publish one whitelisted NPC scene action as an auditable public event.",
                 parameters = listOf(
@@ -854,6 +885,18 @@ private fun validateIdentifiers(
                 val actionId = DefinitionId(call.requireString("actionId"))
                 if (actionId !in npc.publicActionIds) return "NPC action is not whitelisted"
                 if (call.requireString("content").trim().length !in 1..500) return "NPC public content is outside the supported range"
+            }
+
+            NPC_ADDRESS_TOOL_ID.value -> {
+                val npcId = DefinitionId(call.requireString("npcId"))
+                val npc = context.npcProfiles.firstOrNull { it.id == npcId }
+                    ?: return "Tool target is not a configured NPC"
+                if (!npc.canSpeak || npc.entityId !in context.currentSceneParticipantIds) {
+                    return "Tool target is not addressable in the current scene"
+                }
+                if (call.requireString("content").trim().length !in 1..500) {
+                    return "Player dialogue is outside the supported range"
+                }
             }
         }
         null

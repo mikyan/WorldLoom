@@ -18,12 +18,12 @@
 
 ## 28. 玩家定向与 NPC 对话交互
 
-- [ ] 28.1 定义版本化 `AddressNpcCommand/Event`、公开文本限制、幂等键和 NPC 对话触发类型
-- [ ] 28.2 在 Validator、WorldEngine、Reducer/EventLog 与 Session 中实现当前场景目标校验和原子玩家发言提交
-- [ ] 28.3 为 GM/玩家注册动态 `npc.address` Tool，只暴露当前场景允许交互的 NPC ID
-- [ ] 28.4 扩展 NPC 调度器以 `EventId + targetNpcId` 只唤醒目标 NPC，并让公开响应继续经过 `npc.speak`/`npc.act`
-- [ ] 28.5 在共享 UI 增加 NPC 选择与对话输入，保持自然语言主输入和无 NPC 状态可用
-- [ ] 28.6 添加场景外目标、超长文本、重复提交、多 NPC 隔离、存档恢复、重放和跨题材测试
+- [x] 28.1 定义版本化 `AddressNpcCommand/Event`、公开文本限制、幂等键和 NPC 对话触发类型
+- [x] 28.2 在 Validator、WorldEngine、Reducer/EventLog 与 Session 中实现当前场景目标校验和原子玩家发言提交
+- [x] 28.3 为 GM/玩家注册动态 `npc.address` Tool，只暴露当前场景允许交互的 NPC ID
+- [x] 28.4 扩展 NPC 调度器以 `EventId + targetNpcId` 只唤醒目标 NPC，并让公开响应继续经过 `npc.speak`/`npc.act`
+- [x] 28.5 在共享 UI 增加 NPC 选择与对话输入，保持自然语言主输入和无 NPC 状态可用
+- [x] 28.6 添加场景外目标、超长文本、重复提交、多 NPC 隔离、存档恢复、重放和跨题材测试
 
 ## 29. NPC 对话记忆、知识揭示与隐私边界
 

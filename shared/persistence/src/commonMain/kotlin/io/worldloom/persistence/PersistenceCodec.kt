@@ -13,6 +13,7 @@ import io.worldloom.world.ActionOutcomeAppliedEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
+import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.application.CharacterCreationDraft
 import io.worldloom.agent.runtime.GameTurn
 import io.worldloom.rules.ActivityCompletedEvent
@@ -72,6 +73,7 @@ object PersistenceCodec {
                 subclass(ProgressClockAdvancedEvent::class)
                 subclass(AdventureEndingReachedEvent::class)
                 subclass(NpcPublicActionPublishedEvent::class)
+                subclass(NpcAddressedEvent::class)
             }
         }
         classDiscriminator = "kind"

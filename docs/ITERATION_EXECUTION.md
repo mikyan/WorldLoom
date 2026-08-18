@@ -1,6 +1,6 @@
 # Worldloom 迭代执行与验收记录
 
-文档状态：Alpha candidate 3.1<br>
+文档状态：Alpha candidate 3.2<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
@@ -53,6 +53,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 25. 封闭 Alpha 加固 | 增加 Fake 主持人完整旅程、故障注入矩阵、秘密/题材审计、版本与 Schema 清单、Android/Desktop Release 构建和 artifact hash；修复 NPC 公开事件无法写入 SQL 的多态字段冲突 | 启动至结局跨进程旅程、Provider 断网/限流、工具/事务/磁盘/坏 Snapshot 恢复、公开回放隐私、全仓门禁、发行产物和 iOS 交接 |
 | 26. 主持人回合历史 | 将 GM Turn 升级为 v2 公开表现记录，增加输出/错误/恢复分类、权威事件证据范围、Run 内稳定 ordinal、内存与 SQL 分页及安全历史投影；migration 8 兼容旧 Turn | 旧 v1 迁移、分页/最近回合、跨 Run 隔离、损坏 JSON、未来事件引用隔离、原始 Provider 错误脱敏和数据库迁移验证 |
 | 27. 回合恢复与继续体验 | 启动扫描遗留 GM Turn，按 EventLog 边界区分安全重试和只读补叙述；v3 Turn 记录请求类型/父 Turn，控制器与共享 UI 恢复分页主持对话和可操作错误 | 工具前/后中断、重复扫描、新 TurnId 重试、无工具补叙述、取消持久化、证据越界、历史损坏以及 Desktop/iOS/Android 编译 |
+| 28. 定向 NPC 对话 | 增加 `AddressNpcCommand/Event`、动态 `npc.address`、当前场景角色选择和目标 NPC 工作调度；玩家发言与 NPC 工具回应均进入公开 EventLog | 场景外目标、500 字限制、幂等重复、多 NPC 记忆隔离、重放、`war-survival`/`station-ai` 动态目标和三端编译 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -111,4 +112,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-第 28–33 轮继续补齐定向 NPC 对话、主持连续性、场景引导、快速继续和第二内置世界。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。
+第 29–33 轮继续补齐 NPC 知识揭示、主持连续性、场景引导、快速继续和第二内置世界。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。

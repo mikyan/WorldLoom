@@ -2,6 +2,10 @@ package io.worldloom.agent.runtime
 
 import io.worldloom.application.GameSession
 import io.worldloom.application.GameSessionUiState
+import io.worldloom.definition.DefinitionId
+import io.worldloom.provider.api.ProviderToolCall
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandPermission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -11,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.worldloom.world.RunId
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 sealed interface GameAgentState {
     data object Idle : GameAgentState
@@ -38,6 +44,11 @@ data class GameAgentHistoryState(
     val error: String? = null,
 )
 
+sealed interface NpcDialogueResult {
+    data class Committed(val worldChanged: Boolean) : NpcDialogueResult
+    data class Failed(val message: String, val worldChanged: Boolean = false) : NpcDialogueResult
+}
+
 interface GameAgentController {
     val state: StateFlow<GameAgentState>
     val history: StateFlow<GameAgentHistoryState>
@@ -47,6 +58,7 @@ interface GameAgentController {
     suspend fun loadEarlierHistory()
     suspend fun retry(turnId: TurnId)
     suspend fun recoverNarration(turnId: TurnId)
+    suspend fun addressNpc(npcId: DefinitionId, content: String, idempotencyKey: String): NpcDialogueResult
 
     fun reset()
 }
@@ -56,6 +68,7 @@ class DefaultGameAgentController(
     private val runtime: AgentRuntime,
     private val gameSession: GameSession,
     private val turnStore: GameTurnStore = InMemoryGameTurnStore(),
+    private val directToolGateway: AgentToolGateway? = null,
 ) : GameAgentController {
     private val runMutex = Mutex()
     private val historyMutex = Mutex()
@@ -246,6 +259,42 @@ class DefaultGameAgentController(
         } finally {
             runMutex.unlock()
             withContext(NonCancellable) { refreshHistory() }
+        }
+    }
+
+    override suspend fun addressNpc(
+        npcId: DefinitionId,
+        content: String,
+        idempotencyKey: String,
+    ): NpcDialogueResult {
+        val gateway = directToolGateway ?: return NpcDialogueResult.Failed("NPC 对话入口尚未配置。")
+        if (content.trim().length !in 1..500) return NpcDialogueResult.Failed("对话内容需为 1 到 500 个字符。")
+        if (!runMutex.tryLock()) return NpcDialogueResult.Failed("主持人正在处理上一项操作。")
+        return try {
+            val result = gateway.invoke(
+                AgentIdentity(
+                    agentId = AgentId("worldloom.agent.player-dialogue"),
+                    actorId = ActorId("system.player"),
+                    permissions = setOf(CommandPermission.ADDRESS_NPC),
+                ),
+                ProviderToolCall(
+                    id = idempotencyKey,
+                    name = NPC_ADDRESS_TOOL_ID.value,
+                    arguments = buildJsonObject {
+                        put("npcId", npcId.value)
+                        put("content", content)
+                    },
+                ),
+            )
+            when (result) {
+                is ToolInvocationResult.Success -> NpcDialogueResult.Committed(result.worldChanged)
+                is ToolInvocationResult.Failure -> NpcDialogueResult.Failed(
+                    result.error.message,
+                    result.worldChanged,
+                )
+            }
+        } finally {
+            runMutex.unlock()
         }
     }
 

@@ -69,14 +69,16 @@ class MainActivity : ComponentActivity() {
             workStore = SqlDelightNpcWorkStore(database),
             memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
         )
+        val playerAndGmTools = DefaultAgentToolGateway(session, npcFollowUps)
         val agentController = DefaultGameAgentController(
             runtime = AgentRuntime(
                 selectedProvider,
-                DefaultAgentToolGateway(session, npcFollowUps),
+                playerAndGmTools,
                 agentSessionStore,
             ),
             gameSession = session,
             turnStore = SqlDelightGameTurnStore(database),
+            directToolGateway = playerAndGmTools,
         )
         val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
         setContent {

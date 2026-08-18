@@ -19,6 +19,9 @@ import io.worldloom.provider.api.ProviderToolCall
 import io.worldloom.provider.api.ProviderTurn
 import io.worldloom.provider.api.ProviderUsage
 import io.worldloom.world.InMemoryEventStore
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandPermission
+import io.worldloom.world.NPC_ADDRESSED_EVENT_TYPE_ID
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -222,6 +225,116 @@ class NpcSceneOrchestratorContractTest {
             assertEquals(NpcWorkStatus.FAILED, store.list(RunId("npc-failure-$index.run.1")).single().status)
             assertEquals(authoritative, ready(session).presentation.lastSequence)
         }
+    }
+
+    @Test
+    fun directedDialogueOffersCurrentNpcsAndWakesOnlySelectedNpcIdempotently() = runTest {
+        val session = session("war-survival", "npc-directed")
+        assertIs<LoadResult.Success>(session.load(id("contract.war-survival")))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        val provider = SpeakingNpcProvider()
+        val workStore = InMemoryNpcWorkStore()
+        val memoryStore = InMemoryAgentMemoryStore()
+        val orchestrator = NpcSceneOrchestrator(
+            AgentRuntime(provider, DefaultAgentToolGateway(session), InMemoryAgentSessionStore()),
+            session,
+            workStore,
+            memoryStoreFactory = { memoryStore },
+        )
+        val runId = RunId("npc-directed.run.1")
+        val player = AgentIdentity(
+            AgentId("worldloom.agent.player-dialogue"),
+            ActorId("system.player"),
+            setOf(CommandPermission.ADDRESS_NPC),
+        )
+        val gateway = DefaultAgentToolGateway(session, orchestrator)
+        assertIs<GameTurnFollowUpResult.Completed>(
+            orchestrator.dispatch(GameTurnFollowUpRequest(runId, 0, ready(session).presentation.lastSequence)),
+        )
+        val maraAgent = AgentId("worldloom.agent.npc.war.npc.mara")
+        val tomasAgent = AgentId("worldloom.agent.npc.war.npc.tomas")
+        val maraBefore = memoryStore.turns(maraAgent).size
+        val tomasBefore = memoryStore.turns(tomasAgent).size
+        val tools = gateway.availableTools(player)
+        val address = tools.single { it.name == NPC_ADDRESS_TOOL_ID.value }
+        assertEquals(
+            listOf("war.npc.mara", "war.npc.tomas"),
+            address.parameters.single { it.name == "npcId" }.allowedValues,
+        )
+        val call = ProviderToolCall(
+            "dialogue-call-1",
+            NPC_ADDRESS_TOOL_ID.value,
+            buildJsonObject {
+                put("npcId", "war.npc.mara")
+                put("content", "北侧道路现在安全吗？")
+            },
+        )
+        val beforeSequence = ready(session).presentation.lastSequence
+
+        val first = assertIs<ToolInvocationResult.Success>(gateway.invoke(player, call))
+
+        assertTrue(first.worldChanged)
+        val addressed = session.committedEvents(beforeSequence).single { it.eventType == NPC_ADDRESSED_EVENT_TYPE_ID }
+        assertEquals(id("war.npc.mara"), addressed.targetNpcId)
+        assertEquals("北侧道路现在安全吗？", addressed.publicInput)
+        val dialogueWork = workStore.list(runId).filter { it.eventType == NPC_ADDRESSED_EVENT_TYPE_ID }
+        assertEquals(listOf("war.npc.mara"), dialogueWork.map { it.npcId.value })
+        assertEquals(maraBefore + 1, memoryStore.turns(maraAgent).size)
+        assertEquals(tomasBefore, memoryStore.turns(tomasAgent).size)
+        assertTrue(memoryStore.turns(maraAgent).last().input.contains("北侧道路现在安全吗"))
+        val committedSequence = ready(session).presentation.lastSequence
+        val providerCalls = provider.calls
+
+        val duplicate = assertIs<ToolInvocationResult.Success>(gateway.invoke(player, call))
+
+        assertFalse(duplicate.worldChanged)
+        assertEquals(committedSequence, ready(session).presentation.lastSequence)
+        assertEquals(providerCalls, provider.calls)
+        assertEquals(1, session.committedEvents(0).count { it.eventType == NPC_ADDRESSED_EVENT_TYPE_ID })
+        assertIs<ToolInvocationResult.Failure>(
+            gateway.invoke(
+                player,
+                call.copy(
+                    id = "dialogue-call-outside",
+                    arguments = buildJsonObject {
+                        put("npcId", "war.npc.outside")
+                        put("content", "有人吗？")
+                    },
+                ),
+            ),
+        )
+        assertIs<ToolInvocationResult.Failure>(
+            gateway.invoke(
+                player,
+                call.copy(
+                    id = "dialogue-call-long",
+                    arguments = buildJsonObject {
+                        put("npcId", "war.npc.mara")
+                        put("content", "x".repeat(501))
+                    },
+                ),
+            ),
+        )
+        assertIs<io.worldloom.application.SessionReplayResult.Success>(session.replay())
+        assertEquals(committedSequence, ready(session).presentation.lastSequence)
+    }
+
+    @Test
+    fun stationWorldExposesItsOwnCurrentDialogueTargetWithoutRuntimeBranch() = runTest {
+        val session = session("station-ai", "npc-directed-station")
+        assertIs<LoadResult.Success>(session.load(id("contract.station-ai")))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        val identity = AgentIdentity(
+            AgentId("worldloom.agent.player-dialogue"),
+            ActorId("system.player"),
+            setOf(CommandPermission.ADDRESS_NPC),
+        )
+
+        val address = DefaultAgentToolGateway(session).availableTools(identity)
+            .single { it.name == NPC_ADDRESS_TOOL_ID.value }
+
+        assertEquals(listOf("station.npc.lyra"), address.parameters.single { it.name == "npcId" }.allowedValues)
+        assertEquals(listOf("莱拉"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
     }
 
     private fun kotlinx.coroutines.test.TestScope.session(directory: String, prefix: String): DefaultGameSession {

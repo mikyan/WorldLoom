@@ -664,6 +664,9 @@ class GameTurnOrchestrator(
                 add(CommandPermission.TRAVEL)
                 if (context.availableTravelRoutes.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
             }
+            if (context.npcProfiles.any { it.canSpeak && it.entityId in context.currentSceneParticipantIds }) {
+                add(CommandPermission.ADDRESS_NPC)
+            }
             context.adventureStateDefinition?.let { adventure ->
                 if (adventure.inventory != null) add(CommandPermission.MANAGE_INVENTORY)
                 if (adventure.conditions.isNotEmpty()) add(CommandPermission.UPDATE_CONDITION)

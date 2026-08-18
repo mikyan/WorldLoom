@@ -82,6 +82,7 @@ object StateReducer : EventReducer {
             || payload is PlayerExitedSceneEvent
             || payload is PlayerEnteredSceneEvent
             || payload is NpcPublicActionPublishedEvent
+            || payload is NpcAddressedEvent
 
     override fun reduce(
         state: GameState,
@@ -99,12 +100,37 @@ object StateReducer : EventReducer {
             is PlayerExitedSceneEvent -> reduceSceneExit(state, event, payload)
             is PlayerEnteredSceneEvent -> reduceSceneEntry(state, event, payload)
             is NpcPublicActionPublishedEvent -> reduceNpcPublicAction(state, event, payload)
+            is NpcAddressedEvent -> reduceNpcAddress(state, event, payload)
             else -> failure(
                 StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
                 "payload",
                 "Event payload is not handled by the core world reducer",
             )
         }
+    }
+
+    private fun reduceNpcAddress(
+        state: GameState,
+        event: EventEnvelope,
+        payload: NpcAddressedEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC address event schema")
+        }
+        if (
+            state.lifecycle != RunLifecycle.ACTIVE ||
+            payload.sceneId != state.currentSceneId ||
+            payload.targetEntityId !in state.sceneParticipantIds ||
+            payload.targetEntityId !in state.entities
+        ) {
+            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC address is outside its current scene")
+        }
+        if (payload.content.trim() != payload.content || payload.content.length !in 1..500 ||
+            !payload.idempotencyKey.isStableIdempotencyKey()
+        ) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload", "NPC address event payload is invalid")
+        }
+        return StateReductionResult.Success(state.copy(lastSequence = event.sequence))
     }
 
     private fun reduceNpcPublicAction(

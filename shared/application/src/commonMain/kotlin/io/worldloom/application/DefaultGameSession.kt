@@ -33,6 +33,9 @@ import io.worldloom.world.PlayerEntityCreatedEvent
 import io.worldloom.world.NpcPublicActionCommandPolicy
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.PublishNpcActionCommand
+import io.worldloom.world.AddressNpcCommand
+import io.worldloom.world.NpcAddressCommandPolicy
+import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.ActionOutcomeCommandPolicy
 import io.worldloom.world.ApplyActionOutcomeCommand
 import io.worldloom.world.EventReducer
@@ -735,6 +738,8 @@ class DefaultGameSession(
                                     projected.eventType,
                                     sceneId,
                                     participants,
+                                    targetNpcId = (event.payload as? NpcAddressedEvent)?.targetNpcId,
+                                    publicInput = (event.payload as? NpcAddressedEvent)?.content,
                                 ),
                             )
                         }
@@ -895,6 +900,80 @@ class DefaultGameSession(
         is GameSessionCommand.AdvanceProgressClock,
         -> executeAdventureCommand(request, authorization)
         is GameSessionCommand.PublishNpcAction -> executeNpcPublicAction(request, authorization)
+        is GameSessionCommand.AddressNpc -> executeNpcAddress(request, authorization)
+    }
+
+    private suspend fun executeNpcAddress(
+        request: GameSessionCommand.AddressNpc,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val profile = session.npcProfiles().firstOrNull { it.id == request.npcId && it.canSpeak }
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC is not configured for dialogue"))
+        val sceneId = session.currentState.currentSceneId
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC dialogue has no current scene"))
+        val normalizedContent = request.content.trim()
+        val existing = eventStore.read(session.currentState.runId)
+            .mapNotNull { it.payload as? NpcAddressedEvent }
+            .firstOrNull { it.idempotencyKey == request.idempotencyKey }
+        if (existing != null) {
+            return if (
+                existing.targetNpcId == request.npcId &&
+                existing.targetEntityId == profile.entityId &&
+                existing.sceneId == sceneId &&
+                existing.content == normalizedContent
+            ) {
+                ActionResult.Success
+            } else {
+                failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC dialogue idempotency key was reused"))
+            }
+        }
+        val command = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = session.currentState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = session.currentState.lastSequence,
+            payload = AddressNpcCommand(
+                targetNpcId = profile.id,
+                targetEntityId = profile.entityId,
+                sceneId = sceneId,
+                content = request.content,
+                idempotencyKey = request.idempotencyKey,
+            ),
+        )
+        val validated = when (
+            val validation = CommandValidator.validate(
+                session.currentState,
+                session.definition,
+                authorization,
+                command,
+                npcAddressPolicy = NpcAddressCommandPolicy(profile.id, profile.entityId, sceneId),
+            )
+        ) {
+            is CommandValidationResult.Valid -> validation.command
+            is CommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val events = WorldEngine.handle(validated, idSource.nextEventId())
+        val candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+            is StateReductionResult.Success -> reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
+            )
+        }
+        session.currentState = candidate
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(session.currentState.runId), notice)
+        return ActionResult.Success
     }
 
     private suspend fun executeNpcPublicAction(
@@ -1994,6 +2073,11 @@ class DefaultGameSession(
                         PresentedAction(action.id, action.label ?: action.id.value)
                     },
                     description = configured.description,
+                    addressableNpcs = contract.source.npcs.filter { npc ->
+                        PlayableNpcCapability.SPEAK in npc.capabilities && EntityId(npc.entityId) in state.sceneParticipantIds
+                    }.sortedBy { it.id.value }.map { npc ->
+                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName)
+                    },
                 )
             }
         }

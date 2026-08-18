@@ -43,6 +43,7 @@ import io.worldloom.agent.runtime.GameAgentState
 import io.worldloom.agent.runtime.GameTurnRecoveryKind
 import io.worldloom.agent.runtime.GameTurnStatus
 import io.worldloom.agent.runtime.HostedTurnHistoryItem
+import io.worldloom.agent.runtime.NpcDialogueResult
 import io.worldloom.application.GamePresentation
 import io.worldloom.application.CharacterCreationPresentation
 import io.worldloom.application.request
@@ -581,6 +582,13 @@ private fun ReadyState(
                     if (scene.participantIds.isNotEmpty()) {
                         Text("参与者：${scene.participantIds.joinToString { it.value }}")
                     }
+                    if (interactive && agentController != null && scene.addressableNpcs.isNotEmpty()) {
+                        NpcDialoguePanel(
+                            npcs = scene.addressableNpcs,
+                            controller = agentController,
+                            idempotencyPrefix = agentHistoryKey,
+                        )
+                    }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(scene.actions, key = { it.id.value }) { action ->
                             Button(onClick = { onAction(action.id) }, enabled = interactive) { Text(action.label) }
@@ -725,6 +733,71 @@ private fun ReadyState(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NpcDialoguePanel(
+    npcs: List<io.worldloom.application.PresentedNpc>,
+    controller: GameAgentController,
+    idempotencyPrefix: String,
+) {
+    val scope = rememberCoroutineScope()
+    var selectedId by remember(npcs) { mutableStateOf(npcs.first().id) }
+    var input by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    val selected = npcs.firstOrNull { it.id == selectedId } ?: npcs.first()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("和场景角色交谈", fontWeight = FontWeight.SemiBold)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(npcs, key = { it.id.value }) { npc ->
+                Button(
+                    onClick = { selectedId = npc.id },
+                    enabled = !sending,
+                    colors = ButtonDefaults.buttonColors(
+                        backgroundColor = if (npc.id == selected.id) {
+                            MaterialTheme.colors.primary
+                        } else {
+                            MaterialTheme.colors.secondary
+                        },
+                    ),
+                ) { Text(npc.displayName) }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { if (it.length <= 500) input = it },
+                modifier = Modifier.weight(1f),
+                label = { Text("对 ${selected.displayName} 说") },
+                enabled = !sending,
+            )
+            Button(
+                enabled = !sending && input.isNotBlank(),
+                onClick = {
+                    val message = input.trim()
+                    val idempotencyKey = "ui:$idempotencyPrefix:${selected.id.value}"
+                    sending = true
+                    status = null
+                    scope.launch {
+                        when (val result = controller.addressNpc(selected.id, message, idempotencyKey)) {
+                            is NpcDialogueResult.Committed -> {
+                                status = if (result.worldChanged) "发言已记录。" else "该发言已处理，没有重复写入。"
+                                input = ""
+                            }
+                            is NpcDialogueResult.Failed -> status = if (result.worldChanged) {
+                                "发言已记录，但角色回应暂时不可用。"
+                            } else {
+                                result.message
+                            }
+                        }
+                        sending = false
+                    }
+                },
+            ) { Text(if (sending) "发送中" else "发送") }
+        }
+        status?.let { Text(it, color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f), fontSize = 12.sp) }
     }
 }
 

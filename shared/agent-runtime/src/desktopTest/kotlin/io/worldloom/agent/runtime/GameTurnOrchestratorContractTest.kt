@@ -58,6 +58,11 @@ class GameTurnOrchestratorContractTest {
             listOf("war.action.search-supplies"),
             actionTool.parameters.single { it.name == "actionId" }.allowedValues,
         )
+        val addressTool = assertNotNull(provider.requests.first().tools.singleOrNull { it.name == NPC_ADDRESS_TOOL_ID.value })
+        assertEquals(
+            listOf("war.npc.mara", "war.npc.tomas"),
+            addressTool.parameters.single { it.name == "npcId" }.allowedValues,
+        )
         assertEquals(1, followUps.requests.size)
         assertEquals(5, followUps.requests.single().afterSequence)
         assertEquals(9, followUps.requests.single().committedThroughSequence)
