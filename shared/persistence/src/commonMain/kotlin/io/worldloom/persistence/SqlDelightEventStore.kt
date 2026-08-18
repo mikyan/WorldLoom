@@ -143,30 +143,25 @@ class SqlDelightEventStore(
                 )
             }
             val snapshotRow = queries.selectSnapshot(runId.value).executeAsOneOrNull()
-            val snapshot = if (snapshotRow == null) {
-                null
-            } else {
-                if (snapshotRow.state_schema_version != CURRENT_STATE_SNAPSHOT_SCHEMA_VERSION.toLong()) {
-                    return@withLock loadFailure(
-                        DurableStoreErrorCode.CORRUPT_DATA,
-                        "Unsupported snapshot schema version: ${snapshotRow.state_schema_version}",
-                    )
+            var snapshotFallbackReason: String? = null
+            val snapshot = when {
+                snapshotRow == null -> null
+                snapshotRow.state_schema_version != CURRENT_STATE_SNAPSHOT_SCHEMA_VERSION.toLong() -> {
+                    snapshotFallbackReason = "Unsupported snapshot schema; rebuilt from EventLog"
+                    null
                 }
-                when (val decoded = PersistenceCodec.decodeState(snapshotRow.state_json)) {
-                    is PersistenceDecodeResult.Success -> decoded.value
-                    is PersistenceDecodeResult.Failure -> return@withLock loadFailure(
-                        DurableStoreErrorCode.CORRUPT_DATA,
-                        decoded.message,
-                    )
-                }.also { state ->
-                    if (state.runId != runId ||
-                        state.worldDefinitionId.value != run.world_definition_id ||
-                        state.lastSequence != snapshotRow.sequence
-                    ) {
-                        return@withLock loadFailure(
-                            DurableStoreErrorCode.CORRUPT_DATA,
-                            "Snapshot identity or sequence does not match its database row",
-                        )
+                else -> when (val decoded = PersistenceCodec.decodeState(snapshotRow.state_json)) {
+                    is PersistenceDecodeResult.Failure -> {
+                        snapshotFallbackReason = "Invalid snapshot; rebuilt from EventLog"
+                        null
+                    }
+                    is PersistenceDecodeResult.Success -> decoded.value.takeIf { state ->
+                        state.runId == runId &&
+                            state.worldDefinitionId.value == run.world_definition_id &&
+                            state.lastSequence == snapshotRow.sequence
+                    } ?: run {
+                        snapshotFallbackReason = "Snapshot identity mismatch; rebuilt from EventLog"
+                        null
                     }
                 }
             }
@@ -187,6 +182,8 @@ class SqlDelightEventStore(
                     worldDefinitionId = DefinitionId(run.world_definition_id),
                     snapshot = snapshot,
                     eventsAfterSnapshot = events,
+                    worldContentVersion = run.world_content_version.toInt(),
+                    snapshotFallbackReason = snapshotFallbackReason,
                 ),
             )
         } catch (_: Exception) {

@@ -12,6 +12,7 @@ import io.worldloom.application.DefaultGameSession
 import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
 import io.worldloom.application.WorldPackageSource
+import io.worldloom.application.SaveCoordinator
 import io.worldloom.ui.game.WorldloomApp
 import io.worldloom.platform.credentials.AndroidKeystoreCredentialVault
 import io.worldloom.platform.credentials.CredentialConfiguration
@@ -24,6 +25,7 @@ import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.SqlDelightNpcWorkStore
 import io.worldloom.persistence.SqlDelightAgentMemoryStore
+import io.worldloom.persistence.SqlDelightRunDirectoryStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.provider.openai.OPENAI_API_KEY
 import io.worldloom.provider.openai.OpenAiConfigurableAdapter
@@ -43,12 +45,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val driver = AndroidPersistenceDriverFactory(applicationContext).create()
         val database = WorldloomDatabase(driver)
+        val eventStore = SqlDelightEventStore(database)
         val session = DefaultGameSession(
             catalog = loadContractWorldCatalog(),
-            eventStore = SqlDelightEventStore(database),
+            eventStore = eventStore,
             characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
             behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
         )
+        val saveCoordinator = SaveCoordinator(session, SqlDelightRunDirectoryStore(database))
         val vault = AndroidKeystoreCredentialVault(applicationContext)
         val client = createOpenAiHttpClient()
         providerClient = client
@@ -78,6 +82,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             WorldloomApp(
                 session = session,
+                saveCoordinator = saveCoordinator,
                 agentController = agentController,
                 credentialConfiguration = credentialConfiguration,
                 providerConfigurationCenter = providerCenter,

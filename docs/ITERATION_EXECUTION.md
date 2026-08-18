@@ -1,11 +1,11 @@
-# Worldloom 二十三轮迭代执行与验收记录
+# Worldloom 二十四轮迭代执行与验收记录
 
-文档状态：Implemented 2.7<br>
+文档状态：Implemented 2.8<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
 
-本记录把项目初始化后的二十三个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
+本记录把项目初始化后的二十四个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
 
 所有世界事实变化继续遵守：
 
@@ -49,6 +49,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 21. Behavior 推进冒险 | 增加 post-commit Event Dispatcher、稳定排序的 SQLDelight 工作队列、按启用模块验证的 Behavior Registry、最新状态求值与冻结触发上下文、Command/Event 二次提交和完整因果审计 | 场景解锁、任务/进度钟/定时补给/结局黄金链路，递归链暂停、篡改拒绝、并发修订、终止窗口补扫、数据库重建与双世界契约测试 |
 | 22. NPC 场景参与 | 增加声明式 NPC Profile、场景/白名单感知投影、Event→NPC 稳定 SQLDelight 队列、独立 Session/记忆、同步受预算调度，以及受 Actor/场景/动作白名单约束的公开发言与动作 Command/Event | 两个世界一至多 NPC 唤醒、私密知识隔离、公开结果聚合、重复触发、工具拒绝、Token 耗尽、遗留运行项、持久化、回放和三端组装测试 |
 | 23. 内置战争生存短剧本 | 完成《灰烬中的车队》内容 v1：10 场景、12 行动、2 名 NPC、时间/旅行/冒险状态/Behavior 组合和 3 个结局；主持人读取场景素材与动态行动，结局态保留投影与回放 | 成功、代价成功、失败黄金路线，失败推进、资源耗尽、非法行动、存档恢复、随机审计、NPC 秘密隔离、双世界契约和三端编译 |
+| 24. 游玩界面、存档与公开回放 | 增加 `SaveCoordinator`、版本化多 Run 目录、坏 Snapshot 回退、分页审计时间线、Definition 状态卡片和离线公开回放校验，并接入 Android/iOS/Desktop | 创建/继续/重命名/归档、跨 Run 隔离、内容版本拒绝、EventLog 重建、200 项窗口与分页、篡改检测、隐私排除、迁移和三端编译 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -59,7 +60,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - `.worldloom` v1 拒绝绝对路径、路径穿越、重复项、CRC 不一致、超限内容和当前不支持的压缩方法；世界包不能携带任意脚本；
 - 内容生成先校验 Definition、角色配置、规则配置、Behavior 和来源引用，再创建初始状态做快速模拟，最后重新装载生成包；
 - 声明 `playableContractPath` 的世界必须在创建 Run 前通过角色入口、Scene/Action、目标、结局、表现、Behavior、模块和黄金路线验证；旧包不声明时保持兼容但不能标记为可玩；
-- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列、`6.sqm` 新增 NPC 工作队列，旧 Run 没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
+- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列、`6.sqm` 新增 NPC 工作队列、`7.sqm` 为 Run 增加内容版本与目录元数据，旧 Run 迁移后使用内容 v1 且没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
 - 世界时间只接受显式正向 Command；活动、旅行、计划触发及其数值效果按稳定顺序组成原子 Event 批次。活动/路线 Definition 与 Event 均带默认兼容字段，旧世界不启用 temporal 配置时行为不变；旧 Snapshot 在恢复时只增量初始化缺失的世界时间模块状态。
 - 库存、状态、关系、任务和进度钟都由世界 Definition 与 manifest 显式选择，不向通用状态增加题材字段。每类写操作使用独立权限和 Tool Schema，私有状态不进入玩家 Presentation；旧 Snapshot 恢复时只初始化缺失的模块状态，新增事件类型沿用既有 EventLog Schema。
 - Behavior 只在事件提交后调度；guard 使用冻结触发上下文和最新状态，每个 effect 都重新经过 CommandValidator/WorldEngine。稳定工作项记录 root/parent event、因果深度和派生 Command；深度、触发、重复签名或命令预算超限时暂停单条链，恢复补扫已提交事件，回放只校验审计链而不重新执行。
@@ -105,4 +106,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-下一条竖切整理游玩界面、Run 存档目录与公开回放体验。TXT/EPUB 识别和自动世界生成扩展继续延后到内置剧本与试玩流程验收稳定之后。
+下一条竖切进行封闭 Alpha 故障、隐私、性能与发行门禁加固。TXT/EPUB 识别和自动世界生成扩展继续延后到第 26 轮以后。

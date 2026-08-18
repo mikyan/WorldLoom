@@ -118,6 +118,26 @@ class SqlDelightEventStoreTest {
         driver.close()
     }
 
+    @Test
+    fun corruptSnapshotFallsBackToCompleteEventLogWithDiagnostic() = runTest {
+        val fixture = Fixture()
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val store = SqlDelightEventStore(database)
+        assertIs<DurableStoreWriteResult.Success>(store.initialize(fixture.initialState))
+        val event = fixture.event(fixture.initialState, 1)
+        assertIs<EventAppendResult.Success>(store.append(fixture.runId, 0, listOf(event)))
+        database.worldloomQueries.upsertSnapshot(fixture.runId.value, 1, 1, "{invalid")
+
+        val persisted = assertIs<DurableStoreLoadResult.Success>(store.loadRun(fixture.runId)).run
+
+        assertEquals(null, persisted.snapshot)
+        assertEquals(listOf(1L), persisted.eventsAfterSnapshot.map { it.sequence })
+        assertTrue(persisted.snapshotFallbackReason.orEmpty().contains("rebuilt from EventLog"))
+        driver.close()
+    }
+
     private class Fixture {
         val runId = RunId("run.persistence")
         private val componentId = DefinitionId("test.status")

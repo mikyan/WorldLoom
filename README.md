@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成二十三轮工程迭代：在可运行的 KMP/Compose 竖切上，已经跑通从建角、主持人回合、时间/活动/旅行、冒险状态、Behavior 和场景 NPC 参与到三类结局的完整内置短剧本。
+> 项目已经完成二十四轮工程迭代：在完整内置短剧本之上，三端现已具备多 Run 存档目录、继续/重命名/归档、坏 Snapshot 回退、分页事件详情和隐私隔离的公开回放校验。
 
 ## 产品方向
 
@@ -25,8 +25,9 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [二十三轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [二十四轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
+- [存档与公开回放说明](docs/SAVES_AND_PUBLIC_REPLAY.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -96,6 +97,8 @@ docs/
 场景参与者现在可以绑定声明式 NPC Profile。每个 NPC 只获得当前场景、白名单 Presentation、自己的目标、秘密和记忆，使用稳定且独立的 Session；已提交的场景、活动、旅行、任务与公开 NPC 事件会生成幂等工作项。NPC 的公开发言和动作必须调用身份受限工具并形成 Command/Event，模型最终正文只作为私有反思；主持人仅收到显式公开结果。NPC 调度在前台主持回合内串行执行，并继续受步骤、Token、费用、超时和工具预算限制。
 
 内置试玩入口现在是约 60 分钟的《灰烬中的车队》。它用 10 个场景、12 个关键行动、2 名独立 NPC 和成功、代价成功、失败三条黄金路线，从钟楼废墟推进到撤离车队或被俘结局。主持人上下文会获得当前场景的公开叙述素材与动态行动 Schema；结局后仍保留完整时间线、状态摘要、结局总结和确定性回放，内容版本与试玩排序都来自世界包元数据。
+
+应用现在从 SQLDelight 投影多 Run 存档目录，可创建、继续、重命名、归档和查看已完成 Run。继续游戏会核对固定内容版本、事件连续性和 Reducer 重建；损坏或不兼容的 Snapshot 会被丢弃并从 EventLog 重建，同时显示诊断。主界面把角色状态、库存、关系、任务和进度钟拆为 Definition 驱动卡片；长时间线只保留最近 200 项并按需分页，公开回放包含判定随机记录和 Behavior 因果信息，但不读取凭据、模型正文、NPC 私有记忆或未揭示秘密。
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 

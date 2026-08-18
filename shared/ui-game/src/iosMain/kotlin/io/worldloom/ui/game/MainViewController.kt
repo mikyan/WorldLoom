@@ -10,6 +10,7 @@ import io.worldloom.application.DefaultGameSession
 import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
 import io.worldloom.application.WorldPackageSource
+import io.worldloom.application.SaveCoordinator
 import platform.UIKit.UIViewController
 import io.worldloom.persistence.IosPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
@@ -20,6 +21,7 @@ import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.SqlDelightBehaviorWorkStore
 import io.worldloom.persistence.SqlDelightNpcWorkStore
 import io.worldloom.persistence.SqlDelightAgentMemoryStore
+import io.worldloom.persistence.SqlDelightRunDirectoryStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.IosKeychainCredentialVault
@@ -64,12 +66,14 @@ fun MainViewController(
     })
     val driver = IosPersistenceDriverFactory().create()
     val database = WorldloomDatabase(driver)
+    val eventStore = SqlDelightEventStore(database)
     val session = DefaultGameSession(
         catalog,
-        eventStore = SqlDelightEventStore(database),
+        eventStore = eventStore,
         characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
         behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
     )
+    val saveCoordinator = SaveCoordinator(session, SqlDelightRunDirectoryStore(database))
     val vault = IosKeychainCredentialVault()
     val providerClient = createOpenAiHttpClient()
     val providerConfiguration = defaultProviderConfiguration()
@@ -101,6 +105,7 @@ fun MainViewController(
         }
         WorldloomApp(
             session = session,
+            saveCoordinator = saveCoordinator,
             agentController = agentController,
             credentialConfiguration = credentialConfiguration,
             providerConfigurationCenter = providerCenter,

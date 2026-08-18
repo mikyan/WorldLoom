@@ -111,7 +111,7 @@ class DefaultGameSession(
     private val characterDraftStore: CharacterCreationDraftStore = InMemoryCharacterCreationDraftStore(),
     private val behaviorWorkStore: BehaviorWorkStore = InMemoryBehaviorWorkStore(),
     private val behaviorDispatchLimits: BehaviorDispatchLimits = BehaviorDispatchLimits(),
-) : GameSession {
+) : GameSession, ReplayInspector {
     init {
         require(snapshotInterval > 0) { "snapshotInterval must be positive" }
     }
@@ -124,6 +124,9 @@ class DefaultGameSession(
     )
 
     override val availableWorlds: List<WorldCatalogEntry> = catalog.entries
+
+    override val currentRunId: RunId?
+        get() = loaded?.currentState?.runId
     override val state: StateFlow<GameSessionUiState> = mutableState.asStateFlow()
 
     override suspend fun load(worldId: DefinitionId): LoadResult = mutex.withLock {
@@ -280,6 +283,18 @@ class DefaultGameSession(
                     SessionError(SessionErrorCode.PERSISTENCE_REJECTED, loadedRun.error.message),
                 )
             }
+            val expectedContentVersion = worldPackage.playableContract?.source?.contentVersion ?: 1
+            if (persisted.worldContentVersion != expectedContentVersion) {
+                return@withContext failLoad(
+                    SessionError(
+                        SessionErrorCode.PERSISTENCE_REJECTED,
+                        "Save content version ${persisted.worldContentVersion} does not match world version $expectedContentVersion",
+                    ),
+                )
+            }
+            val snapshotNotice = persisted.snapshotFallbackReason?.let {
+                SessionError(SessionErrorCode.PERSISTENCE_REJECTED, it)
+            }
             if (persisted.worldDefinitionId != definition.source.id) {
                 return@withContext failLoad(
                     SessionError(SessionErrorCode.PERSISTENCE_REJECTED, "Save belongs to a different world"),
@@ -296,7 +311,8 @@ class DefaultGameSession(
             val configuredPlayerId = playable?.source?.character?.playerEntityId
             val persistedSnapshot = persisted.snapshot
             val usesLifecycle = (persistedSnapshot != null && persistedSnapshot.lifecycle != RunLifecycle.ACTIVE) ||
-                allEvents.any { it.payload is RunLifecycleChangedEvent }
+                allEvents.any { it.payload is RunLifecycleChangedEvent } ||
+                (persisted.snapshotFallbackReason != null && configuredPlayerId != null)
             val baseInitialState = if (usesLifecycle && configuredPlayerId != null) {
                 InitialGameStateFactory.createForCharacterCreation(definition, runId, EntityId(configuredPlayerId))
             } else {
@@ -431,7 +447,7 @@ class DefaultGameSession(
                     randomService,
                     playableContract = playable,
                 )
-                publishEnded(requireNotNull(loaded), allEvents)
+                publishEnded(requireNotNull(loaded), allEvents, snapshotNotice)
                 return@withContext LoadResult.Success
             }
             if (currentState.lifecycle == RunLifecycle.ACTIVE && playable?.characterProfile != null) {
@@ -452,7 +468,10 @@ class DefaultGameSession(
                 randomService,
                 playableContract = playable,
             )
-            mutableState.value = GameSessionUiState.Ready(enrichPresentation(presentation, currentState, playable))
+            mutableState.value = GameSessionUiState.Ready(
+                enrichPresentation(presentation, currentState, playable),
+                snapshotNotice,
+            )
             dispatchBehaviors()
             LoadResult.Success
         }
@@ -784,6 +803,55 @@ class DefaultGameSession(
                 publishReady(session, events)
             }
             SessionReplayResult.Success
+        }
+    }
+
+    override suspend fun timelinePage(
+        beforeSequenceExclusive: Long?,
+        limit: Int,
+    ): TimelinePageResult = mutex.withLock {
+        withContext(workerDispatcher) {
+            val session = loaded ?: return@withContext TimelinePageResult.Failure("Run is not loaded")
+            if (limit !in 1..200) return@withContext TimelinePageResult.Failure("Page size must be 1 to 200")
+            val all = eventStore.read(session.currentState.runId).sortedBy(EventEnvelope::sequence)
+            val eligible = beforeSequenceExclusive?.let { before -> all.filter { it.sequence < before } } ?: all
+            val selected = eligible.takeLast(limit)
+            TimelinePageResult.Success(
+                TimelinePage(
+                    events = selected.map { PresentationMapper.presentEvent(session.definition, it) },
+                    totalCount = all.size,
+                    hasEarlier = selected.firstOrNull()?.sequence?.let { first -> all.any { it.sequence < first } } == true,
+                ),
+            )
+        }
+    }
+
+    override suspend fun exportVerifiedPublicReplay(): PublicReplayResult = mutex.withLock {
+        withContext(workerDispatcher) {
+            val session = loaded ?: return@withContext PublicReplayResult.Failure("Run is not loaded")
+            val events = try {
+                eventStore.read(session.currentState.runId).sortedBy(EventEnvelope::sequence)
+            } catch (_: Exception) {
+                return@withContext PublicReplayResult.Failure("EventLog could not be decoded")
+            }
+            validateBehaviorAudit(session.currentState.runId, events)?.let { error ->
+                return@withContext PublicReplayResult.Failure(error.message)
+            }
+            val replayed = when (val replay = EventReplayer.replay(session.initialState, session.definition, events, reducer)) {
+                is ReplayResult.Failure -> return@withContext PublicReplayResult.Failure(replay.error.message)
+                is ReplayResult.Success -> replay.state
+            }
+            if (replayed != session.currentState) {
+                return@withContext PublicReplayResult.Failure("EventLog projection does not match the active state")
+            }
+            PublicReplayResult.Verified(
+                PublicReplayDocument(
+                    runId = replayed.runId,
+                    worldId = replayed.worldDefinitionId,
+                    lastSequence = replayed.lastSequence,
+                    events = events.map { PresentationMapper.presentEvent(session.definition, it) },
+                ),
+            )
         }
     }
 

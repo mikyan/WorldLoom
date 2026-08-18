@@ -42,6 +42,8 @@ data class PersistedRun(
     val worldDefinitionId: io.worldloom.definition.DefinitionId,
     val snapshot: GameState?,
     val eventsAfterSnapshot: List<EventEnvelope>,
+    val worldContentVersion: Int = 1,
+    val snapshotFallbackReason: String? = null,
 )
 
 enum class DurableStoreErrorCode {

@@ -24,6 +24,18 @@ data class PresentedField(
 data class PresentedEvent(
     val sequence: Long,
     val summary: String,
+    val eventId: String? = null,
+    val eventType: String = "worldloom.event.unknown",
+    val causationId: String? = null,
+    val correlationId: String? = null,
+    val randomRecord: PresentedRandomRecord? = null,
+)
+
+data class PresentedRandomRecord(
+    val recordId: String,
+    val results: List<Int>,
+    val total: Long,
+    val outcomeId: DefinitionId,
 )
 
 data class PresentedCheck(
@@ -46,7 +58,41 @@ data class GamePresentation(
     val travelRoutes: List<PresentedTravelRoute> = emptyList(),
     val adventureState: AdventureStatePresentation? = null,
     val endingSummary: String? = null,
+    val timelineTotalCount: Int = timeline.size,
+    val timelineTruncated: Boolean = false,
 )
+
+data class TimelinePage(
+    val events: List<PresentedEvent>,
+    val totalCount: Int,
+    val hasEarlier: Boolean,
+)
+
+sealed interface TimelinePageResult {
+    data class Success(val page: TimelinePage) : TimelinePageResult
+
+    data class Failure(val message: String) : TimelinePageResult
+}
+
+data class PublicReplayDocument(
+    val schema: String = "worldloom.public-replay/v1",
+    val runId: RunId,
+    val worldId: DefinitionId,
+    val lastSequence: Long,
+    val events: List<PresentedEvent>,
+)
+
+sealed interface PublicReplayResult {
+    data class Verified(val document: PublicReplayDocument) : PublicReplayResult
+
+    data class Failure(val message: String) : PublicReplayResult
+}
+
+interface ReplayInspector {
+    suspend fun timelinePage(beforeSequenceExclusive: Long? = null, limit: Int = 100): TimelinePageResult
+
+    suspend fun exportVerifiedPublicReplay(): PublicReplayResult
+}
 
 data class PresentedScene(
     val id: DefinitionId,
@@ -288,6 +334,9 @@ sealed interface SessionReplayResult {
 
 interface GameSession {
     val availableWorlds: List<WorldCatalogEntry>
+
+    val currentRunId: RunId?
+        get() = null
     val state: StateFlow<GameSessionUiState>
 
     suspend fun load(worldId: DefinitionId): LoadResult

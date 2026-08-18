@@ -62,8 +62,28 @@ object PresentationMapper {
             )
         }
 
-        val timeline = events.sortedBy { it.sequence }.map { event ->
-            val summary = when (val payload = event.payload) {
+        val sortedEvents = events.sortedBy { it.sequence }
+        val timelineEvents = sortedEvents.takeLast(TIMELINE_WINDOW_SIZE)
+        val timeline = timelineEvents.map { event -> presentEvent(definition, event) }
+
+        return PresentationMappingResult.Success(
+            GamePresentation(
+                worldId = definition.source.id,
+                title = definition.source.title,
+                lastSequence = state.lastSequence,
+                fields = fields,
+                checks = definition.source.presentationChecks
+                    .sortedBy { it.id.value }
+                    .map { PresentedCheck(it.id, it.label) },
+                timeline = timeline,
+                timelineTotalCount = sortedEvents.size,
+                timelineTruncated = sortedEvents.size > timeline.size,
+            ),
+        )
+    }
+
+    fun presentEvent(definition: ValidatedWorldDefinition, event: EventEnvelope): PresentedEvent {
+        val summary = when (val payload = event.payload) {
                 is NumericComponentAdjustedEvent -> {
                     val binding = definition.source.presentation.firstOrNull {
                         it.entityId == payload.entityId.value &&
@@ -112,22 +132,48 @@ object PresentationMapper {
                     io.worldloom.world.NpcPublicActionKind.ACTION -> "${payload.entityId.value}：${payload.content}"
                 }
 
-                else -> "事件已记录"
-            }
-            PresentedEvent(event.sequence, summary)
+            else -> "事件已记录"
         }
-
-        return PresentationMappingResult.Success(
-            GamePresentation(
-                worldId = definition.source.id,
-                title = definition.source.title,
-                lastSequence = state.lastSequence,
-                fields = fields,
-                checks = definition.source.presentationChecks
-                    .sortedBy { it.id.value }
-                    .map { PresentedCheck(it.id, it.label) },
-                timeline = timeline,
-            ),
+        val check = event.payload as? CheckResolvedEvent
+        return PresentedEvent(
+            sequence = event.sequence,
+            summary = summary,
+            eventId = event.eventId.value,
+            eventType = eventType(event),
+            causationId = event.causationId.value,
+            correlationId = event.correlationId,
+            randomRecord = check?.record?.randomRecord?.let { random ->
+                PresentedRandomRecord(
+                    recordId = random.id.value,
+                    results = random.results,
+                    total = check.record.total,
+                    outcomeId = check.record.outcomeId,
+                )
+            },
         )
     }
+
+    private fun eventType(event: EventEnvelope): String = when (event.payload) {
+        is NumericComponentAdjustedEvent -> "worldloom.event.numeric-component.adjusted"
+        is CheckResolvedEvent -> "worldloom.event.check.resolved"
+        is ActionOutcomeAppliedEvent -> "worldloom.event.action.outcome-applied"
+        is PlayerExitedSceneEvent -> "worldloom.event.scene.exited"
+        is PlayerEnteredSceneEvent, is PlayerEnteredInitialSceneEvent -> "worldloom.event.scene.entered"
+        is RunLifecycleChangedEvent -> "worldloom.event.run.lifecycle-changed"
+        is WorldTimeAdvancedEvent -> "worldloom.event.world-time.advanced"
+        is ActivityCompletedEvent -> "worldloom.event.activity-completed"
+        is TravelStartedEvent -> "worldloom.event.travel-started"
+        is TravelCompletedEvent -> "worldloom.event.travel-completed"
+        is ScheduledTriggerFiredEvent -> "worldloom.event.scheduled-trigger-fired"
+        is InventoryChangedEvent -> "worldloom.event.inventory-changed"
+        is ConditionUpdatedEvent -> "worldloom.event.condition-updated"
+        is RelationshipAdjustedEvent -> "worldloom.event.relationship-adjusted"
+        is QuestAdvancedEvent -> "worldloom.event.quest-advanced"
+        is ProgressClockAdvancedEvent -> "worldloom.event.progress-clock.advanced"
+        is AdventureEndingReachedEvent -> "worldloom.event.adventure-ending.reached"
+        is NpcPublicActionPublishedEvent -> "worldloom.event.npc.public-action"
+        else -> "worldloom.event.other"
+    }
+
+    private const val TIMELINE_WINDOW_SIZE = 200
 }

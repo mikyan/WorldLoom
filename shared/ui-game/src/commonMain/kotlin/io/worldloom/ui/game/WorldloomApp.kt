@@ -48,9 +48,15 @@ import io.worldloom.application.GameSessionAction
 import io.worldloom.application.GameSessionUiState
 import io.worldloom.application.LoadResult
 import io.worldloom.application.SessionError
+import io.worldloom.application.SaveCoordinator
+import io.worldloom.application.SaveLibraryState
+import io.worldloom.application.ReplayInspector
+import io.worldloom.application.TimelinePageResult
+import io.worldloom.application.PublicReplayResult
 import io.worldloom.application.WorldCatalogEntry
 import io.worldloom.content.schema.CharacterCreationMode
 import io.worldloom.content.schema.CharacterValueAssignment
+import io.worldloom.rules.AdventureStatePresentation
 import io.worldloom.definition.IntegerValue
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.CredentialConfigurationState
@@ -79,6 +85,8 @@ private val WorldloomColors = darkColors(
 @Composable
 fun WorldloomApp(
     session: GameSession,
+    saveCoordinator: SaveCoordinator? = null,
+    reduceMotion: Boolean = false,
     agentController: GameAgentController? = null,
     credentialConfiguration: CredentialConfiguration? = null,
     providerConfigurationCenter: ProviderConfigurationCenter? = null,
@@ -86,6 +94,7 @@ fun WorldloomApp(
 ) {
     val state by session.state.collectAsState()
     val scope = rememberCoroutineScope()
+    LaunchedEffect(saveCoordinator, state) { saveCoordinator?.refresh() }
 
     MaterialTheme(colors = WorldloomColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
@@ -98,17 +107,25 @@ fun WorldloomApp(
                     worlds = session.availableWorlds,
                     onSelected = { world ->
                         scope.launch {
-                            if (session.load(world.id) is LoadResult.Success) agentController?.reset()
+                            val loaded = if (saveCoordinator == null) {
+                                session.load(world.id) is LoadResult.Success
+                            } else {
+                                saveCoordinator.create(world.id) is io.worldloom.application.SaveOperationResult.Success
+                            }
+                            if (loaded) agentController?.reset()
                         }
                     },
                 )
+                saveCoordinator?.let { coordinator ->
+                    SaveLibraryPanel(coordinator) { agentController?.reset() }
+                }
                 credentialConfiguration?.let { CredentialPanel(it) }
                 if (providerConfigurationCenter != null && providerConfigurationId != null) {
                     ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId)
                 }
                 when (val current = state) {
                     GameSessionUiState.Idle -> EmptyState("选择一个契约世界，开始验证权威运行管线。")
-                    is GameSessionUiState.Loading -> LoadingState()
+                    is GameSessionUiState.Loading -> LoadingState(reduceMotion)
                     is GameSessionUiState.Ready -> ReadyState(
                         presentation = current.presentation,
                         notice = current.notice,
@@ -136,6 +153,7 @@ fun WorldloomApp(
                             scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
                         },
                         agentController = agentController,
+                        replayInspector = session as? ReplayInspector,
                     )
 
                     is GameSessionUiState.CharacterCreation -> CharacterCreationState(
@@ -156,9 +174,65 @@ fun WorldloomApp(
                         onTravel = {},
                         agentController = null,
                         interactive = false,
+                        replayInspector = session as? ReplayInspector,
                     )
 
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SaveLibraryPanel(
+    coordinator: SaveCoordinator,
+    onSessionChanged: () -> Unit,
+) {
+    val state by coordinator.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(coordinator) { coordinator.refresh() }
+    when (val library = state) {
+        SaveLibraryState.Loading -> Text("正在读取存档…")
+        is SaveLibraryState.Failed -> EmptyState(library.message, isError = true)
+        is SaveLibraryState.Ready -> {
+            if (library.runs.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("继续游戏", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(library.runs, key = { it.runId.value }) { run ->
+                            var name by remember(run.runId) { mutableStateOf(run.displayName) }
+                            Card(backgroundColor = MaterialTheme.colors.surface) {
+                                Column(
+                                    modifier = Modifier.width(280.dp).padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = name,
+                                        onValueChange = { name = it },
+                                        singleLine = true,
+                                        label = { Text("存档名称") },
+                                    )
+                                    Text("${run.lifecycle.name} · #${run.lastSequence} · 内容 v${run.worldContentVersion}")
+                                    run.diagnostic?.let { Text(it, color = MaterialTheme.colors.error, fontSize = 12.sp) }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Button(onClick = {
+                                            scope.launch {
+                                                coordinator.continueRun(run.runId)
+                                                onSessionChanged()
+                                            }
+                                        }) { Text(if (run.lifecycle.name == "COMPLETED") "查看" else "继续") }
+                                        Button(onClick = { scope.launch { coordinator.rename(run.runId, name) } }) {
+                                            Text("重命名")
+                                        }
+                                        Button(onClick = { scope.launch { coordinator.archive(run.runId, !run.archived) } }) {
+                                            Text(if (run.archived) "恢复" else "归档")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -406,9 +480,9 @@ private fun WorldSelector(
 }
 
 @Composable
-private fun LoadingState() {
+private fun LoadingState(reduceMotion: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = MaterialTheme.colors.primary)
+        if (reduceMotion) Text("正在加载…") else CircularProgressIndicator(color = MaterialTheme.colors.primary)
     }
 }
 
@@ -439,7 +513,18 @@ private fun ReadyState(
     onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
     interactive: Boolean = true,
+    replayInspector: ReplayInspector? = null,
 ) {
+    val scope = rememberCoroutineScope()
+    var displayedTimeline by remember(presentation.worldId, presentation.lastSequence) {
+        mutableStateOf(presentation.timeline)
+    }
+    var hasEarlier by remember(presentation.worldId, presentation.lastSequence) {
+        mutableStateOf(presentation.timelineTruncated)
+    }
+    var replayVerification by remember(presentation.worldId, presentation.lastSequence) {
+        mutableStateOf<String?>(null)
+    }
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -455,9 +540,21 @@ private fun ReadyState(
             ) {
                 Text("回放校验")
             }
+            if (replayInspector != null) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = {
+                    scope.launch {
+                        replayVerification = when (val result = replayInspector.exportVerifiedPublicReplay()) {
+                            is PublicReplayResult.Verified -> "公开回放已离线校验 · ${result.document.events.size} 个事件"
+                            is PublicReplayResult.Failure -> "公开回放校验失败：${result.message}"
+                        }
+                    }
+                }) { Text("公开回放") }
+            }
         }
 
         notice?.let { EmptyState(it.message, isError = true) }
+        replayVerification?.let { EmptyState(it, isError = it.contains("失败")) }
 
         if (interactive) agentController?.let { AgentPanel(it) }
 
@@ -519,35 +616,7 @@ private fun ReadyState(
             }
         }
 
-        presentation.adventureState?.let { adventure ->
-            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("冒险状态", fontWeight = FontWeight.SemiBold)
-                    if (adventure.inventory.isNotEmpty()) Text(
-                        "库存 · ${adventure.inventory.joinToString { "${it.label} × ${it.quantity}" }}",
-                    )
-                    if (adventure.conditions.isNotEmpty()) Text(
-                        "状态 · ${adventure.conditions.joinToString { "${it.label} ${it.stacks} 层" }}",
-                    )
-                    if (adventure.relationships.isNotEmpty()) Text(
-                        "关系 · ${adventure.relationships.joinToString { "${it.label} ${it.value}" }}",
-                    )
-                    adventure.quests.forEach { quest ->
-                        Text("任务 · ${quest.label} · ${quest.stageLabel ?: "尚未开始"} · ${quest.status.name}")
-                    }
-                    adventure.clocks.forEach { clock ->
-                        Text("${clock.label} · ${clock.value}/${clock.segments}")
-                        LinearProgressIndicator(
-                            progress = if (clock.segments == 0L) 0f else clock.value.toFloat() / clock.segments.toFloat(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-        }
+        presentation.adventureState?.let { AdventureCards(it) }
 
         presentation.endingSummary?.let { summary ->
             Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.secondary.copy(alpha = 0.16f)) {
@@ -603,16 +672,97 @@ private fun ReadyState(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(presentation.timeline, key = { it.sequence }) { event ->
+                if (hasEarlier && replayInspector != null) {
+                    item(key = "load-earlier") {
+                        Button(onClick = {
+                            scope.launch {
+                                val before = displayedTimeline.firstOrNull()?.sequence
+                                when (val result = replayInspector.timelinePage(before, 100)) {
+                                    is TimelinePageResult.Success -> {
+                                        displayedTimeline = (result.page.events + displayedTimeline)
+                                            .distinctBy { it.sequence }
+                                            .sortedBy { it.sequence }
+                                        hasEarlier = result.page.hasEarlier
+                                    }
+                                    is TimelinePageResult.Failure -> replayVerification = "时间线读取失败：${result.message}"
+                                }
+                            }
+                        }) { Text("加载更早事件") }
+                    }
+                }
+                items(displayedTimeline, key = { it.sequence }) { event ->
                     Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-                        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("#${event.sequence}", color = MaterialTheme.colors.primary, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(16.dp))
-                            Text(event.summary)
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("#${event.sequence}", color = MaterialTheme.colors.primary, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(16.dp))
+                                Text(event.summary)
+                            }
+                            Text(
+                                "${event.eventType} · cause ${event.causationId ?: "-"}",
+                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.48f),
+                                fontSize = 11.sp,
+                            )
+                            event.randomRecord?.let { random ->
+                                Text(
+                                    "Random ${random.recordId}: ${random.results.joinToString(" + ")} = ${random.total} → ${random.outcomeId.value}",
+                                    color = MaterialTheme.colors.secondary,
+                                    fontSize = 12.sp,
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AdventureCards(adventure: AdventureStatePresentation) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("角色与目标", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(adventure.inventory, key = { "inventory:${it.id.value}" }) { item ->
+                StateCard("库存 · ${item.label}", "× ${item.quantity}")
+            }
+            items(adventure.conditions, key = { "condition:${it.id.value}" }) { condition ->
+                StateCard("状态 · ${condition.label}", "${condition.stacks} 层")
+            }
+            items(adventure.relationships, key = { "relationship:${it.id.value}" }) { relationship ->
+                StateCard("关系 · ${relationship.label}", relationship.value.toString())
+            }
+            items(adventure.quests, key = { "quest:${it.id.value}" }) { quest ->
+                StateCard("任务 · ${quest.label}", "${quest.stageLabel ?: "尚未开始"} · ${quest.status.name}")
+            }
+            items(adventure.clocks, key = { "clock:${it.id.value}" }) { clock ->
+                Card(backgroundColor = MaterialTheme.colors.surface) {
+                    Column(
+                        modifier = Modifier.width(230.dp).padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(clock.label, color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
+                        Text("${clock.value}/${clock.segments}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        LinearProgressIndicator(
+                            progress = if (clock.segments == 0L) 0f else clock.value.toFloat() / clock.segments.toFloat(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StateCard(title: String, value: String) {
+    Card(backgroundColor = MaterialTheme.colors.surface) {
+        Column(
+            modifier = Modifier.width(230.dp).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

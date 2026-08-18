@@ -1,7 +1,10 @@
 CREATE TABLE save_run (
     run_id TEXT NOT NULL PRIMARY KEY,
     world_definition_id TEXT NOT NULL,
-    data_schema_version INTEGER NOT NULL DEFAULT 1
+    data_schema_version INTEGER NOT NULL DEFAULT 1,
+    world_content_version INTEGER NOT NULL DEFAULT 1,
+    display_name TEXT NOT NULL DEFAULT '',
+    archived INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE event_log (
@@ -183,14 +186,32 @@ INSERT INTO save_run(run_id, world_definition_id, data_schema_version)
 VALUES (?, ?, ?);
 
 selectRun:
-SELECT run_id, world_definition_id, data_schema_version
+SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived
 FROM save_run
 WHERE run_id = ?;
 
 selectAllRuns:
-SELECT run_id, world_definition_id, data_schema_version
+SELECT run_id, world_definition_id, data_schema_version, world_content_version, display_name, archived
 FROM save_run
 ORDER BY run_id;
+
+selectRunDirectory:
+SELECT r.run_id, r.world_definition_id, r.data_schema_version, r.world_content_version,
+       r.display_name, r.archived, COALESCE(MAX(e.sequence), 0) AS last_sequence
+FROM save_run r
+LEFT JOIN event_log e ON e.run_id = r.run_id
+GROUP BY r.run_id, r.world_definition_id, r.data_schema_version, r.world_content_version,
+         r.display_name, r.archived
+ORDER BY r.run_id DESC;
+
+renameRun:
+UPDATE save_run SET display_name = ? WHERE run_id = ?;
+
+setRunArchived:
+UPDATE save_run SET archived = ? WHERE run_id = ?;
+
+setRunContentVersion:
+UPDATE save_run SET world_content_version = ? WHERE run_id = ?;
 
 currentSequence:
 SELECT COALESCE(MAX(sequence), 0)
