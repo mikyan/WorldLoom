@@ -36,7 +36,7 @@ Snapshot 是缓存。Schema 不兼容、JSON 损坏或身份/序列不匹配时�
 - 公开事件摘要与稳定 Event 类型；
 - EventId、sequence、correlation 和 causation；
 - 判定使用的 Random Record、骰值、总值与结果档位；
-- 行动、场景、时间、活动、旅行、Behavior 派生和 NPC 公开动作。
+- 行动、场景、时间、活动、旅行、Behavior 派生、NPC 公开动作和已揭示的固定知识摘要。
 
 离线校验会重新运行 Reducer，并要求结果与当前权威状态相等。默认投影不读取以下分区：
 
@@ -62,3 +62,5 @@ Snapshot 是缓存。Schema 不兼容、JSON 损坏或身份/序列不匹配时�
 取消路径在不可取消的最小持久化区写入终态，再刷新历史。Provider 原始错误和模型私有正文不会直接显示；UI 只使用稳定错误分类告诉玩家能否重试或补叙述。
 
 玩家定向 NPC 的公开发言属于 EventLog 事实，并随存档、回放和公开导出保存；它包含目标 NPC/Entity、场景、限长文本与幂等键。NPC 模型的私有最终正文仍不属于公开回放，只有后续 `npc.speak` / `npc.act` 工具提交的内容可见。
+
+NPC 揭示知识时，EventLog 只保存知识 DefinitionId 与世界包固定的 `publicSummary`。私有正文不进入 Command/Event、主持历史或公开回放；重复揭示会复用既有公开事实，不产生第二条知识事件。

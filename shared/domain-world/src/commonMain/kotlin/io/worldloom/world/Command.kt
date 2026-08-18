@@ -12,6 +12,7 @@ const val CURRENT_CHARACTER_CREATION_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_ADDRESS_NPC_COMMAND_SCHEMA_VERSION: Int = 1
+const val CURRENT_REVEAL_NPC_KNOWLEDGE_COMMAND_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameCommandPayload
@@ -82,6 +83,17 @@ data class AddressNpcCommand(
 ) : GameCommandPayload
 
 @Serializable
+@SerialName("reveal-npc-knowledge")
+data class RevealNpcKnowledgeCommand(
+    val schemaVersion: Int = CURRENT_REVEAL_NPC_KNOWLEDGE_COMMAND_SCHEMA_VERSION,
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val knowledgeId: DefinitionId,
+    val publicSummary: String,
+) : GameCommandPayload
+
+@Serializable
 data class CommandEnvelope(
     val schemaVersion: Int,
     val commandId: CommandId,
@@ -108,6 +120,7 @@ enum class CommandPermission {
     ADVANCE_PROGRESS_CLOCK,
     PUBLISH_NPC_ACTION,
     ADDRESS_NPC,
+    REVEAL_NPC_KNOWLEDGE,
 }
 
 data class CommandAuthorization(

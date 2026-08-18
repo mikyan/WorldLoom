@@ -244,7 +244,12 @@
             "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "visiblePresentationIds": ["station.presentation.primary-status"],
             "goals": ["阻止级联故障并恢复外环中继"],
-            "privateKnowledge": ["你看到过一次未写入公开日志的中继认证失败，但不知道原因。"],
+            "knowledge": [{
+                "id": "station.knowledge.lyra.relay-auth-failure",
+                "privateText": "你看到过一次未写入公开日志的中继认证失败，但不知道原因。",
+                "publicSummary": "莱拉报告曾观察到一次未写入公开日志的中继认证失败。",
+                "revealable": true
+            }],
             "capabilities": ["SPEAK", "ACT"],
             "publicActionIds": ["station.npc-action.inspect-console"]
         }

@@ -48,6 +48,7 @@ private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.adventure-ending.reached"),
     DefinitionId("worldloom.event.npc.public-action"),
     DefinitionId("worldloom.event.npc.addressed"),
+    DefinitionId("worldloom.event.npc.knowledge-revealed"),
 )
 
 @Serializable
@@ -119,6 +120,15 @@ data class PlayableBehaviorReference(
 @Serializable
 enum class PlayableNpcCapability { SPEAK, ACT }
 
+/** Stable private fact whose public wording is fixed by the world package, never by model text. */
+@Serializable
+data class PlayableNpcKnowledgeDefinition(
+    val id: DefinitionId,
+    val privateText: String,
+    val publicSummary: String? = null,
+    val revealable: Boolean = false,
+)
+
 /** Declarative NPC identity and least-authority perception/tool boundary for one fixed world. */
 @Serializable
 data class PlayableNpcProfile(
@@ -130,6 +140,7 @@ data class PlayableNpcProfile(
     val visiblePresentationIds: List<DefinitionId> = emptyList(),
     val goals: List<String> = emptyList(),
     val privateKnowledge: List<String> = emptyList(),
+    val knowledge: List<PlayableNpcKnowledgeDefinition> = emptyList(),
     val capabilities: Set<PlayableNpcCapability> = setOf(PlayableNpcCapability.SPEAK),
     val publicActionIds: List<DefinitionId> = emptyList(),
 )
@@ -406,6 +417,7 @@ object PlayableWorldValidator {
         val presentationIds = definition.source.presentation.map { it.id }.toSet()
         val allowedEvents = allowedEventTypes(modules)
         val seenEntities = mutableSetOf<String>()
+        val seenKnowledgeIds = mutableSetOf<DefinitionId>()
         contract.npcs.forEachIndexed { index, npc ->
             val path = "npcs[$index]"
             if (!seenEntities.add(npc.entityId)) problems += problem(
@@ -430,6 +442,22 @@ object PlayableWorldValidator {
                 path,
                 "NPC prompt, knowledge or goal text exceeds its validated boundary",
             )
+            npc.knowledge.forEachIndexed { knowledgeIndex, knowledge ->
+                val knowledgePath = "$path.knowledge[$knowledgeIndex]"
+                if (!seenKnowledgeIds.add(knowledge.id)) problems += problem(
+                    PlayableWorldProblemCode.NPC_INVALID,
+                    "$knowledgePath.id",
+                    "NPC knowledge ID must be unique across the world",
+                )
+                if (knowledge.privateText.isBlank() || knowledge.privateText.length > 1_000 ||
+                    knowledge.publicSummary?.let { it.isBlank() || it.length > 500 } == true ||
+                    (knowledge.revealable && knowledge.publicSummary == null)
+                ) problems += problem(
+                    PlayableWorldProblemCode.NPC_INVALID,
+                    knowledgePath,
+                    "NPC knowledge text or reveal policy is invalid",
+                )
+            }
             if (npc.wakeEventTypes.isEmpty() || npc.wakeEventTypes.distinct().size != npc.wakeEventTypes.size ||
                 npc.wakeEventTypes.any { it !in allowedEvents }
             ) problems += problem(

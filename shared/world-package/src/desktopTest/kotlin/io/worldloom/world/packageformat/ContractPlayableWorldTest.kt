@@ -12,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlinx.serialization.decodeFromString
 
 class ContractPlayableWorldTest {
     @Test
@@ -33,6 +34,9 @@ class ContractPlayableWorldTest {
             assertEquals(setOf(case.creationMode), assertNotNull(contract.characterProfile).source.modes)
             assertEquals(3, contract.behaviors.size)
             assertEquals(case.npcCount, contract.source.npcs.size)
+            assertTrue(contract.source.npcs.all { npc ->
+                npc.knowledge.isNotEmpty() && npc.knowledge.all { it.revealable && !it.publicSummary.isNullOrBlank() }
+            })
             assertTrue(contract.scene(contract.source.initialSceneId)?.participantEntityIds.orEmpty().isNotEmpty())
             if (case.directory == "war-survival") {
                 assertEquals(1, contract.source.contentVersion)
@@ -46,6 +50,23 @@ class ContractPlayableWorldTest {
                 assertTrue(contract.source.endings.all { !it.summary.isNullOrBlank() })
             }
         }
+    }
+
+    @Test
+    fun legacyNpcPrivateKnowledgeRemainsReadableButIsNotRevealable() {
+        val legacy = kotlinx.serialization.json.Json.decodeFromString<PlayableNpcProfile>(
+            """{
+                "id":"legacy.npc.guide",
+                "entityId":"legacy-guide",
+                "displayName":"Guide",
+                "identityPrompt":"Stay in character.",
+                "wakeEventTypes":["worldloom.event.scene.entered"],
+                "privateKnowledge":["legacy private fact"]
+            }""".trimIndent(),
+        )
+
+        assertEquals(listOf("legacy private fact"), legacy.privateKnowledge)
+        assertTrue(legacy.knowledge.isEmpty())
     }
 
     @Test

@@ -7,6 +7,7 @@ import io.worldloom.application.SessionNpcProfile
 import io.worldloom.definition.DefinitionId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
+import io.worldloom.world.NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -133,9 +134,15 @@ class NpcContextProjector(
             if (visibleFields.isNotEmpty()) appendLine(
                 "可感知状态：${visibleFields.joinToString { "${it.label}:${it.value}" }}",
             )
-            if (configured.privateKnowledge.isNotEmpty()) {
+            val privateKnowledge = configured.privateKnowledge + configured.knowledge.map { it.privateText }
+            if (privateKnowledge.isNotEmpty()) {
                 appendLine("仅你知道的背景：")
-                configured.privateKnowledge.forEach { appendLine("- $it") }
+                privateKnowledge.forEach { appendLine("- $it") }
+            }
+            val revealableIds = configured.knowledge.filter { it.revealable }.map { it.id }
+            if (revealableIds.isNotEmpty()) {
+                appendLine("可通过 npc.speak 的 revealKnowledgeIds 公开：${revealableIds.joinToString { it.value }}")
+                appendLine("只提交知识 ID；公开摘要由世界包固定，不能自行改写。")
             }
             if (configured.publicActionIds.isNotEmpty()) appendLine(
                 "获准公开动作：${configured.publicActionIds.sortedBy { it.value }.joinToString { it.value }}",
@@ -194,7 +201,7 @@ class NpcSceneOrchestrator(
             val profile = current.npcProfiles.firstOrNull { it.id == work.npcId }
             val sourceEvent = gameSession.committedEvents(work.sourceSequence - 1, work.sourceSequence)
                 .firstOrNull { it.eventId == work.sourceEventId }
-            val directedToProfile = sourceEvent?.targetNpcId == profile?.id
+            val directedToProfile = sourceEvent?.directedNpcWake == true && sourceEvent.targetNpcId == profile?.id
             if (profile == null || profile.entityId !in current.currentSceneParticipantIds ||
                 sourceEvent == null ||
                 (!directedToProfile && work.eventType !in profile.wakeEventTypes) ||
@@ -211,6 +218,7 @@ class NpcSceneOrchestrator(
             if (!update(work, running)) continue
             turns += 1
             val agentProfile = profile.toAgentProfile(request.runId)
+            val memoryStore = memoryStoreFactory?.invoke(request.runId) ?: fallbackMemoryStore
             val trigger = NpcTrigger(
                 id = work.sourceEventId,
                 kind = work.eventType.value,
@@ -225,7 +233,7 @@ class NpcSceneOrchestrator(
                 NpcAgent(
                     profile = agentProfile,
                     runtime = runtime,
-                    memoryStore = memoryStoreFactory?.invoke(request.runId) ?: fallbackMemoryStore,
+                    memoryStore = memoryStore,
                 ).respond(trigger, NpcContextProjector(gameSession).project(agentProfile, trigger))
             } catch (_: Exception) {
                 NpcAgentResult.Failed(
@@ -236,7 +244,36 @@ class NpcSceneOrchestrator(
             val delivered = gameSession.commandContext()?.lastSequence ?: running.acceptedSequence ?: work.sourceSequence
             val publicActions = gameSession.publicNpcActions(running.acceptedSequence ?: work.sourceSequence, delivered)
                 .filter { it.entityId == profile.entityId }
+            val revealedEvents = gameSession.committedEvents(running.acceptedSequence ?: work.sourceSequence, delivered)
+                .filter { it.eventType == NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID && it.targetNpcId == profile.id }
             publicResults += publicActions.map { PublicFollowUp(it.displayName, it.content) }
+            if (result is NpcAgentResult.Responded && sourceEvent.directedNpcWake) {
+                val publicEpisode = buildString {
+                    sourceEvent.publicInput?.let { appendLine("玩家说：$it") }
+                    publicActions.forEach { appendLine("公开回应：${it.content}") }
+                    revealedEvents.mapNotNull { it.publicInput }.forEach { appendLine("公开知识：$it") }
+                }.trim()
+                if (publicEpisode.isNotEmpty()) {
+                    memoryStore.upsertMemory(
+                        AgentMemoryRecord(
+                            id = AgentMemoryId("dialogue:${work.id.value}"),
+                            agentId = agentProfile.agentId,
+                            kind = AgentMemoryKind.EPISODIC,
+                            content = publicEpisode,
+                            salience = 0.75,
+                            confidence = 1.0,
+                            tags = setOf("npc-dialogue", "scene:${work.sceneId.value}"),
+                            relatedEntityIds = current.currentSceneParticipantIds.mapTo(mutableSetOf()) { it.value },
+                            sourceEventIds = buildSet {
+                                add(work.sourceEventId)
+                                addAll(publicActions.map { it.eventId })
+                                addAll(revealedEvents.map { it.eventId })
+                            },
+                            createdSequence = result.turnSequence,
+                        ),
+                    )
+                }
+            }
             val terminal = when (result) {
                 is NpcAgentResult.Responded -> running.copy(
                     status = NpcWorkStatus.COMPLETED,
@@ -268,7 +305,7 @@ class NpcSceneOrchestrator(
         profiles.asSequence()
             .filter { profile ->
                 profile.entityId in event.participantIds &&
-                    (event.targetNpcId?.let { it == profile.id } ?: (event.eventType in profile.wakeEventTypes))
+                    if (event.directedNpcWake) event.targetNpcId == profile.id else event.eventType in profile.wakeEventTypes
             }
             .sortedBy { it.id.value }
             .take(policy.maxWakesPerEvent)
@@ -296,13 +333,17 @@ class NpcSceneOrchestrator(
         actorId = actorId,
         sessionId = AgentSessionId("${runId.value}.npc.${id.value}"),
         identityPrompt = identityPrompt,
-        permissions = if (canSpeak || publicActionIds.isNotEmpty()) setOf(CommandPermission.PUBLISH_NPC_ACTION) else emptySet(),
+        permissions = buildSet {
+            if (canSpeak || publicActionIds.isNotEmpty()) add(CommandPermission.PUBLISH_NPC_ACTION)
+            if (knowledge.any { it.revealable }) add(CommandPermission.REVEAL_NPC_KNOWLEDGE)
+        },
         wakePolicy = NpcWakePolicy(triggerKinds = wakeEventTypes.mapTo(mutableSetOf()) { it.value }),
         runId = runId,
         entityId = entityId,
         displayName = displayName,
         visiblePresentationIds = visiblePresentationIds,
-        privateKnowledge = privateKnowledge,
+        privateKnowledge = privateKnowledge + knowledge.map { it.privateText },
+        revealableKnowledgeIds = knowledge.filter { it.revealable }.mapTo(mutableSetOf()) { it.id },
         publicActionIds = publicActionIds,
     )
 }

@@ -11,6 +11,7 @@ import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.NpcAddressedEvent
+import io.worldloom.world.NpcKnowledgeRevealedEvent
 import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.rules.ActivityCompletedEvent
 import io.worldloom.rules.ScheduledTriggerFiredEvent
@@ -133,6 +134,7 @@ object PresentationMapper {
                     io.worldloom.world.NpcPublicActionKind.ACTION -> "${payload.entityId.value}：${payload.content}"
                 }
                 is NpcAddressedEvent -> "你对 ${payload.targetNpcId.value}：${payload.content}"
+                is NpcKnowledgeRevealedEvent -> payload.publicSummary
 
             else -> "事件已记录"
         }
@@ -175,6 +177,7 @@ object PresentationMapper {
         is AdventureEndingReachedEvent -> "worldloom.event.adventure-ending.reached"
         is NpcPublicActionPublishedEvent -> "worldloom.event.npc.public-action"
         is NpcAddressedEvent -> "worldloom.event.npc.addressed"
+        is NpcKnowledgeRevealedEvent -> "worldloom.event.npc.knowledge-revealed"
         else -> "worldloom.event.other"
     }
 

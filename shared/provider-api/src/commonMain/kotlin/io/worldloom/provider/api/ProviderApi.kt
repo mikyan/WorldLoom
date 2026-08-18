@@ -43,6 +43,7 @@ data class ProviderMessage(
 
 enum class ProviderToolValueType {
     STRING,
+    STRING_ARRAY,
     INTEGER,
     BOOLEAN,
 }
@@ -57,8 +58,8 @@ data class ProviderToolParameter(
     init {
         require(name.isNotBlank()) { "Tool parameter name must not be blank" }
         require(description.isNotBlank()) { "Tool parameter description must not be blank" }
-        require(type == ProviderToolValueType.STRING || allowedValues.isEmpty()) {
-            "Only string parameters may declare allowed values"
+        require(type in setOf(ProviderToolValueType.STRING, ProviderToolValueType.STRING_ARRAY) || allowedValues.isEmpty()) {
+            "Only string or string-array parameters may declare allowed values"
         }
         require(allowedValues.distinct().size == allowedValues.size) { "Allowed values must be unique" }
     }

@@ -83,6 +83,7 @@ object StateReducer : EventReducer {
             || payload is PlayerEnteredSceneEvent
             || payload is NpcPublicActionPublishedEvent
             || payload is NpcAddressedEvent
+            || payload is NpcKnowledgeRevealedEvent
 
     override fun reduce(
         state: GameState,
@@ -101,12 +102,33 @@ object StateReducer : EventReducer {
             is PlayerEnteredSceneEvent -> reduceSceneEntry(state, event, payload)
             is NpcPublicActionPublishedEvent -> reduceNpcPublicAction(state, event, payload)
             is NpcAddressedEvent -> reduceNpcAddress(state, event, payload)
+            is NpcKnowledgeRevealedEvent -> reduceNpcKnowledgeReveal(state, event, payload)
             else -> failure(
                 StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
                 "payload",
                 "Event payload is not handled by the core world reducer",
             )
         }
+    }
+
+    private fun reduceNpcKnowledgeReveal(
+        state: GameState,
+        event: EventEnvelope,
+        payload: NpcKnowledgeRevealedEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_NPC_KNOWLEDGE_REVEALED_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC knowledge event schema")
+        }
+        if (
+            state.lifecycle != RunLifecycle.ACTIVE || payload.sceneId != state.currentSceneId ||
+            payload.entityId !in state.sceneParticipantIds || payload.entityId !in state.entities
+        ) {
+            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC knowledge reveal is outside its current scene")
+        }
+        if (payload.publicSummary.isBlank() || payload.publicSummary.length > 500) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.publicSummary", "NPC knowledge summary is invalid")
+        }
+        return StateReductionResult.Success(state.copy(lastSequence = event.sequence))
     }
 
     private fun reduceNpcAddress(

@@ -309,6 +309,12 @@ object GmContextProjector {
                     "进度钟：${adventure.clocks.joinToString { "${it.label}:${it.value}/${it.segments}" }}",
                 )
             }
+            if (context.revealedKnowledge.isNotEmpty()) {
+                appendLine("已公开的角色知识：")
+                context.revealedKnowledge.sortedBy { it.sequence }.forEach {
+                    appendLine("- #${it.sequence} ${it.publicSummary}")
+                }
+            }
             if (presentation.timeline.isNotEmpty()) {
                 appendLine("最近公开事件：")
                 presentation.timeline.takeLast(profile.visibleEventLimit).forEach {

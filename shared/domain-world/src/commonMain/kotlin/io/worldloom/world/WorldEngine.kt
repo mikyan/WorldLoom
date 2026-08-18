@@ -6,6 +6,7 @@ object WorldEngine {
         is ValidatedCommand.ChangeRunLifecycle,
         is ValidatedCommand.PublishNpcAction,
         is ValidatedCommand.AddressNpc,
+        is ValidatedCommand.RevealNpcKnowledge,
         -> 1
         is ValidatedCommand.CreatePlayerCharacter -> command.payload.entity.components.size + 3
         is ValidatedCommand.ApplyActionOutcome -> 1 +
@@ -36,6 +37,7 @@ object WorldEngine {
             is ValidatedCommand.ApplyActionOutcome -> command.toEvents(eventIds)
             is ValidatedCommand.PublishNpcAction -> listOf(command.toEvent(eventIds.single()))
             is ValidatedCommand.AddressNpc -> listOf(command.toEvent(eventIds.single()))
+            is ValidatedCommand.RevealNpcKnowledge -> listOf(command.toEvent(eventIds.single()))
         }
     }
 
@@ -87,6 +89,19 @@ object WorldEngine {
                 sceneId = payload.sceneId,
                 content = payload.content,
                 idempotencyKey = payload.idempotencyKey,
+            ),
+        )
+
+    private fun ValidatedCommand.RevealNpcKnowledge.toEvent(eventId: EventId): EventEnvelope =
+        event(
+            eventId = eventId,
+            sequenceOffset = 1,
+            payload = NpcKnowledgeRevealedEvent(
+                npcId = payload.npcId,
+                entityId = payload.entityId,
+                sceneId = payload.sceneId,
+                knowledgeId = payload.knowledgeId,
+                publicSummary = payload.publicSummary,
             ),
         )
 

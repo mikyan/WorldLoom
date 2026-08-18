@@ -235,6 +235,7 @@ sealed interface GameSessionCommand {
         val kind: NpcPublicActionKind,
         val actionId: DefinitionId? = null,
         val content: String,
+        val revealKnowledgeIds: List<DefinitionId> = emptyList(),
     ) : GameSessionCommand
 
     data class AddressNpc(
@@ -258,6 +259,21 @@ data class SessionCommandContext(
     val availableTravelRoutes: List<SessionAvailableTravelRoute> = emptyList(),
     val adventureStateDefinition: AdventureStateDefinition? = null,
     val npcProfiles: List<SessionNpcProfile> = emptyList(),
+    val revealedKnowledge: List<SessionRevealedKnowledge> = emptyList(),
+)
+
+data class SessionNpcKnowledge(
+    val id: DefinitionId,
+    val privateText: String,
+    val publicSummary: String?,
+    val revealable: Boolean,
+)
+
+data class SessionRevealedKnowledge(
+    val npcId: DefinitionId,
+    val knowledgeId: DefinitionId,
+    val publicSummary: String,
+    val sequence: Long,
 )
 
 data class SessionNpcProfile(
@@ -270,6 +286,7 @@ data class SessionNpcProfile(
     val visiblePresentationIds: Set<DefinitionId>,
     val goals: List<String>,
     val privateKnowledge: List<String>,
+    val knowledge: List<SessionNpcKnowledge> = emptyList(),
     val canSpeak: Boolean,
     val publicActionIds: Set<DefinitionId>,
 )
@@ -282,6 +299,7 @@ data class SessionCommittedEvent(
     val participantIds: Set<EntityId>,
     val targetNpcId: DefinitionId? = null,
     val publicInput: String? = null,
+    val directedNpcWake: Boolean = false,
 )
 
 /** Explicitly public NPC Tool output; private model text and memory are never represented here. */

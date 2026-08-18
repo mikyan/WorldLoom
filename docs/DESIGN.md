@@ -744,6 +744,8 @@ Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector
 
 第 28 轮增加版本化 `AddressNpcCommand` / `NpcAddressedEvent` 和动态 `worldloom.tool.npc.address`。目标 NPC 必须由世界包声明为可发言、存在于当前场景且出现在本次 Tool Schema 的允许 ID 中；公开文本限 500 字符，Run 内幂等键用于吸收双击与 Provider 重试。玩家发言先原子追加 EventLog，NPC 工作 ID 再由 `EventId + targetNpcId` 确定；恢复扫描只为该目标创建对话工作，NPC 的公开响应仍必须经过 `npc.speak` / `npc.act`。共享 UI 从 Presentation 的 Definition 驱动角色列表选择目标，不解析世界键或题材 ID。
 
+第 29 轮将 NPC 知识升级为带稳定 DefinitionId 的私有正文、可选固定公开摘要和显式揭示权限，同时兼容旧 `privateKnowledge`。`npc.speak` 的动态 Schema 只列出该 NPC 自身可揭示的知识 ID，Tool Gateway 与 CommandValidator 再次核对 Actor、当前 Scene、Entity、ID 和固定摘要；模型不能改写摘要或借用其他角色知识。`NpcKnowledgeRevealedEvent` 只携带公开摘要并进入 EventLog、Presentation、公开回放和后续主持人上下文；玩家定向发言、NPC 公开响应和揭示摘要以来源 EventId 写入该 NPC 独立情景记忆，私有正文及模型最终回复不会跨分区复制。
+
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
 工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，逐轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)。

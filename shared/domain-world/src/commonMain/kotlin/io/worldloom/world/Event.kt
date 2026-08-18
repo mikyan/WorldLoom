@@ -13,6 +13,8 @@ const val CURRENT_SCENE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION: Int = 1
 val NPC_ADDRESSED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.addressed")
+const val CURRENT_NPC_KNOWLEDGE_REVEALED_EVENT_SCHEMA_VERSION: Int = 1
+val NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.knowledge-revealed")
 
 @Polymorphic
 interface GameEventPayload
@@ -109,6 +111,17 @@ data class NpcAddressedEvent(
     val sceneId: DefinitionId,
     val content: String,
     val idempotencyKey: String,
+) : GameEventPayload
+
+@Serializable
+@SerialName("npc-knowledge-revealed")
+data class NpcKnowledgeRevealedEvent(
+    val schemaVersion: Int = CURRENT_NPC_KNOWLEDGE_REVEALED_EVENT_SCHEMA_VERSION,
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val knowledgeId: DefinitionId,
+    val publicSummary: String,
 ) : GameEventPayload
 
 @Serializable

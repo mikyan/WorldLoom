@@ -27,12 +27,12 @@
 
 ## 29. NPC 对话记忆、知识揭示与隐私边界
 
-- [ ] 29.1 将 NPC 私有知识升级为稳定知识 Definition，包含私有正文、可选公开摘要和揭示权限且兼容旧 Profile
-- [ ] 29.2 扩展 NPC 上下文与 Tool Schema，只允许提交自身白名单内的 `revealKnowledgeIds`
-- [ ] 29.3 定义并实现公开知识揭示 Command/Event/Reducer/Presentation，使后续 GM 只看到已揭示摘要
-- [ ] 29.4 将定向玩家发言、NPC 公开回应和揭示记录写入该 NPC 独立记忆分区，不复制其他 NPC 私有上下文
-- [ ] 29.5 更新两个内置世界的知识配置，补充合法揭示、越权、重复揭示、会话隔离、公开回放与日志隐私测试
-- [ ] 29.6 更新作者文档并运行 Agent、Domain、Persistence、Application 与世界包测试
+- [x] 29.1 将 NPC 私有知识升级为稳定知识 Definition，包含私有正文、可选公开摘要和揭示权限且兼容旧 Profile
+- [x] 29.2 扩展 NPC 上下文与 Tool Schema，只允许提交自身白名单内的 `revealKnowledgeIds`
+- [x] 29.3 定义并实现公开知识揭示 Command/Event/Reducer/Presentation，使后续 GM 只看到已揭示摘要
+- [x] 29.4 将定向玩家发言、NPC 公开回应和揭示记录写入该 NPC 独立记忆分区，不复制其他 NPC 私有上下文
+- [x] 29.5 更新两个内置世界的知识配置，补充合法揭示、越权、重复揭示、会话隔离、公开回放与日志隐私测试
+- [x] 29.6 更新作者文档并运行 Agent、Domain、Persistence、Application 与世界包测试
 
 ## 30. 主持人长期连续性与上下文压缩接入
 

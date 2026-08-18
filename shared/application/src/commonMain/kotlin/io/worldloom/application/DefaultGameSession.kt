@@ -36,6 +36,9 @@ import io.worldloom.world.PublishNpcActionCommand
 import io.worldloom.world.AddressNpcCommand
 import io.worldloom.world.NpcAddressCommandPolicy
 import io.worldloom.world.NpcAddressedEvent
+import io.worldloom.world.NpcKnowledgeRevealedEvent
+import io.worldloom.world.NpcKnowledgeRevealCommandPolicy
+import io.worldloom.world.RevealNpcKnowledgeCommand
 import io.worldloom.world.ActionOutcomeCommandPolicy
 import io.worldloom.world.ApplyActionOutcomeCommand
 import io.worldloom.world.EventReducer
@@ -703,6 +706,10 @@ class DefaultGameSession(
                 availableTravelRoutes = session.availableTravelRoutes(),
                 adventureStateDefinition = session.playableContract?.source?.adventureState,
                 npcProfiles = session.npcProfiles(),
+                revealedKnowledge = eventStore.read(session.currentState.runId).mapNotNull { event ->
+                    val payload = event.payload as? NpcKnowledgeRevealedEvent ?: return@mapNotNull null
+                    SessionRevealedKnowledge(payload.npcId, payload.knowledgeId, payload.publicSummary, event.sequence)
+                },
             )
         }
     }
@@ -738,8 +745,17 @@ class DefaultGameSession(
                                     projected.eventType,
                                     sceneId,
                                     participants,
-                                    targetNpcId = (event.payload as? NpcAddressedEvent)?.targetNpcId,
-                                    publicInput = (event.payload as? NpcAddressedEvent)?.content,
+                                    targetNpcId = when (val payload = event.payload) {
+                                        is NpcAddressedEvent -> payload.targetNpcId
+                                        is NpcKnowledgeRevealedEvent -> payload.npcId
+                                        else -> null
+                                    },
+                                    publicInput = when (val payload = event.payload) {
+                                        is NpcAddressedEvent -> payload.content
+                                        is NpcKnowledgeRevealedEvent -> payload.publicSummary
+                                        else -> null
+                                    },
+                                    directedNpcWake = event.payload is NpcAddressedEvent,
                                 ),
                             )
                         }
@@ -986,6 +1002,15 @@ class DefaultGameSession(
             ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC actor is not declared by this world"))
         val sceneId = session.currentState.currentSceneId
             ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC has no current scene"))
+        if (request.revealKnowledgeIds.size > 4 || request.revealKnowledgeIds.distinct().size != request.revealKnowledgeIds.size ||
+            (request.revealKnowledgeIds.isNotEmpty() && request.kind != io.worldloom.world.NpcPublicActionKind.SPEECH)
+        ) {
+            return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC knowledge reveal is not allowed"))
+        }
+        val reveals = request.revealKnowledgeIds.map { knowledgeId ->
+            profile.knowledge.firstOrNull { it.id == knowledgeId && it.revealable && it.publicSummary != null }
+                ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC knowledge reveal is not allowed"))
+        }
         val command = CommandEnvelope(
             schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
             commandId = idSource.nextCommandId(),
@@ -1019,12 +1044,60 @@ class DefaultGameSession(
                 SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
             )
         }
-        val events = WorldEngine.handle(validated, idSource.nextEventId())
-        val candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+        val events = WorldEngine.handle(validated, idSource.nextEventId()).toMutableList()
+        var candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
             is StateReductionResult.Success -> reduction.state
             is StateReductionResult.Failure -> return failAction(
                 SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
             )
+        }
+        val alreadyRevealed = eventStore.read(session.currentState.runId).mapNotNullTo(mutableSetOf()) { event ->
+            (event.payload as? NpcKnowledgeRevealedEvent)?.knowledgeId
+        }
+        reveals.filter { it.id !in alreadyRevealed }.forEach { knowledge ->
+            val summary = requireNotNull(knowledge.publicSummary)
+            val revealEnvelope = CommandEnvelope(
+                schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+                commandId = idSource.nextCommandId(),
+                runId = session.currentState.runId,
+                actorId = authorization.actorId,
+                expectedSequence = candidate.lastSequence,
+                payload = RevealNpcKnowledgeCommand(
+                    npcId = profile.id,
+                    entityId = profile.entityId,
+                    sceneId = sceneId,
+                    knowledgeId = knowledge.id,
+                    publicSummary = summary,
+                ),
+            )
+            val reveal = when (
+                val validation = CommandValidator.validate(
+                    candidate,
+                    session.definition,
+                    authorization,
+                    revealEnvelope,
+                    npcKnowledgeRevealPolicy = NpcKnowledgeRevealCommandPolicy(
+                        profile.id,
+                        profile.entityId,
+                        sceneId,
+                        knowledge.id,
+                        summary,
+                    ),
+                )
+            ) {
+                is CommandValidationResult.Valid -> validation.command
+                is CommandValidationResult.Invalid -> return failAction(
+                    SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC knowledge reveal is not allowed"),
+                )
+            }
+            val event = WorldEngine.handle(reveal, idSource.nextEventId()).single()
+            candidate = when (val reduction = reducer.reduce(candidate, session.definition, event)) {
+                is StateReductionResult.Success -> reduction.state
+                is StateReductionResult.Failure -> return failAction(
+                    SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+                )
+            }
+            events += event
         }
         when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
             is EventAppendResult.Success -> Unit
@@ -2019,6 +2092,14 @@ class DefaultGameSession(
                 visiblePresentationIds = npc.visiblePresentationIds.toSet(),
                 goals = npc.goals,
                 privateKnowledge = npc.privateKnowledge,
+                knowledge = npc.knowledge.map { knowledge ->
+                    SessionNpcKnowledge(
+                        knowledge.id,
+                        knowledge.privateText,
+                        knowledge.publicSummary,
+                        knowledge.revealable,
+                    )
+                },
                 canSpeak = PlayableNpcCapability.SPEAK in npc.capabilities,
                 publicActionIds = npc.publicActionIds.toSet(),
             )

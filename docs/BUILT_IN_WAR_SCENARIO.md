@@ -28,9 +28,11 @@
 
 主持人只接收玩家可见事实、当前场景描述、公开参与者、动态可用行动、公开事件和预算。主持人选中的行动仍必须经过 Tool Gateway、类型化 Command、Validator、WorldEngine、EventLog 和 Reducer；叙述不能先于事实改变世界。
 
-玛拉知道北侧封锁与避难所频率，托马斯知道水塔地图与涵洞路线。两人的私有知识不会互相投影，也不会进入主持人上下文、玩家 Presentation 或公开重放。只有 `npc.speak` / `npc.act` 产生的公开 Event 会被主持人聚合进当轮叙事。
+玛拉的 `war.knowledge.mara.north-blockade` 与托马斯的 `war.knowledge.tomas.culvert-map` 分别保存北侧封锁、避难所频率和涵洞路线的私有正文。两人的私有知识不会互相投影，也不会进入主持人上下文、玩家 Presentation 或公开重放。NPC 只能在自己的 `npc.speak` 白名单中提交知识 ID；Runtime 使用世界包固定公开摘要生成 `NpcKnowledgeRevealedEvent`，后续主持人和公开回放只能看到该摘要。
 
 玩家也可以从当前场景的可交谈角色列表选择玛拉或托马斯。`npc.address` 只暴露当前场景允许交互的 NPC ID，玩家发言形成 `NpcAddressedEvent` 后，仅由 `EventId + targetNpcId` 对应的角色工作项消费；未选择角色的对话记忆不会改变。重复幂等键不会追加第二条发言或再次唤醒角色。
+
+定向玩家发言、该角色的公开回应和知识摘要会形成带来源 EventId 的公开情景记忆，但仍存放在同一 NPC 的 AgentId 分区。重复揭示同一知识不会追加第二个事件，其他 NPC 的知识 ID 会在 Tool Gateway 与 CommandValidator 两层拒绝。
 
 ## 4. 黄金路线
 

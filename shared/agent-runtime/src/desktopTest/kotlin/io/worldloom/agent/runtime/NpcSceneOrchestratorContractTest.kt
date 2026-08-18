@@ -25,7 +25,9 @@ import io.worldloom.world.NPC_ADDRESSED_EVENT_TYPE_ID
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -337,6 +339,86 @@ class NpcSceneOrchestratorContractTest {
         assertEquals(listOf("莱拉"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
     }
 
+    @Test
+    fun npcRevealsOnlyItsWhitelistedPublicSummaryAndStoresPublicEpisodePrivately() = runTest {
+        val session = session("station-ai", "npc-knowledge")
+        assertIs<LoadResult.Success>(session.load(id("contract.station-ai")))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        val knowledgeId = "station.knowledge.lyra.relay-auth-failure"
+        val provider = SpeakingNpcProvider(revealKnowledgeId = knowledgeId)
+        val memoryStore = InMemoryAgentMemoryStore()
+        val workStore = InMemoryNpcWorkStore()
+        val orchestrator = NpcSceneOrchestrator(
+            AgentRuntime(provider, DefaultAgentToolGateway(session), InMemoryAgentSessionStore()),
+            session,
+            workStore,
+            memoryStoreFactory = { memoryStore },
+        )
+        val gateway = DefaultAgentToolGateway(session, orchestrator)
+        val player = AgentIdentity(
+            AgentId("worldloom.agent.player-dialogue"),
+            ActorId("system.player"),
+            setOf(CommandPermission.ADDRESS_NPC),
+        )
+        fun call(id: String) = ProviderToolCall(
+            id,
+            NPC_ADDRESS_TOOL_ID.value,
+            buildJsonObject {
+                put("npcId", "station.npc.lyra")
+                put("content", "你发现过中继认证异常吗？")
+            },
+        )
+
+        assertIs<ToolInvocationResult.Success>(gateway.invoke(player, call("knowledge-dialogue-1")))
+
+        val context = assertNotNull(session.commandContext())
+        val revealed = context.revealedKnowledge.single()
+        assertEquals(id(knowledgeId), revealed.knowledgeId)
+        assertEquals("莱拉报告曾观察到一次未写入公开日志的中继认证失败。", revealed.publicSummary)
+        val speechTool = provider.offeredTools.first().single { it.name == NPC_SPEAK_TOOL_ID.value }
+        assertEquals(
+            listOf(knowledgeId),
+            speechTool.parameters.single { it.name == "revealKnowledgeIds" }.allowedValues,
+        )
+        val gmPrompt = GmContextProjector.project(ready(session).presentation, context, GmProfile()).systemPrompt
+        assertTrue(gmPrompt.contains(revealed.publicSummary))
+        assertFalse(gmPrompt.contains("但不知道原因"))
+        val replay = assertIs<io.worldloom.application.PublicReplayResult.Verified>(
+            session.exportVerifiedPublicReplay(),
+        ).document
+        assertTrue(replay.events.any { it.eventType == "worldloom.event.npc.knowledge-revealed" })
+        assertTrue(replay.events.any { it.summary == revealed.publicSummary })
+        assertFalse(replay.events.any { it.summary.contains("PRIVATE") || it.summary.contains("但不知道原因") })
+        val agentId = AgentId("worldloom.agent.npc.station.npc.lyra")
+        val publicMemory = memoryStore.memories(agentId).single()
+        assertTrue(publicMemory.content.contains("玩家说：你发现过中继认证异常吗"))
+        assertTrue(publicMemory.content.contains(revealed.publicSummary))
+        assertFalse(publicMemory.content.contains("但不知道原因"))
+
+        assertIs<ToolInvocationResult.Success>(gateway.invoke(player, call("knowledge-dialogue-2")))
+
+        assertEquals(1, assertNotNull(session.commandContext()).revealedKnowledge.size)
+        assertEquals(2, memoryStore.memories(agentId).size)
+
+        val forbiddenSession = session("station-ai", "npc-knowledge-forbidden")
+        assertIs<LoadResult.Success>(forbiddenSession.load(id("contract.station-ai")))
+        assertIs<ActionResult.Success>(forbiddenSession.confirmCharacter())
+        val forbiddenStore = InMemoryNpcWorkStore()
+        val forbiddenProvider = SpeakingNpcProvider(revealKnowledgeId = "war.knowledge.mara.north-blockade")
+        val forbiddenGateway = DefaultAgentToolGateway(
+            forbiddenSession,
+            NpcSceneOrchestrator(
+                AgentRuntime(forbiddenProvider, DefaultAgentToolGateway(forbiddenSession)),
+                forbiddenSession,
+                forbiddenStore,
+            ),
+        )
+        assertIs<ToolInvocationResult.Success>(forbiddenGateway.invoke(player, call("knowledge-dialogue-forbidden")))
+        assertTrue(assertNotNull(forbiddenSession.commandContext()).revealedKnowledge.isEmpty())
+        assertTrue(forbiddenStore.list(RunId("npc-knowledge-forbidden.run.1")).all { it.status == NpcWorkStatus.FAILED })
+        assertFalse(ready(forbiddenSession).presentation.timeline.any { it.summary.contains("war.knowledge") })
+    }
+
     private fun kotlinx.coroutines.test.TestScope.session(directory: String, prefix: String): DefaultGameSession {
         val source = WorldPackageSource(
             manifestJson = resource("$directory/manifest.json"),
@@ -372,16 +454,19 @@ class NpcSceneOrchestratorContractTest {
 
 private class SpeakingNpcProvider(
     private val usePublicAction: Boolean = false,
+    private val revealKnowledgeId: String? = null,
 ) : LanguageModelProvider {
     override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
     var calls: Int = 0
     val systemPrompts = mutableListOf<String>()
     val toolResults = mutableListOf<String>()
+    val offeredTools = mutableListOf<List<io.worldloom.provider.api.ProviderToolDefinition>>()
 
     override suspend fun complete(request: ProviderRequest): ProviderResult {
         calls += 1
         val hasToolResult = request.messages.any { it.role == ProviderMessageRole.TOOL }
         if (!hasToolResult) {
+            offeredTools += request.tools
             val system = request.messages.first().content.orEmpty()
             systemPrompts += system
             val content = when {
@@ -405,7 +490,12 @@ private class SpeakingNpcProvider(
                             ProviderToolCall(
                                 "npc-call-$calls",
                                 NPC_SPEAK_TOOL_ID.value,
-                                buildJsonObject { put("content", content) },
+                                buildJsonObject {
+                                    put("content", content)
+                                    revealKnowledgeId?.let { knowledgeId ->
+                                        put("revealKnowledgeIds", buildJsonArray { add(JsonPrimitive(knowledgeId)) })
+                                    }
+                                },
                             )
                         },
                     ),

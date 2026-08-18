@@ -319,16 +319,21 @@ class OpenAiChatCompletionsProvider(
                 put("properties", buildJsonObject {
                     tool.parameters.forEach { parameter ->
                         put(parameter.name, buildJsonObject {
-                            put(
-                                "type",
-                                when (parameter.type) {
-                                    ProviderToolValueType.STRING -> "string"
-                                    ProviderToolValueType.INTEGER -> "integer"
-                                    ProviderToolValueType.BOOLEAN -> "boolean"
-                                },
-                            )
+                            put("type", if (parameter.type == ProviderToolValueType.STRING_ARRAY) "array" else when (parameter.type) {
+                                ProviderToolValueType.STRING -> "string"
+                                ProviderToolValueType.INTEGER -> "integer"
+                                ProviderToolValueType.BOOLEAN -> "boolean"
+                                ProviderToolValueType.STRING_ARRAY -> error("handled above")
+                            })
                             put("description", parameter.description)
-                            if (parameter.allowedValues.isNotEmpty()) {
+                            if (parameter.type == ProviderToolValueType.STRING_ARRAY) {
+                                put("items", buildJsonObject {
+                                    put("type", "string")
+                                    if (parameter.allowedValues.isNotEmpty()) {
+                                        put("enum", JsonArray(parameter.allowedValues.map(::JsonPrimitive)))
+                                    }
+                                })
+                            } else if (parameter.allowedValues.isNotEmpty()) {
                                 put("enum", JsonArray(parameter.allowedValues.map(::JsonPrimitive)))
                             }
                         })

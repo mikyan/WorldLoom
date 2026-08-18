@@ -17,7 +17,8 @@
         "snapshot": 1,
         "gmTurn": 3,
         "npcWork": 1,
-        "npcAddress": 1
+        "npcAddress": 1,
+        "npcKnowledgeReveal": 1
     },
     "database": {"schemaVersion": 9, "latestMigration": "8.sqm"},
     "artifacts": [

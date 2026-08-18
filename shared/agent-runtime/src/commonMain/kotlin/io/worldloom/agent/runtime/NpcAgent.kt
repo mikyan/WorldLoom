@@ -20,6 +20,7 @@ data class NpcAgentProfile(
     val displayName: String = agentId.value,
     val visiblePresentationIds: Set<DefinitionId> = emptySet(),
     val privateKnowledge: List<String> = emptyList(),
+    val revealableKnowledgeIds: Set<DefinitionId> = emptySet(),
     val publicActionIds: Set<DefinitionId> = emptySet(),
 ) {
     init {

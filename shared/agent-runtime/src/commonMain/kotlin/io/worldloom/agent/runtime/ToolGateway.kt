@@ -20,6 +20,7 @@ import io.worldloom.world.EntityId
 import io.worldloom.world.NpcPublicActionKind
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -241,6 +242,7 @@ class DefaultAgentToolGateway(
             NPC_SPEAK_TOOL_ID.value -> GameSessionCommand.PublishNpcAction(
                 kind = NpcPublicActionKind.SPEECH,
                 content = call.requireString("content"),
+                revealKnowledgeIds = call.optionalStringList("revealKnowledgeIds").map(::DefinitionId),
             )
 
             NPC_ACT_TOOL_ID.value -> GameSessionCommand.PublishNpcAction(
@@ -481,6 +483,11 @@ private data class StandardAgentTool(
             "actionId",
             context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.publicActionIds.orEmpty().map { it.value },
         )
+        NPC_SPEAK_TOOL_ID -> definition.withAllowed(
+            "revealKnowledgeIds",
+            context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.knowledge.orEmpty()
+                .filter { it.revealable }.map { it.id.value },
+        )
         NPC_ADDRESS_TOOL_ID -> definition.withAllowed(
             "npcId",
             context.npcProfiles.filter { it.canSpeak && it.entityId in currentParticipants(context) }
@@ -686,7 +693,15 @@ private object StandardAgentTools {
             definition = ProviderToolDefinition(
                 name = NPC_SPEAK_TOOL_ID.value,
                 description = "Publish one in-character utterance as an auditable public scene event. Final model text remains private.",
-                parameters = listOf(stringParameter("content", "Public utterance, 1 to 500 characters.")),
+                parameters = listOf(
+                    stringParameter("content", "Public utterance, 1 to 500 characters."),
+                    ProviderToolParameter(
+                        "revealKnowledgeIds",
+                        "Optional IDs from this NPC's reveal whitelist; public summaries are fixed by the world package.",
+                        ProviderToolValueType.STRING_ARRAY,
+                        required = false,
+                    ),
+                ),
             ),
             capabilityId = NPC_SPEAK_TOOL_ID,
             permission = CommandPermission.PUBLISH_NPC_ACTION,
@@ -735,13 +750,17 @@ private fun validateArguments(
     definition.parameters.forEach { parameter ->
         val value = arguments[parameter.name] ?: return@forEach
         val primitive = value as? JsonPrimitive
-            ?: return "Argument ${parameter.name} must be a primitive ${parameter.type.name.lowercase()}"
         val valid = when (parameter.type) {
-            ProviderToolValueType.STRING -> primitive.isString &&
+            ProviderToolValueType.STRING -> primitive?.isString == true &&
                 primitive.contentOrNull != null &&
                 (parameter.allowedValues.isEmpty() || primitive.content in parameter.allowedValues)
-            ProviderToolValueType.INTEGER -> !primitive.isString && primitive.longOrNull != null
-            ProviderToolValueType.BOOLEAN -> !primitive.isString && primitive.booleanOrNull != null
+            ProviderToolValueType.STRING_ARRAY -> (value as? JsonArray)?.all { item ->
+                val string = item as? JsonPrimitive
+                string?.isString == true && string.contentOrNull != null &&
+                    (parameter.allowedValues.isEmpty() || string.content in parameter.allowedValues)
+            } == true
+            ProviderToolValueType.INTEGER -> primitive?.isString == false && primitive.longOrNull != null
+            ProviderToolValueType.BOOLEAN -> primitive?.isString == false && primitive.booleanOrNull != null
         }
         if (!valid) return "Argument ${parameter.name} must be ${parameter.type.name.lowercase()}"
     }
@@ -762,6 +781,9 @@ private fun ProviderToolCall.optionalString(name: String): String? =
 
 private fun ProviderToolCall.optionalBoolean(name: String): Boolean? =
     (arguments[name] as? JsonPrimitive)?.booleanOrNull
+
+private fun ProviderToolCall.optionalStringList(name: String): List<String> =
+    (arguments[name] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content }
 
 private fun validateIdentifiers(
     call: ProviderToolCall,
@@ -877,6 +899,12 @@ private fun validateIdentifiers(
                     ?: return "Tool actor is not a configured NPC"
                 if (!npc.canSpeak) return "NPC is not allowed to speak publicly"
                 if (call.requireString("content").trim().length !in 1..500) return "NPC public content is outside the supported range"
+                val reveals = call.optionalStringList("revealKnowledgeIds")
+                if (reveals.size > 4 || reveals.distinct().size != reveals.size ||
+                    (reveals.isNotEmpty() && CommandPermission.REVEAL_NPC_KNOWLEDGE !in identity.permissions)
+                ) return "NPC knowledge reveal is not allowed"
+                val allowed = npc.knowledge.filter { it.revealable }.mapTo(mutableSetOf()) { it.id.value }
+                if (reveals.any { it !in allowed }) return "NPC knowledge reveal is not allowed"
             }
 
             NPC_ACT_TOOL_ID.value -> {

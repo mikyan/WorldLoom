@@ -279,7 +279,12 @@
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "visiblePresentationIds": ["war.presentation.primary-status"],
             "goals": ["让孩子和伤员安全抵达撤离车队", "阻止队伍因恐慌抛弃弱者"],
-            "privateKnowledge": ["北侧道路已经被巡逻队封锁；避难所守门人掌握车队的旧无线电频率。"],
+            "knowledge": [{
+                "id": "war.knowledge.mara.north-blockade",
+                "privateText": "北侧道路已经被巡逻队封锁；避难所守门人掌握车队的旧无线电频率。",
+                "publicSummary": "玛拉确认北侧道路已被巡逻队封锁，并提到避难所守门人掌握旧无线电频率。",
+                "revealable": true
+            }],
             "capabilities": ["SPEAK", "ACT"],
             "publicActionIds": ["war.npc-action.check-wounds", "war.npc-action.calm-survivors"]
         },
@@ -288,7 +293,12 @@
             "identityPrompt": "你是托马斯，熟悉废墟道路的少年信使。只根据当前感知回应，不泄露未确认的路线情报。",
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "goals": ["取回水塔地图", "证明涵洞路线仍可通行"],
-            "privateKnowledge": ["旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图；你担心说出来后玛拉会禁止冒险。"],
+            "knowledge": [{
+                "id": "war.knowledge.tomas.culvert-map",
+                "privateText": "旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图；你担心说出来后玛拉会禁止冒险。",
+                "publicSummary": "托马斯透露旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图。",
+                "revealable": true
+            }],
             "capabilities": ["SPEAK", "ACT"],
             "publicActionIds": ["war.npc-action.scout-cover", "war.npc-action.mark-route"]
         }

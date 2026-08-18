@@ -29,6 +29,7 @@ import io.worldloom.world.GameState
 import io.worldloom.world.RunId
 import io.worldloom.world.EntityId
 import io.worldloom.world.NpcAddressedEvent
+import io.worldloom.world.NpcKnowledgeRevealedEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -58,6 +59,32 @@ class PersistenceCodecTest {
                 PersistenceCodec.decodeEvent(PersistenceCodec.encodeEvent(event)),
             ).value,
         )
+    }
+
+    @Test
+    fun roundTripsNpcKnowledgeRevealWithoutPrivateText() {
+        val event = EventEnvelope(
+            schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+            eventId = EventId("event.knowledge.1"),
+            runId = RunId("run.knowledge"),
+            sequence = 1,
+            causationId = CommandId("command.knowledge.1"),
+            correlationId = "command.knowledge.1",
+            payload = NpcKnowledgeRevealedEvent(
+                npcId = DefinitionId("test.npc.guide"),
+                entityId = EntityId("npc-guide"),
+                sceneId = DefinitionId("test.scene.room"),
+                knowledgeId = DefinitionId("test.knowledge.route"),
+                publicSummary = "The route is blocked.",
+            ),
+        )
+
+        val encoded = PersistenceCodec.encodeEvent(event)
+        assertEquals(
+            event,
+            assertIs<PersistenceDecodeResult.Success<EventEnvelope>>(PersistenceCodec.decodeEvent(encoded)).value,
+        )
+        kotlin.test.assertFalse(encoded.contains("privateText"))
     }
 
     @Test

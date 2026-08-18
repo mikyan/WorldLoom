@@ -91,6 +91,12 @@ class OpenAiChatCompletionsProviderTest {
         val function = root["tools"]!!.jsonArray.single().jsonObject["function"]!!.jsonObject
         val parameter = function["parameters"]!!.jsonObject["properties"]!!.jsonObject["profileId"]!!.jsonObject
         assertEquals("test.check", parameter["enum"]!!.jsonArray.single().jsonPrimitive.content)
+        val arrayParameter = function["parameters"]!!.jsonObject["properties"]!!.jsonObject["knowledgeIds"]!!.jsonObject
+        assertEquals("array", arrayParameter["type"]!!.jsonPrimitive.content)
+        assertEquals(
+            "test.knowledge",
+            arrayParameter["items"]!!.jsonObject["enum"]!!.jsonArray.single().jsonPrimitive.content,
+        )
     }
 
     @Test
@@ -204,6 +210,13 @@ class OpenAiChatCompletionsProviderTest {
                 description = "Check profile.",
                 type = ProviderToolValueType.STRING,
                 allowedValues = listOf("test.check"),
+            ),
+            ProviderToolParameter(
+                name = "knowledgeIds",
+                description = "Optional knowledge identifiers.",
+                type = ProviderToolValueType.STRING_ARRAY,
+                required = false,
+                allowedValues = listOf("test.knowledge"),
             ),
         ),
     )

@@ -46,6 +46,12 @@ behaviors/               # 契约引用 Behavior 时按需提供
 
 行动结果的 `progression` 至少要包含下一场景、目标推进、结局或明确允许重试中的一项。含 CheckProfile 的行动必须覆盖该检查的全部结果档位，并至少把一个档位标记为 `FAILURE`；失败仍要产生新局面、代价、可见进展、重试机会或终局。
 
+## NPC 知识与公开揭示
+
+`playableNpcs[].knowledge` 中的每项知识必须使用包内全局唯一的稳定 DefinitionId。`privateText` 只进入该 NPC 的私有上下文；需要允许角色公开时，同时提供 `publicSummary` 并设置 `revealable: true`。公开摘要应写成可直接进入玩家时间线的既成事实，不要依赖模型改写，也不要包含作者仍想保密的尾注。
+
+Runtime 只把当前 NPC 自身可揭示的 ID 放入 `npc.speak.revealKnowledgeIds`。提交后，Validator 会再次核对 NPC、Entity、Scene、知识 ID 和固定摘要；公开 Event 只保存 `publicSummary`。旧包中的 `privateKnowledge` 仍可读取，但不会自动变成可揭示知识，作者应显式迁移后再开放。
+
 ## 随机与黄金路线
 
 RANDOM Check 的路线步骤必须记录与骰子表达式数量和面数一致的 `randomValues`。验证器使用这些数值计算结果档位；不得在测试或回放时重新掷骰。DETERMINISTIC Check 不得提供随机值；没有 CheckProfile 的选择需要显式提供 `selectedOutcomeId`。
@@ -84,4 +90,4 @@ JDK 17 或更高版本下运行：
 ./gradlew.bat :shared:world-package:desktopTest
 ```
 
-Unix 与 macOS 使用 `./gradlew`。角色生命周期、Profile 驱动建角、原子角色事件和草稿恢复已经接入；内置战争世界仍是可逐步填充的可玩契约骨架，主持人回合、场景事件、通用冒险模块和完整短篇会在后续迭代依次接入。
+Unix 与 macOS 使用 `./gradlew`。当前两个内置世界已经共用角色创建、主持回合、定向 NPC 对话、知识揭示和权威事件管线；新增世界仍须通过相同契约与跨题材测试。

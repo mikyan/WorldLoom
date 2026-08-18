@@ -36,6 +36,8 @@ enum class CommandValidationErrorCode {
     NPC_ACTION_MISMATCH,
     NPC_ADDRESS_POLICY_REQUIRED,
     NPC_ADDRESS_MISMATCH,
+    NPC_KNOWLEDGE_POLICY_REQUIRED,
+    NPC_KNOWLEDGE_MISMATCH,
     CURRENT_SCENE_MISMATCH,
     PARTICIPANT_NOT_FOUND,
     UNSUPPORTED_COMMAND_PAYLOAD,
@@ -90,6 +92,11 @@ sealed interface ValidatedCommand {
         override val envelope: CommandEnvelope,
         val payload: AddressNpcCommand,
     ) : ValidatedCommand
+
+    data class RevealNpcKnowledge(
+        override val envelope: CommandEnvelope,
+        val payload: RevealNpcKnowledgeCommand,
+    ) : ValidatedCommand
 }
 
 /** Pinned world/profile references supplied by application after package validation. */
@@ -124,6 +131,14 @@ data class NpcAddressCommandPolicy(
     val npcId: DefinitionId,
     val entityId: EntityId,
     val sceneId: DefinitionId,
+)
+
+data class NpcKnowledgeRevealCommandPolicy(
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val knowledgeId: DefinitionId,
+    val publicSummary: String,
 )
 
 /** Shared envelope checks used before dispatching a payload to its owning module validator. */
@@ -178,6 +193,7 @@ object CommandValidator {
         actionOutcomePolicy: ActionOutcomeCommandPolicy? = null,
         npcPublicActionPolicy: NpcPublicActionCommandPolicy? = null,
         npcAddressPolicy: NpcAddressCommandPolicy? = null,
+        npcKnowledgeRevealPolicy: NpcKnowledgeRevealCommandPolicy? = null,
     ): CommandValidationResult {
         CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
             return CommandValidationResult.Invalid(it)
@@ -215,12 +231,52 @@ object CommandValidator {
                 payload,
                 npcAddressPolicy,
             )
+            is RevealNpcKnowledgeCommand -> validateNpcKnowledgeReveal(
+                state,
+                authorization,
+                envelope,
+                payload,
+                npcKnowledgeRevealPolicy,
+            )
             else -> invalid(
                 CommandValidationErrorCode.UNSUPPORTED_COMMAND_PAYLOAD,
                 "payload",
                 "Command payload is not handled by the core world validator",
             )
         }
+    }
+
+    private fun validateNpcKnowledgeReveal(
+        state: GameState,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+        payload: RevealNpcKnowledgeCommand,
+        policy: NpcKnowledgeRevealCommandPolicy?,
+    ): CommandValidationResult {
+        if (CommandPermission.REVEAL_NPC_KNOWLEDGE !in authorization.permissions) {
+            return invalid(CommandValidationErrorCode.PERMISSION_DENIED, "payload", "Actor cannot reveal NPC knowledge")
+        }
+        if (payload.schemaVersion != CURRENT_REVEAL_NPC_KNOWLEDGE_COMMAND_SCHEMA_VERSION) {
+            return invalid(CommandValidationErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC knowledge schema")
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return invalid(CommandValidationErrorCode.RUN_LIFECYCLE_INVALID, "payload", "Knowledge reveal requires an ACTIVE Run")
+        }
+        val expected = policy ?: return invalid(
+            CommandValidationErrorCode.NPC_KNOWLEDGE_POLICY_REQUIRED,
+            "payload",
+            "Validated NPC knowledge policy is required",
+        )
+        if (
+            payload.npcId != expected.npcId || payload.entityId != expected.entityId ||
+            payload.sceneId != expected.sceneId || payload.knowledgeId != expected.knowledgeId ||
+            payload.publicSummary != expected.publicSummary || payload.sceneId != state.currentSceneId ||
+            payload.entityId !in state.sceneParticipantIds || payload.entityId !in state.entities ||
+            payload.publicSummary.isBlank() || payload.publicSummary.length > 500
+        ) {
+            return invalid(CommandValidationErrorCode.NPC_KNOWLEDGE_MISMATCH, "payload", "NPC knowledge reveal is not allowed")
+        }
+        return CommandValidationResult.Valid(ValidatedCommand.RevealNpcKnowledge(envelope, payload))
     }
 
     private fun validateNpcAddress(

@@ -24,6 +24,8 @@ import io.worldloom.world.NumericComponentAdjustedEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.NPC_ADDRESSED_EVENT_TYPE_ID
+import io.worldloom.world.NpcKnowledgeRevealedEvent
+import io.worldloom.world.NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
@@ -121,6 +123,10 @@ internal object BehaviorEventProjector {
             is NpcAddressedEvent -> NPC_ADDRESSED_EVENT_TYPE_ID.also {
                 values["event.targetNpcId"] = DefinitionReferenceValue(payload.targetNpcId)
                 values["event.targetEntityId"] = TextValue(payload.targetEntityId.value)
+            }
+            is NpcKnowledgeRevealedEvent -> NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID.also {
+                values["event.npcId"] = DefinitionReferenceValue(payload.npcId)
+                values["event.knowledgeId"] = DefinitionReferenceValue(payload.knowledgeId)
             }
             else -> return null
         }
