@@ -17,8 +17,8 @@ class ContractPlayableWorldTest {
     @Test
     fun warAndStationUseTheSamePlayableContractLoader() {
         val cases = listOf(
-            ContractCase("war-survival", 3, DefinitionId("war.ending.hopeful"), CharacterCreationMode.FIXED),
-            ContractCase("station-ai", 1, DefinitionId("station.ending.stable"), CharacterCreationMode.POINT_BUY),
+            ContractCase("war-survival", 3, 2, DefinitionId("war.ending.hopeful"), CharacterCreationMode.FIXED),
+            ContractCase("station-ai", 1, 1, DefinitionId("station.ending.stable"), CharacterCreationMode.POINT_BUY),
         )
 
         cases.forEach { case ->
@@ -32,6 +32,8 @@ class ContractPlayableWorldTest {
             assertTrue(result.trace.isNotEmpty())
             assertEquals(setOf(case.creationMode), assertNotNull(contract.characterProfile).source.modes)
             assertEquals(3, contract.behaviors.size)
+            assertEquals(case.npcCount, contract.source.npcs.size)
+            assertTrue(contract.scene(contract.source.initialSceneId)?.participantEntityIds.orEmpty().isNotEmpty())
         }
     }
 
@@ -86,6 +88,7 @@ class ContractPlayableWorldTest {
     private data class ContractCase(
         val directory: String,
         val routeCount: Int,
+        val npcCount: Int,
         val expectedGoldenEnding: DefinitionId,
         val creationMode: CharacterCreationMode,
     )

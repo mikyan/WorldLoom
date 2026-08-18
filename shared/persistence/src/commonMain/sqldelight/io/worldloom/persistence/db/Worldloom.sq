@@ -50,6 +50,17 @@ CREATE TABLE behavior_work (
     FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE npc_work (
+    run_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    source_sequence INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    work_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, work_id),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_session (
     run_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -249,6 +260,26 @@ VALUES (?, ?, ?, ?, ?, ?);
 updateBehaviorWork:
 UPDATE behavior_work
 SET revision = ?, parent_sequence = ?, status = ?, work_json = ?
+WHERE run_id = ? AND work_id = ? AND revision = ?;
+
+selectNpcWork:
+SELECT work_json
+FROM npc_work
+WHERE run_id = ? AND work_id = ?;
+
+selectNpcWorks:
+SELECT work_json
+FROM npc_work
+WHERE run_id = ?
+ORDER BY source_sequence, work_id;
+
+insertNpcWork:
+INSERT INTO npc_work(run_id, work_id, revision, source_sequence, status, work_json)
+VALUES (?, ?, ?, ?, ?, ?);
+
+updateNpcWork:
+UPDATE npc_work
+SET revision = ?, status = ?, work_json = ?
 WHERE run_id = ? AND work_id = ? AND revision = ?;
 
 selectAgentSession:

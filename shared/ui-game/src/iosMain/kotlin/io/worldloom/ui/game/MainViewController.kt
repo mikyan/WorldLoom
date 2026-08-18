@@ -5,6 +5,7 @@ import androidx.compose.ui.window.ComposeUIViewController
 import io.worldloom.agent.runtime.AgentRuntime
 import io.worldloom.agent.runtime.DefaultAgentToolGateway
 import io.worldloom.agent.runtime.DefaultGameAgentController
+import io.worldloom.agent.runtime.NpcSceneOrchestrator
 import io.worldloom.application.DefaultGameSession
 import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
@@ -17,6 +18,8 @@ import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.SqlDelightAgentSessionStore
 import io.worldloom.persistence.SqlDelightProviderConfigurationStore
 import io.worldloom.persistence.SqlDelightBehaviorWorkStore
+import io.worldloom.persistence.SqlDelightNpcWorkStore
+import io.worldloom.persistence.SqlDelightAgentMemoryStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.IosKeychainCredentialVault
@@ -74,11 +77,19 @@ fun MainViewController(
         adapters = listOf(OpenAiConfigurableAdapter(providerClient, vault)),
         store = SqlDelightProviderConfigurationStore(database, providerConfiguration),
     )
+    val selectedProvider = SelectedProviderLanguageModelProvider(providerCenter)
+    val agentSessionStore = SqlDelightAgentSessionStore(database)
+    val npcFollowUps = NpcSceneOrchestrator(
+        runtime = AgentRuntime(selectedProvider, DefaultAgentToolGateway(session), agentSessionStore),
+        gameSession = session,
+        workStore = SqlDelightNpcWorkStore(database),
+        memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
+    )
     val agentController = DefaultGameAgentController(
         runtime = AgentRuntime(
-            SelectedProviderLanguageModelProvider(providerCenter),
-            DefaultAgentToolGateway(session),
-            SqlDelightAgentSessionStore(database),
+            selectedProvider,
+            DefaultAgentToolGateway(session, npcFollowUps),
+            agentSessionStore,
         ),
         gameSession = session,
         turnStore = SqlDelightGameTurnStore(database),

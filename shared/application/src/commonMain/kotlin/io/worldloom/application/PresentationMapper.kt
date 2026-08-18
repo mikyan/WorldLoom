@@ -9,6 +9,7 @@ import io.worldloom.world.ActionOutcomeAppliedEvent
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
+import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.rules.ActivityCompletedEvent
 import io.worldloom.rules.ScheduledTriggerFiredEvent
@@ -106,6 +107,10 @@ object PresentationMapper {
                 is QuestAdvancedEvent -> "任务推进：${payload.questId.value} · ${payload.status.name}"
                 is ProgressClockAdvancedEvent -> "进度钟：${payload.clockId.value} · ${payload.value}"
                 is AdventureEndingReachedEvent -> "结局条件达成：${payload.endingId.value}"
+                is NpcPublicActionPublishedEvent -> when (payload.kind) {
+                    io.worldloom.world.NpcPublicActionKind.SPEECH -> "${payload.entityId.value}：${payload.content}"
+                    io.worldloom.world.NpcPublicActionKind.ACTION -> "${payload.entityId.value}：${payload.content}"
+                }
 
                 else -> "事件已记录"
             }

@@ -10,6 +10,7 @@ const val CURRENT_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_RUN_LIFECYCLE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_SCENE_EVENT_SCHEMA_VERSION: Int = 1
+const val CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameEventPayload
@@ -55,6 +56,7 @@ data class PlayerEnteredInitialSceneEvent(
     val schemaVersion: Int = CURRENT_CHARACTER_CREATION_EVENT_SCHEMA_VERSION,
     val entityId: EntityId,
     val sceneId: DefinitionId,
+    val participantIds: List<EntityId> = emptyList(),
 ) : GameEventPayload
 
 @Serializable
@@ -82,6 +84,17 @@ data class PlayerEnteredSceneEvent(
     val entityId: EntityId,
     val sceneId: DefinitionId,
     val participantIds: List<EntityId> = emptyList(),
+) : GameEventPayload
+
+@Serializable
+@SerialName("npc-public-action-published")
+data class NpcPublicActionPublishedEvent(
+    val schemaVersion: Int = CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val kind: NpcPublicActionKind,
+    val actionId: DefinitionId? = null,
+    val content: String,
 ) : GameEventPayload
 
 @Serializable

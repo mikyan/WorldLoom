@@ -24,12 +24,14 @@
             "actionIds": [
                 "station.action.reroute-energy",
                 "station.action.open-relay"
-            ]
+            ],
+            "participantEntityIds": ["operator-lyra"]
         },
         {
             "id": "station.scene.relay",
             "label": "外环中继节点",
-            "actionIds": ["station.action.return-core"]
+            "actionIds": ["station.action.return-core"],
+            "participantEntityIds": ["operator-lyra"]
         }
     ],
     "actions": [
@@ -232,6 +234,20 @@
         {"id": "station.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
         {"id": "station.behavior.quest-raises-cascade", "path": "behaviors/quest-raises-threat.json"},
         {"id": "station.behavior.coolant-cycle-supply", "path": "behaviors/timed-supply.json"}
+    ],
+    "npcs": [
+        {
+            "id": "station.npc.lyra",
+            "entityId": "operator-lyra",
+            "displayName": "莱拉",
+            "identityPrompt": "你是空间站值班员莱拉。你对 AI 保持专业、克制的信任，只报告自己能观察到的系统变化。",
+            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
+            "visiblePresentationIds": ["station.presentation.primary-status"],
+            "goals": ["阻止级联故障并恢复外环中继"],
+            "privateKnowledge": ["你看到过一次未写入公开日志的中继认证失败，但不知道原因。"],
+            "capabilities": ["SPEAK", "ACT"],
+            "publicActionIds": ["station.npc-action.inspect-console"]
+        }
     ],
     "goldenRoutes": [
         {

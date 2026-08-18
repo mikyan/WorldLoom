@@ -60,13 +60,13 @@
 
 ## 22. NPC 场景参与
 
-- [ ] 22.1 实现 `NpcContextProjector`，仅投影该 NPC 在当前场景可感知、已知且获准使用的事实与记忆
-- [ ] 22.2 从已提交的场景、对话、时间、任务与世界 Events 生成稳定 `NpcTrigger`，并持久化可恢复幂等队列
-- [ ] 22.3 扩展 NPC Scheduler，限制每场景并发、每事件唤醒数、Token、费用、超时和 Provider 前台优先级
-- [ ] 22.4 让 NPC 的公开发言与行动通过其身份对应的 Tool Gateway/Command/Event 提交，私有反思只写入独立记忆分区
-- [ ] 22.5 实现主持 Agent 对 NPC 公开结果的聚合与 Presentation，禁止暴露原始模型正文、私有信念和未感知秘密
-- [ ] 22.6 为稳定角色 ID、会话隔离、重复触发、预算耗尽、工具拒绝和多 NPC 场景添加 Fake Agent 集成测试
-- [ ] 22.7 在两个契约世界加入最小 NPC 场景，验证相同 Runtime 可完成唤醒、行动、保存、恢复和重放
+- [x] 22.1 实现 `NpcContextProjector`，仅投影该 NPC 在当前场景可感知、已知且获准使用的事实与记忆
+- [x] 22.2 从已提交的场景、对话、时间、任务与世界 Events 生成稳定 `NpcTrigger`，并持久化可恢复幂等队列
+- [x] 22.3 扩展 NPC Scheduler，限制每场景并发、每事件唤醒数、Token、费用、超时和 Provider 前台优先级
+- [x] 22.4 让 NPC 的公开发言与行动通过其身份对应的 Tool Gateway/Command/Event 提交，私有反思只写入独立记忆分区
+- [x] 22.5 实现主持 Agent 对 NPC 公开结果的聚合与 Presentation，禁止暴露原始模型正文、私有信念和未感知秘密
+- [x] 22.6 为稳定角色 ID、会话隔离、重复触发、预算耗尽、工具拒绝和多 NPC 场景添加 Fake Agent 集成测试
+- [x] 22.7 在两个契约世界加入最小 NPC 场景，验证相同 Runtime 可完成唤醒、行动、保存、恢复和重放
 
 ## 23. 完成内置战争生存短剧本
 

@@ -37,6 +37,10 @@
         {
             "entityId": "npc-mara",
             "components": []
+        },
+        {
+            "entityId": "npc-tomas",
+            "components": []
         }
     ],
     "checkProfiles": [

@@ -32,6 +32,8 @@ enum class CommandValidationErrorCode {
     MISSING_REQUIRED_FIELD,
     ACTION_POLICY_REQUIRED,
     ACTION_OUTCOME_MISMATCH,
+    NPC_ACTION_POLICY_REQUIRED,
+    NPC_ACTION_MISMATCH,
     CURRENT_SCENE_MISMATCH,
     PARTICIPANT_NOT_FOUND,
     UNSUPPORTED_COMMAND_PAYLOAD,
@@ -76,6 +78,11 @@ sealed interface ValidatedCommand {
         val payload: ApplyActionOutcomeCommand,
         val playerEntityId: EntityId,
     ) : ValidatedCommand
+
+    data class PublishNpcAction(
+        override val envelope: CommandEnvelope,
+        val payload: PublishNpcActionCommand,
+    ) : ValidatedCommand
 }
 
 /** Pinned world/profile references supplied by application after package validation. */
@@ -83,6 +90,7 @@ data class CharacterCreationCommandPolicy(
     val profileId: DefinitionId,
     val playerEntityId: EntityId,
     val initialSceneId: DefinitionId,
+    val initialSceneParticipantIds: List<EntityId> = emptyList(),
 )
 
 /** Exact progression selected from a validated playable-world contract. */
@@ -94,6 +102,14 @@ data class ActionOutcomeCommandPolicy(
     val objectiveIds: List<DefinitionId>,
     val endingId: DefinitionId?,
     val participantIds: List<EntityId>,
+)
+
+/** Exact NPC identity, scene and public action capabilities pinned by the validated world package. */
+data class NpcPublicActionCommandPolicy(
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val allowedActionIds: Set<DefinitionId>,
+    val canSpeak: Boolean,
 )
 
 /** Shared envelope checks used before dispatching a payload to its owning module validator. */
@@ -146,6 +162,7 @@ object CommandValidator {
         envelope: CommandEnvelope,
         characterCreationPolicy: CharacterCreationCommandPolicy? = null,
         actionOutcomePolicy: ActionOutcomeCommandPolicy? = null,
+        npcPublicActionPolicy: NpcPublicActionCommandPolicy? = null,
     ): CommandValidationResult {
         CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
             return CommandValidationResult.Invalid(it)
@@ -169,12 +186,63 @@ object CommandValidator {
                 payload,
                 actionOutcomePolicy,
             )
+            is PublishNpcActionCommand -> validateNpcPublicAction(
+                state,
+                authorization,
+                envelope,
+                payload,
+                npcPublicActionPolicy,
+            )
             else -> invalid(
                 CommandValidationErrorCode.UNSUPPORTED_COMMAND_PAYLOAD,
                 "payload",
                 "Command payload is not handled by the core world validator",
             )
         }
+    }
+
+    private fun validateNpcPublicAction(
+        state: GameState,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+        payload: PublishNpcActionCommand,
+        policy: NpcPublicActionCommandPolicy?,
+    ): CommandValidationResult {
+        if (CommandPermission.PUBLISH_NPC_ACTION !in authorization.permissions) {
+            return invalid(CommandValidationErrorCode.PERMISSION_DENIED, "payload", "Actor cannot publish NPC actions")
+        }
+        if (payload.schemaVersion != CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION) {
+            return invalid(CommandValidationErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC action schema")
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return invalid(CommandValidationErrorCode.RUN_LIFECYCLE_INVALID, "payload", "NPC actions require an ACTIVE Run")
+        }
+        val expected = policy ?: return invalid(
+            CommandValidationErrorCode.NPC_ACTION_POLICY_REQUIRED,
+            "payload",
+            "Validated NPC action policy is required",
+        )
+        if (payload.entityId != expected.entityId || payload.sceneId != expected.sceneId ||
+            payload.sceneId != state.currentSceneId || payload.entityId !in state.sceneParticipantIds
+        ) {
+            return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload", "NPC is not present in the current scene")
+        }
+        val content = payload.content.trim()
+        if (content.isEmpty() || content.length > 500) {
+            return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload.content", "NPC public content must contain 1 to 500 characters")
+        }
+        when (payload.kind) {
+            NpcPublicActionKind.SPEECH -> if (!expected.canSpeak || payload.actionId != null) {
+                return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload", "NPC speech is not allowed")
+            }
+            NpcPublicActionKind.ACTION -> if (payload.actionId == null || payload.actionId !in expected.allowedActionIds) {
+                return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload.actionId", "NPC public action is not allowed")
+            }
+        }
+        if (payload.entityId !in state.entities) {
+            return invalid(CommandValidationErrorCode.ENTITY_NOT_FOUND, "payload.entityId", "NPC Entity is not initialized")
+        }
+        return CommandValidationResult.Valid(ValidatedCommand.PublishNpcAction(envelope, payload.copy(content = content)))
     }
 
     private fun validateActionOutcome(
@@ -318,6 +386,22 @@ object CommandValidator {
                 CommandValidationErrorCode.INITIAL_SCENE_MISMATCH,
                 "payload.initialSceneId",
                 "Initial scene does not match the playable world contract",
+            )
+        }
+        if (payload.initialSceneParticipantIds != creationPolicy.initialSceneParticipantIds ||
+            payload.initialSceneParticipantIds.distinct().size != payload.initialSceneParticipantIds.size
+        ) {
+            return invalid(
+                CommandValidationErrorCode.INITIAL_SCENE_MISMATCH,
+                "payload.initialSceneParticipantIds",
+                "Initial scene participants do not match the playable world contract",
+            )
+        }
+        payload.initialSceneParticipantIds.firstOrNull { it !in state.entities }?.let { participantId ->
+            return invalid(
+                CommandValidationErrorCode.PARTICIPANT_NOT_FOUND,
+                "payload.initialSceneParticipantIds",
+                "Initial scene participant is not initialized: $participantId",
             )
         }
         val entityId = try {

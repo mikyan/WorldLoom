@@ -17,6 +17,7 @@ import io.worldloom.rules.QuestStatus
 import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.EntityId
+import io.worldloom.world.NpcPublicActionKind
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -37,6 +38,8 @@ val CONDITION_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.condition.upd
 val RELATIONSHIP_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.relationship.adjust")
 val QUEST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.quest.advance")
 val PROGRESS_CLOCK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.progress-clock.advance")
+val NPC_SPEAK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.speak")
+val NPC_ACT_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.act")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -130,7 +133,7 @@ class DefaultAgentToolGateway(
         val context = session.commandContext() ?: return emptyList()
         return tools.values
             .filter { tool -> tool.available(context, identity) }
-            .map { tool -> tool.definitionFor(context) }
+            .map { tool -> tool.definitionFor(context, identity) }
             .sortedBy(ProviderToolDefinition::name)
     }
 
@@ -142,16 +145,16 @@ class DefaultAgentToolGateway(
             ?: return invalid(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Load a world before invoking tools")
         val tool = tools[call.name]
             ?: return invalid(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}")
-        if (!tool.enabled(context)) {
+        if (!tool.enabled(context, identity)) {
             return invalid(ToolGatewayErrorCode.TOOL_DISABLED, "The world manifest did not enable ${call.name}")
         }
         if (tool.permission !in identity.permissions) {
             return invalid(ToolGatewayErrorCode.PERMISSION_DENIED, "Agent is not permitted to invoke ${call.name}")
         }
-        validateArguments(tool.definitionFor(context), call.arguments)?.let { message ->
+        validateArguments(tool.definitionFor(context, identity), call.arguments)?.let { message ->
             return invalid(ToolGatewayErrorCode.INVALID_ARGUMENTS, message)
         }
-        validateIdentifiers(call, context)?.let { message ->
+        validateIdentifiers(call, context, identity)?.let { message ->
             return invalid(ToolGatewayErrorCode.INVALID_ARGUMENTS, message)
         }
         return ToolValidationResult.Valid
@@ -234,6 +237,17 @@ class DefaultAgentToolGateway(
                 delta = call.requireLong("delta"),
             )
 
+            NPC_SPEAK_TOOL_ID.value -> GameSessionCommand.PublishNpcAction(
+                kind = NpcPublicActionKind.SPEECH,
+                content = call.requireString("content"),
+            )
+
+            NPC_ACT_TOOL_ID.value -> GameSessionCommand.PublishNpcAction(
+                kind = NpcPublicActionKind.ACTION,
+                actionId = DefinitionId(call.requireString("actionId")),
+                content = call.requireString("content"),
+            )
+
             else -> return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
@@ -256,7 +270,7 @@ class DefaultAgentToolGateway(
                     )
                 ) {
                     is GameTurnFollowUpResult.Completed -> ToolInvocationResult.Success(
-                        successOutput(followUps.publicResults),
+                        successOutput(followUps.publicResults, identity, context),
                         worldChanged = true,
                     )
                     is GameTurnFollowUpResult.Failed -> ToolInvocationResult.Failure(
@@ -274,30 +288,39 @@ class DefaultAgentToolGateway(
     private fun StandardAgentTool.available(
         context: SessionCommandContext,
         identity: AgentIdentity,
-    ): Boolean = enabled(context) && permission in identity.permissions
+    ): Boolean = enabled(context, identity) && permission in identity.permissions
 
     private fun invalid(
         code: ToolGatewayErrorCode,
         message: String,
     ): ToolValidationResult.Invalid = ToolValidationResult.Invalid(ToolGatewayError(code, message))
 
-    private fun successOutput(publicFollowUps: List<PublicFollowUp>): String {
+    private fun successOutput(
+        publicFollowUps: List<PublicFollowUp>,
+        identity: AgentIdentity,
+        context: SessionCommandContext,
+    ): String {
         val ready = session.state.value as? GameSessionUiState.Ready
+        val npcProfile = context.npcProfiles.firstOrNull { it.actorId == identity.actorId }
         return buildJsonObject {
             put("status", "success")
             put("worldChanged", true)
             ready?.presentation?.let { presentation ->
                 put("lastSequence", presentation.lastSequence)
                 put("visibleFields", buildJsonArray {
-                    presentation.fields.forEach { field ->
+                    presentation.fields.filter { field ->
+                        npcProfile == null || field.presentationId in npcProfile.visiblePresentationIds
+                    }.forEach { field ->
                         add(buildJsonObject {
                             put("label", field.label)
                             put("value", field.value)
                         })
                     }
                 })
-                presentation.timeline.lastOrNull()?.let { event -> put("latestEvent", event.summary) }
-                presentation.worldTimeMinutes?.let { minute -> put("worldTimeMinutes", minute) }
+                if (npcProfile == null) {
+                    presentation.timeline.lastOrNull()?.let { event -> put("latestEvent", event.summary) }
+                    presentation.worldTimeMinutes?.let { minute -> put("worldTimeMinutes", minute) }
+                }
             }
             if (publicFollowUps.isNotEmpty()) {
                 put("foregroundResults", buildJsonArray {
@@ -319,7 +342,7 @@ private data class StandardAgentTool(
     val permission: CommandPermission,
     val additionalAvailability: (RegisteredWorldModules) -> Boolean = { true },
 ) {
-    fun enabled(context: SessionCommandContext): Boolean = if (capabilityId == PERFORM_ACTION_TOOL_ID) {
+    fun enabled(context: SessionCommandContext, identity: AgentIdentity): Boolean = if (capabilityId == PERFORM_ACTION_TOOL_ID) {
         context.availableActions.isNotEmpty()
     } else if (capabilityId == PERFORM_ACTIVITY_TOOL_ID) {
         context.availableActivities.isNotEmpty()
@@ -335,6 +358,12 @@ private data class StandardAgentTool(
         context.adventureStateDefinition?.quests?.isNotEmpty() == true
     } else if (capabilityId == PROGRESS_CLOCK_TOOL_ID) {
         context.adventureStateDefinition?.clocks?.isNotEmpty() == true
+    } else if (capabilityId == NPC_SPEAK_TOOL_ID) {
+        context.npcProfiles.any { it.actorId == identity.actorId && it.canSpeak &&
+            it.entityId in currentParticipants(context) }
+    } else if (capabilityId == NPC_ACT_TOOL_ID) {
+        context.npcProfiles.any { it.actorId == identity.actorId && it.publicActionIds.isNotEmpty() &&
+            it.entityId in currentParticipants(context) }
     } else {
         enabledByManifest(context.modules)
     }
@@ -342,7 +371,7 @@ private data class StandardAgentTool(
     fun enabledByManifest(modules: RegisteredWorldModules): Boolean =
         modules.capability(capabilityId) != null && additionalAvailability(modules)
 
-    fun definitionFor(context: SessionCommandContext): ProviderToolDefinition = when (capabilityId) {
+    fun definitionFor(context: SessionCommandContext, identity: AgentIdentity): ProviderToolDefinition = when (capabilityId) {
         NUMERIC_ADJUST_TOOL_ID -> definition.copy(
             parameters = definition.parameters.map { parameter ->
                 val allowed = when (parameter.name) {
@@ -434,6 +463,10 @@ private data class StandardAgentTool(
             } },
         )
         PROGRESS_CLOCK_TOOL_ID -> definition.withAllowed("clockId", context.adventureStateDefinition?.clocks.orEmpty().map { it.id.value })
+        NPC_ACT_TOOL_ID -> definition.withAllowed(
+            "actionId",
+            context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.publicActionIds.orEmpty().map { it.value },
+        )
 
         else -> definition
     }
@@ -441,6 +474,9 @@ private data class StandardAgentTool(
     private fun ProviderToolDefinition.withAllowed(name: String, values: List<String>) = copy(
         parameters = parameters.map { if (it.name == name) it.copy(allowedValues = values.distinct().sorted()) else it },
     )
+
+    private fun currentParticipants(context: SessionCommandContext): Set<EntityId> =
+        context.currentSceneParticipantIds
 }
 
 private object StandardAgentTools {
@@ -627,6 +663,27 @@ private object StandardAgentTools {
             capabilityId = PROGRESS_CLOCK_TOOL_ID,
             permission = CommandPermission.ADVANCE_PROGRESS_CLOCK,
         ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = NPC_SPEAK_TOOL_ID.value,
+                description = "Publish one in-character utterance as an auditable public scene event. Final model text remains private.",
+                parameters = listOf(stringParameter("content", "Public utterance, 1 to 500 characters.")),
+            ),
+            capabilityId = NPC_SPEAK_TOOL_ID,
+            permission = CommandPermission.PUBLISH_NPC_ACTION,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = NPC_ACT_TOOL_ID.value,
+                description = "Publish one whitelisted NPC scene action as an auditable public event.",
+                parameters = listOf(
+                    stringParameter("actionId", "Whitelisted NPC public action identifier."),
+                    stringParameter("content", "Player-visible action summary, 1 to 500 characters."),
+                ),
+            ),
+            capabilityId = NPC_ACT_TOOL_ID,
+            permission = CommandPermission.PUBLISH_NPC_ACTION,
+        ),
     )
 
     private fun stringParameter(
@@ -678,6 +735,7 @@ private fun ProviderToolCall.optionalBoolean(name: String): Boolean? =
 private fun validateIdentifiers(
     call: ProviderToolCall,
     context: SessionCommandContext,
+    identity: AgentIdentity,
 ): String? {
     return try {
         when (call.name) {
@@ -781,6 +839,21 @@ private fun validateIdentifiers(
                 val clockId = DefinitionId(call.requireString("clockId"))
                 if (definition.clocks.none { it.id == clockId }) return "Tool progress clock is not configured"
                 if (call.requireLong("delta") == 0L) return "Progress-clock delta cannot be zero"
+            }
+
+            NPC_SPEAK_TOOL_ID.value -> {
+                val npc = context.npcProfiles.firstOrNull { it.actorId == identity.actorId }
+                    ?: return "Tool actor is not a configured NPC"
+                if (!npc.canSpeak) return "NPC is not allowed to speak publicly"
+                if (call.requireString("content").trim().length !in 1..500) return "NPC public content is outside the supported range"
+            }
+
+            NPC_ACT_TOOL_ID.value -> {
+                val npc = context.npcProfiles.firstOrNull { it.actorId == identity.actorId }
+                    ?: return "Tool actor is not a configured NPC"
+                val actionId = DefinitionId(call.requireString("actionId"))
+                if (actionId !in npc.publicActionIds) return "NPC action is not whitelisted"
+                if (call.requireString("content").trim().length !in 1..500) return "NPC public content is outside the supported range"
             }
         }
         null

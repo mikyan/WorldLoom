@@ -10,6 +10,7 @@ const val CURRENT_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_RUN_LIFECYCLE_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_CHARACTER_CREATION_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION: Int = 1
+const val CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameCommandPayload
@@ -37,6 +38,7 @@ data class CreatePlayerCharacterCommand(
     val profileId: DefinitionId,
     val entity: EntitySeed,
     val initialSceneId: DefinitionId,
+    val initialSceneParticipantIds: List<EntityId> = emptyList(),
 ) : GameCommandPayload
 
 @Serializable
@@ -50,6 +52,20 @@ data class ApplyActionOutcomeCommand(
     val objectiveIds: List<DefinitionId> = emptyList(),
     val endingId: DefinitionId? = null,
     val participantIds: List<EntityId> = emptyList(),
+) : GameCommandPayload
+
+@Serializable
+enum class NpcPublicActionKind { SPEECH, ACTION }
+
+@Serializable
+@SerialName("publish-npc-action")
+data class PublishNpcActionCommand(
+    val schemaVersion: Int = CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val kind: NpcPublicActionKind,
+    val actionId: DefinitionId? = null,
+    val content: String,
 ) : GameCommandPayload
 
 @Serializable
@@ -77,6 +93,7 @@ enum class CommandPermission {
     UPDATE_RELATIONSHIP,
     UPDATE_QUEST,
     ADVANCE_PROGRESS_CLOCK,
+    PUBLISH_NPC_ACTION,
 }
 
 data class CommandAuthorization(

@@ -3,7 +3,9 @@ package io.worldloom.application
 import io.worldloom.definition.DefinitionId
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.CommandAuthorization
+import io.worldloom.world.ActorId
 import io.worldloom.world.EntityId
+import io.worldloom.world.NpcPublicActionKind
 import io.worldloom.world.RunId
 import io.worldloom.world.RunLifecycle
 import io.worldloom.rules.AdventureStateDefinition
@@ -171,6 +173,12 @@ sealed interface GameSessionCommand {
     ) : GameSessionCommand
 
     data class AdvanceProgressClock(val clockId: DefinitionId, val delta: Long) : GameSessionCommand
+
+    data class PublishNpcAction(
+        val kind: NpcPublicActionKind,
+        val actionId: DefinitionId? = null,
+        val content: String,
+    ) : GameSessionCommand
 }
 
 data class SessionCommandContext(
@@ -180,11 +188,46 @@ data class SessionCommandContext(
     val checkProfileIds: List<DefinitionId>,
     val lastSequence: Long = 0,
     val currentSceneId: DefinitionId? = null,
+    val currentSceneParticipantIds: Set<EntityId> = emptySet(),
     val availableActions: List<SessionAvailableAction> = emptyList(),
     val worldTimeMinutes: Long? = null,
     val availableActivities: List<SessionAvailableActivity> = emptyList(),
     val availableTravelRoutes: List<SessionAvailableTravelRoute> = emptyList(),
     val adventureStateDefinition: AdventureStateDefinition? = null,
+    val npcProfiles: List<SessionNpcProfile> = emptyList(),
+)
+
+data class SessionNpcProfile(
+    val id: DefinitionId,
+    val entityId: EntityId,
+    val actorId: ActorId,
+    val displayName: String,
+    val identityPrompt: String,
+    val wakeEventTypes: Set<DefinitionId>,
+    val visiblePresentationIds: Set<DefinitionId>,
+    val goals: List<String>,
+    val privateKnowledge: List<String>,
+    val canSpeak: Boolean,
+    val publicActionIds: Set<DefinitionId>,
+)
+
+data class SessionCommittedEvent(
+    val eventId: String,
+    val sequence: Long,
+    val eventType: DefinitionId,
+    val sceneId: DefinitionId?,
+    val participantIds: Set<EntityId>,
+)
+
+/** Explicitly public NPC Tool output; private model text and memory are never represented here. */
+data class SessionNpcPublicAction(
+    val eventId: String,
+    val sequence: Long,
+    val entityId: EntityId,
+    val displayName: String,
+    val kind: NpcPublicActionKind,
+    val actionId: DefinitionId?,
+    val content: String,
 )
 
 data class SessionAvailableAction(
@@ -261,6 +304,12 @@ interface GameSession {
     ): ActionResult
 
     suspend fun commandContext(): SessionCommandContext?
+
+    suspend fun committedEvents(afterSequence: Long, throughSequence: Long = Long.MAX_VALUE): List<SessionCommittedEvent> =
+        emptyList()
+
+    suspend fun publicNpcActions(afterSequence: Long, throughSequence: Long = Long.MAX_VALUE): List<SessionNpcPublicAction> =
+        emptyList()
 
     suspend fun replay(): SessionReplayResult
 }

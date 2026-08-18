@@ -1,11 +1,11 @@
-# Worldloom 二十一轮迭代执行与验收记录
+# Worldloom 二十二轮迭代执行与验收记录
 
-文档状态：Implemented 2.5<br>
+文档状态：Implemented 2.6<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
 
-本记录把项目初始化后的二十一个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
+本记录把项目初始化后的二十二个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
 
 所有世界事实变化继续遵守：
 
@@ -47,6 +47,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 19. 时间、活动与旅行 | 增加可选 world-time/activity/travel 模块、显式时间 Command/Event/Reducer、场景前置活动、成本/收益与中断、风险路线、计划触发器、动态主持人工具和共享 UI 投影 | 边界、并发等待、跨日单次触发、活动中断、旅行场景切换、原子追加失败后不重掷、序列化、回放和双契约世界测试 |
 | 20. 冒险状态模块 | 增加可选 inventory/condition/relationship/quest/progress-clock 模块、Definition 驱动状态、细粒度权限 Tool、语义事件、结局谓词与只读 Presentation；两个契约世界使用同一运行路径 | 组合依赖、容量/叠加/持续时间/关系/阶段/进度边界、私有状态过滤、事件序列化、SQL 恢复、确定性回放和双世界契约测试 |
 | 21. Behavior 推进冒险 | 增加 post-commit Event Dispatcher、稳定排序的 SQLDelight 工作队列、按启用模块验证的 Behavior Registry、最新状态求值与冻结触发上下文、Command/Event 二次提交和完整因果审计 | 场景解锁、任务/进度钟/定时补给/结局黄金链路，递归链暂停、篡改拒绝、并发修订、终止窗口补扫、数据库重建与双世界契约测试 |
+| 22. NPC 场景参与 | 增加声明式 NPC Profile、场景/白名单感知投影、Event→NPC 稳定 SQLDelight 队列、独立 Session/记忆、同步受预算调度，以及受 Actor/场景/动作白名单约束的公开发言与动作 Command/Event | 两个世界一至多 NPC 唤醒、私密知识隔离、公开结果聚合、重复触发、工具拒绝、Token 耗尽、遗留运行项、持久化、回放和三端组装测试 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -57,10 +58,11 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - `.worldloom` v1 拒绝绝对路径、路径穿越、重复项、CRC 不一致、超限内容和当前不支持的压缩方法；世界包不能携带任意脚本；
 - 内容生成先校验 Definition、角色配置、规则配置、Behavior 和来源引用，再创建初始状态做快速模拟，最后重新装载生成包；
 - 声明 `playableContractPath` 的世界必须在创建 Run 前通过角色入口、Scene/Action、目标、结局、表现、Behavior、模块和黄金路线验证；旧包不声明时保持兼容但不能标记为可玩；
-- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列，旧 Run 没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
+- Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表、`4.sqm` 新增可恢复 GM 回合表、`5.sqm` 新增 Behavior 工作队列、`6.sqm` 新增 NPC 工作队列，旧 Run 没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
 - 世界时间只接受显式正向 Command；活动、旅行、计划触发及其数值效果按稳定顺序组成原子 Event 批次。活动/路线 Definition 与 Event 均带默认兼容字段，旧世界不启用 temporal 配置时行为不变；旧 Snapshot 在恢复时只增量初始化缺失的世界时间模块状态。
 - 库存、状态、关系、任务和进度钟都由世界 Definition 与 manifest 显式选择，不向通用状态增加题材字段。每类写操作使用独立权限和 Tool Schema，私有状态不进入玩家 Presentation；旧 Snapshot 恢复时只初始化缺失的模块状态，新增事件类型沿用既有 EventLog Schema。
 - Behavior 只在事件提交后调度；guard 使用冻结触发上下文和最新状态，每个 effect 都重新经过 CommandValidator/WorldEngine。稳定工作项记录 root/parent event、因果深度和派生 Command；深度、触发、重复签名或命令预算超限时暂停单条链，恢复补扫已提交事件，回放只校验审计链而不重新执行。
+- NPC 只接收当前参与场景、白名单 Presentation、自己的目标/知识/记忆和抽象触发事件；稳定工作项按 Run/NPC/Event 幂等恢复，遗留运行项不重新调用 Provider。公开发言与动作必须经过 NPC Actor、当前参与者和动作白名单约束的 Tool→Command→Event；模型最终正文和私有记忆不进入主持上下文、Presentation 或公开重放。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
 
@@ -102,4 +104,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-下一条竖切让 NPC 基于可感知场景事实进入同一可恢复、受预算约束的主持闭环。完整内置战争生存剧本随后按可玩路线推进；自动世界生成扩展继续延后到内置剧本验收稳定之后。
+下一条竖切扩写完整内置战争生存短剧本，并用成功、代价成功和失败路线从开局跑到结局。自动世界生成扩展继续延后到内置剧本验收稳定之后。

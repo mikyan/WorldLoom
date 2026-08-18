@@ -3,6 +3,8 @@ package io.worldloom.agent.runtime
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
+import io.worldloom.definition.DefinitionId
+import io.worldloom.world.EntityId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -14,9 +16,16 @@ data class NpcAgentProfile(
     val permissions: Set<CommandPermission>,
     val wakePolicy: NpcWakePolicy,
     val runId: RunId,
+    val entityId: EntityId = EntityId(actorId.value),
+    val displayName: String = agentId.value,
+    val visiblePresentationIds: Set<DefinitionId> = emptySet(),
+    val privateKnowledge: List<String> = emptyList(),
+    val publicActionIds: Set<DefinitionId> = emptySet(),
 ) {
     init {
         require(identityPrompt.isNotBlank()) { "NPC identity prompt must not be blank" }
+        require(displayName.isNotBlank()) { "NPC display name must not be blank" }
+        require(privateKnowledge.none(String::isBlank)) { "NPC private knowledge must not be blank" }
     }
 }
 

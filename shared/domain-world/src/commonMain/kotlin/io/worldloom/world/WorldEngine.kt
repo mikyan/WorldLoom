@@ -4,6 +4,7 @@ object WorldEngine {
     fun requiredEventCount(command: ValidatedCommand): Int = when (command) {
         is ValidatedCommand.AdjustNumericComponent,
         is ValidatedCommand.ChangeRunLifecycle,
+        is ValidatedCommand.PublishNpcAction,
         -> 1
         is ValidatedCommand.CreatePlayerCharacter -> command.payload.entity.components.size + 3
         is ValidatedCommand.ApplyActionOutcome -> 1 +
@@ -32,6 +33,7 @@ object WorldEngine {
             is ValidatedCommand.ChangeRunLifecycle -> listOf(command.toEvent(eventIds.single()))
             is ValidatedCommand.CreatePlayerCharacter -> command.toEvents(eventIds)
             is ValidatedCommand.ApplyActionOutcome -> command.toEvents(eventIds)
+            is ValidatedCommand.PublishNpcAction -> listOf(command.toEvent(eventIds.single()))
         }
     }
 
@@ -60,13 +62,32 @@ object WorldEngine {
             payload = RunLifecycleChangedEvent(previousLifecycle = previousLifecycle, lifecycle = payload.lifecycle),
         )
 
+    private fun ValidatedCommand.PublishNpcAction.toEvent(eventId: EventId): EventEnvelope =
+        event(
+            eventId = eventId,
+            sequenceOffset = 1,
+            payload = NpcPublicActionPublishedEvent(
+                entityId = payload.entityId,
+                sceneId = payload.sceneId,
+                kind = payload.kind,
+                actionId = payload.actionId,
+                content = payload.content,
+            ),
+        )
+
     private fun ValidatedCommand.CreatePlayerCharacter.toEvents(eventIds: List<EventId>): List<EventEnvelope> {
         val payloads = buildList {
             add(PlayerEntityCreatedEvent(entityId = entityId, profileId = payload.profileId))
             payload.entity.components
                 .sortedBy { it.definitionId.value }
                 .forEach { add(PlayerComponentInitializedEvent(entityId = entityId, component = it)) }
-            add(PlayerEnteredInitialSceneEvent(entityId = entityId, sceneId = payload.initialSceneId))
+            add(
+                PlayerEnteredInitialSceneEvent(
+                    entityId = entityId,
+                    sceneId = payload.initialSceneId,
+                    participantIds = payload.initialSceneParticipantIds,
+                ),
+            )
             add(
                 RunLifecycleChangedEvent(
                     previousLifecycle = RunLifecycle.CHARACTER_CREATION,

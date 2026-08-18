@@ -46,6 +46,7 @@ private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.action-outcome.applied"),
     DefinitionId("worldloom.event.schedule.fired"),
     DefinitionId("worldloom.event.adventure-ending.reached"),
+    DefinitionId("worldloom.event.npc.public-action"),
 )
 
 @Serializable
@@ -113,6 +114,24 @@ data class PlayableBehaviorReference(
 )
 
 @Serializable
+enum class PlayableNpcCapability { SPEAK, ACT }
+
+/** Declarative NPC identity and least-authority perception/tool boundary for one fixed world. */
+@Serializable
+data class PlayableNpcProfile(
+    val id: DefinitionId,
+    val entityId: String,
+    val displayName: String,
+    val identityPrompt: String,
+    val wakeEventTypes: List<DefinitionId>,
+    val visiblePresentationIds: List<DefinitionId> = emptyList(),
+    val goals: List<String> = emptyList(),
+    val privateKnowledge: List<String> = emptyList(),
+    val capabilities: Set<PlayableNpcCapability> = setOf(PlayableNpcCapability.SPEAK),
+    val publicActionIds: List<DefinitionId> = emptyList(),
+)
+
+@Serializable
 data class PlayableRouteStep(
     val actionId: DefinitionId,
     /** Used only for actions without a CheckProfile. Checked outcomes are derived from the recorded roll. */
@@ -143,6 +162,7 @@ data class PlayableWorldContract(
     val temporal: TemporalAdventureDefinition? = null,
     val adventureState: AdventureStateDefinition? = null,
     val behaviors: List<PlayableBehaviorReference> = emptyList(),
+    val npcs: List<PlayableNpcProfile> = emptyList(),
     val goldenRoutes: List<PlayableRouteFixture>,
 )
 
@@ -202,6 +222,7 @@ enum class PlayableWorldProblemCode {
     BEHAVIOR_MISSING,
     BEHAVIOR_INVALID,
     BEHAVIOR_ID_MISMATCH,
+    NPC_INVALID,
     DEAD_END_SCENE,
     ENDING_UNREACHABLE,
     ROUTE_EMPTY,
@@ -315,6 +336,7 @@ object PlayableWorldValidator {
             )
         }
         validateScenes(contract, definition, scenes, actions, problems)
+        validateNpcs(contract, definition, scenes, modules, problems)
         validateTemporal(contract, definition, scenes.keys, problems)
         validateAdventureState(contract, definition, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
@@ -352,6 +374,72 @@ object PlayableWorldValidator {
             PlayableWorldValidationResult.Valid(candidate)
         } else {
             PlayableWorldValidationResult.Invalid(problems.distinct())
+        }
+    }
+
+    private fun validateNpcs(
+        contract: PlayableWorldContract,
+        definition: ValidatedWorldDefinition,
+        scenes: Map<DefinitionId, PlayableScene>,
+        modules: RegisteredWorldModules,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        duplicateIds(contract.npcs.map(PlayableNpcProfile::id), "npcs", problems)
+        val entityIds = definition.source.initialEntities.map { it.entityId }.toSet()
+        val presentationIds = definition.source.presentation.map { it.id }.toSet()
+        val allowedEvents = allowedEventTypes(modules)
+        val seenEntities = mutableSetOf<String>()
+        contract.npcs.forEachIndexed { index, npc ->
+            val path = "npcs[$index]"
+            if (!seenEntities.add(npc.entityId)) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.entityId",
+                "NPC Entity is configured more than once: ${npc.entityId}",
+            )
+            if (npc.entityId !in entityIds) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.entityId",
+                "NPC Entity is not initialized: ${npc.entityId}",
+            )
+            if (npc.displayName.isBlank() || npc.identityPrompt.isBlank()) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                path,
+                "NPC display name and identity prompt must not be blank",
+            )
+            if (npc.identityPrompt.length > 2_000 || npc.privateKnowledge.any { it.isBlank() || it.length > 1_000 } ||
+                npc.goals.any { it.isBlank() || it.length > 500 }
+            ) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                path,
+                "NPC prompt, knowledge or goal text exceeds its validated boundary",
+            )
+            if (npc.wakeEventTypes.isEmpty() || npc.wakeEventTypes.distinct().size != npc.wakeEventTypes.size ||
+                npc.wakeEventTypes.any { it !in allowedEvents }
+            ) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.wakeEventTypes",
+                "NPC wake events must be unique registered Event capabilities",
+            )
+            if (npc.visiblePresentationIds.distinct().size != npc.visiblePresentationIds.size ||
+                npc.visiblePresentationIds.any { it !in presentationIds }
+            ) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.visiblePresentationIds",
+                "NPC perception references an unknown PresentationDefinition",
+            )
+            val appearsInScene = scenes.values.any { scene -> npc.entityId in scene.participantEntityIds }
+            if (!appearsInScene) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.entityId",
+                "NPC must participate in at least one scene",
+            )
+            if ((PlayableNpcCapability.ACT in npc.capabilities) != npc.publicActionIds.isNotEmpty() ||
+                npc.publicActionIds.distinct().size != npc.publicActionIds.size
+            ) problems += problem(
+                PlayableWorldProblemCode.NPC_INVALID,
+                "$path.publicActionIds",
+                "NPC ACT capability requires a unique non-empty public action whitelist",
+            )
         }
     }
 
@@ -755,9 +843,7 @@ object PlayableWorldValidator {
         problems: MutableList<PlayableWorldProblem>,
     ): List<ValidatedBehavior> {
         val validatedBehaviors = mutableListOf<ValidatedBehavior>()
-        val allowedEventTypes = modules.capabilities(RuleCapabilityKind.EVENT).map { it.id }.toMutableSet().apply {
-            addAll(CORE_BEHAVIOR_EVENT_TYPES)
-        }
+        val allowedEventTypes = allowedEventTypes(modules)
         val commands = BehaviorCommandRegistry.forWorld(modules)
         duplicateIds(contract.behaviors.map(PlayableBehaviorReference::id), "behaviors", problems)
         contract.behaviors.forEachIndexed { index, reference ->
@@ -811,6 +897,11 @@ object PlayableWorldValidator {
             compareByDescending<ValidatedBehavior> { it.source.policy.priority }.thenBy { it.source.id.value },
         )
     }
+
+    private fun allowedEventTypes(modules: RegisteredWorldModules): Set<DefinitionId> =
+        modules.capabilities(RuleCapabilityKind.EVENT).mapTo(mutableSetOf()) { it.id }.apply {
+            addAll(CORE_BEHAVIOR_EVENT_TYPES)
+        }
 
     private fun validateGraph(
         contract: PlayableWorldContract,

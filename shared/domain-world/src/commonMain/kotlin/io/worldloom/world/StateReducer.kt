@@ -81,6 +81,7 @@ object StateReducer : EventReducer {
             || payload is ActionOutcomeAppliedEvent
             || payload is PlayerExitedSceneEvent
             || payload is PlayerEnteredSceneEvent
+            || payload is NpcPublicActionPublishedEvent
 
     override fun reduce(
         state: GameState,
@@ -97,12 +98,34 @@ object StateReducer : EventReducer {
             is ActionOutcomeAppliedEvent -> reduceActionOutcome(state, event, payload)
             is PlayerExitedSceneEvent -> reduceSceneExit(state, event, payload)
             is PlayerEnteredSceneEvent -> reduceSceneEntry(state, event, payload)
+            is NpcPublicActionPublishedEvent -> reduceNpcPublicAction(state, event, payload)
             else -> failure(
                 StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
                 "payload",
                 "Event payload is not handled by the core world reducer",
             )
         }
+    }
+
+    private fun reduceNpcPublicAction(
+        state: GameState,
+        event: EventEnvelope,
+        payload: NpcPublicActionPublishedEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC action event schema")
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE || payload.sceneId != state.currentSceneId ||
+            payload.entityId !in state.sceneParticipantIds || payload.entityId !in state.entities
+        ) {
+            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC public action is outside its current scene")
+        }
+        if (payload.content.isBlank() || payload.content.length > 500 ||
+            (payload.kind == NpcPublicActionKind.SPEECH) != (payload.actionId == null)
+        ) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload", "NPC public action payload is invalid")
+        }
+        return StateReductionResult.Success(state.copy(lastSequence = event.sequence))
     }
 
     private fun reduceActionOutcome(
@@ -370,8 +393,21 @@ object StateReducer : EventReducer {
         if (payload.entityId !in state.entities) {
             return failure(StateReductionErrorCode.ENTITY_NOT_FOUND, "payload.entityId", "Player Entity not found")
         }
+        if (payload.participantIds.distinct().size != payload.participantIds.size ||
+            payload.participantIds.any { it !in state.entities }
+        ) {
+            return failure(
+                StateReductionErrorCode.ENTITY_NOT_FOUND,
+                "payload.participantIds",
+                "Initial scene participants must be unique existing entities",
+            )
+        }
         return StateReductionResult.Success(
-            state.copy(lastSequence = event.sequence, currentSceneId = payload.sceneId),
+            state.copy(
+                lastSequence = event.sequence,
+                currentSceneId = payload.sceneId,
+                sceneParticipantIds = payload.participantIds.toSet(),
+            ),
         )
     }
 

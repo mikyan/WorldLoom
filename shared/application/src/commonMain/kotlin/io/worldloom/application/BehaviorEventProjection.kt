@@ -21,6 +21,7 @@ import io.worldloom.rules.WorldTimeAdvancedEvent
 import io.worldloom.world.ActionOutcomeAppliedEvent
 import io.worldloom.world.EventEnvelope
 import io.worldloom.world.NumericComponentAdjustedEvent
+import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
@@ -109,6 +110,11 @@ internal object BehaviorEventProjector {
             }
             is AdventureEndingReachedEvent -> DefinitionId("worldloom.event.adventure-ending.reached").also {
                 values["event.endingId"] = DefinitionReferenceValue(payload.endingId)
+            }
+            is NpcPublicActionPublishedEvent -> DefinitionId("worldloom.event.npc.public-action").also {
+                values["event.entityId"] = TextValue(payload.entityId.value)
+                values["event.actionKind"] = TextValue(payload.kind.name)
+                payload.actionId?.let { values["event.actionId"] = DefinitionReferenceValue(it) }
             }
             else -> return null
         }

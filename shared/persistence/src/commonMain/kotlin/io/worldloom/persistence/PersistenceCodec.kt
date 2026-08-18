@@ -12,6 +12,7 @@ import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.world.ActionOutcomeAppliedEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
+import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.application.CharacterCreationDraft
 import io.worldloom.agent.runtime.GameTurn
 import io.worldloom.rules.ActivityCompletedEvent
@@ -34,6 +35,7 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 import io.worldloom.behavior.runtime.BehaviorWorkItem
+import io.worldloom.agent.runtime.NpcWorkItem
 
 sealed interface PersistenceDecodeResult<out T> {
     data class Success<T>(val value: T) : PersistenceDecodeResult<T>
@@ -69,6 +71,7 @@ object PersistenceCodec {
                 subclass(QuestAdvancedEvent::class)
                 subclass(ProgressClockAdvancedEvent::class)
                 subclass(AdventureEndingReachedEvent::class)
+                subclass(NpcPublicActionPublishedEvent::class)
             }
         }
         classDiscriminator = "kind"
@@ -98,6 +101,10 @@ object PersistenceCodec {
     fun encodeBehaviorWork(item: BehaviorWorkItem): String = json.encodeToString(item)
 
     fun decodeBehaviorWork(source: String): PersistenceDecodeResult<BehaviorWorkItem> = decode("behavior_work", source)
+
+    fun encodeNpcWork(item: NpcWorkItem): String = json.encodeToString(item)
+
+    fun decodeNpcWork(source: String): PersistenceDecodeResult<NpcWorkItem> = decode("npc_work", source)
 
     private inline fun <reified T> decode(
         label: String,

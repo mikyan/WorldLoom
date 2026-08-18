@@ -30,6 +30,9 @@ import io.worldloom.world.WorldEngine
 import io.worldloom.world.RunLifecycle
 import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
+import io.worldloom.world.NpcPublicActionCommandPolicy
+import io.worldloom.world.NpcPublicActionPublishedEvent
+import io.worldloom.world.PublishNpcActionCommand
 import io.worldloom.world.ActionOutcomeCommandPolicy
 import io.worldloom.world.ApplyActionOutcomeCommand
 import io.worldloom.world.EventReducer
@@ -72,6 +75,7 @@ import io.worldloom.rules.UpdateConditionCommand
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
 import io.worldloom.world.packageformat.PlayableActionResolution
+import io.worldloom.world.packageformat.PlayableNpcCapability
 import io.worldloom.behavior.runtime.BEHAVIOR_WORK_ORDER
 import io.worldloom.behavior.runtime.BehaviorCommandIdSource
 import io.worldloom.behavior.runtime.BehaviorCommandSink
@@ -169,6 +173,8 @@ class DefaultGameSession(
                     profile = characterProfile,
                     playerEntityId = configuredPlayerId,
                     initialSceneId = playable.source.initialSceneId,
+                    initialSceneParticipantIds = playable.scene(playable.source.initialSceneId)
+                        ?.participantEntityIds.orEmpty().map(::EntityId),
                 )
                 val draft = coordinator.createDraft(runId, idSource.nextCommandId())
                 characterDraftStore.save(draft)
@@ -351,6 +357,8 @@ class DefaultGameSession(
                     profile,
                     playerId,
                     playable.source.initialSceneId,
+                    playable.scene(playable.source.initialSceneId)
+                        ?.participantEntityIds.orEmpty().map(::EntityId),
                 )
                 val draft = try {
                     characterDraftStore.load(runId)
@@ -666,13 +674,83 @@ class DefaultGameSession(
                 checkProfileIds = session.definition.source.presentationChecks.map { it.checkProfileId },
                 lastSequence = session.currentState.lastSequence,
                 currentSceneId = session.currentState.currentSceneId,
+                currentSceneParticipantIds = session.currentState.sceneParticipantIds,
                 availableActions = session.availableActions(),
                 worldTimeMinutes = session.temporalDefinition()?.let { TemporalState.minute(session.currentState, it) },
                 availableActivities = session.availableActivities(),
                 availableTravelRoutes = session.availableTravelRoutes(),
                 adventureStateDefinition = session.playableContract?.source?.adventureState,
+                npcProfiles = session.npcProfiles(),
             )
         }
+    }
+
+    override suspend fun committedEvents(
+        afterSequence: Long,
+        throughSequence: Long,
+    ): List<SessionCommittedEvent> = mutex.withLock {
+        val session = loaded ?: return@withLock emptyList()
+        var sceneId: DefinitionId? = null
+        var participants = emptySet<EntityId>()
+        buildList {
+            eventStore.read(session.currentState.runId)
+                .filter { it.sequence <= throughSequence }
+                .forEach { event ->
+                    when (val payload = event.payload) {
+                        is io.worldloom.world.PlayerEnteredInitialSceneEvent -> {
+                            sceneId = payload.sceneId
+                            participants = payload.participantIds.toSet()
+                        }
+                        is io.worldloom.world.PlayerEnteredSceneEvent -> {
+                            sceneId = payload.sceneId
+                            participants = payload.participantIds.toSet()
+                        }
+                        else -> Unit
+                    }
+                    if (event.sequence > afterSequence) {
+                        BehaviorEventProjector.project(event)?.let { projected ->
+                            add(
+                                SessionCommittedEvent(
+                                    event.eventId.value,
+                                    event.sequence,
+                                    projected.eventType,
+                                    sceneId,
+                                    participants,
+                                ),
+                            )
+                        }
+                    }
+                    if (event.payload is io.worldloom.world.PlayerExitedSceneEvent) {
+                        sceneId = null
+                        participants = emptySet()
+                    }
+                }
+        }
+    }
+
+    override suspend fun publicNpcActions(
+        afterSequence: Long,
+        throughSequence: Long,
+    ): List<SessionNpcPublicAction> = mutex.withLock {
+        val session = loaded ?: return@withLock emptyList()
+        val names = session.npcProfiles().associate { it.entityId to it.displayName }
+        eventStore.read(session.currentState.runId)
+            .asSequence()
+            .filter { it.sequence > afterSequence && it.sequence <= throughSequence }
+            .mapNotNull { event ->
+                val payload = event.payload as? NpcPublicActionPublishedEvent ?: return@mapNotNull null
+                val displayName = names[payload.entityId] ?: return@mapNotNull null
+                SessionNpcPublicAction(
+                    eventId = event.eventId.value,
+                    sequence = event.sequence,
+                    entityId = payload.entityId,
+                    displayName = displayName,
+                    kind = payload.kind,
+                    actionId = payload.actionId,
+                    content = payload.content,
+                )
+            }
+            .toList()
     }
 
     override suspend fun replay(): SessionReplayResult = mutex.withLock {
@@ -744,6 +822,69 @@ class DefaultGameSession(
         is GameSessionCommand.AdvanceQuest,
         is GameSessionCommand.AdvanceProgressClock,
         -> executeAdventureCommand(request, authorization)
+        is GameSessionCommand.PublishNpcAction -> executeNpcPublicAction(request, authorization)
+    }
+
+    private suspend fun executeNpcPublicAction(
+        request: GameSessionCommand.PublishNpcAction,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val profile = session.npcProfiles().firstOrNull { it.actorId == authorization.actorId }
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC actor is not declared by this world"))
+        val sceneId = session.currentState.currentSceneId
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC has no current scene"))
+        val command = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = session.currentState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = session.currentState.lastSequence,
+            payload = PublishNpcActionCommand(
+                entityId = profile.entityId,
+                sceneId = sceneId,
+                kind = request.kind,
+                actionId = request.actionId,
+                content = request.content,
+            ),
+        )
+        val validated = when (
+            val validation = CommandValidator.validate(
+                session.currentState,
+                session.definition,
+                authorization,
+                command,
+                npcPublicActionPolicy = NpcPublicActionCommandPolicy(
+                    entityId = profile.entityId,
+                    sceneId = sceneId,
+                    allowedActionIds = profile.publicActionIds,
+                    canSpeak = profile.canSpeak,
+                ),
+            )
+        ) {
+            is CommandValidationResult.Valid -> validation.command
+            is CommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val events = WorldEngine.handle(validated, idSource.nextEventId())
+        val candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+            is StateReductionResult.Success -> reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
+            )
+        }
+        session.currentState = candidate
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(session.currentState.runId), notice)
+        return ActionResult.Success
     }
 
     private suspend fun executeAdjustment(
@@ -1695,6 +1836,23 @@ class DefaultGameSession(
     }
 
     private fun LoadedSession.temporalDefinition() = playableContract?.source?.temporal
+
+    private fun LoadedSession.npcProfiles(): List<SessionNpcProfile> =
+        playableContract?.source?.npcs.orEmpty().map { npc ->
+            SessionNpcProfile(
+                id = npc.id,
+                entityId = EntityId(npc.entityId),
+                actorId = ActorId("worldloom.actor.npc.${npc.id.value}"),
+                displayName = npc.displayName,
+                identityPrompt = npc.identityPrompt,
+                wakeEventTypes = npc.wakeEventTypes.toSet(),
+                visiblePresentationIds = npc.visiblePresentationIds.toSet(),
+                goals = npc.goals,
+                privateKnowledge = npc.privateKnowledge,
+                canSpeak = PlayableNpcCapability.SPEAK in npc.capabilities,
+                publicActionIds = npc.publicActionIds.toSet(),
+            )
+        }.sortedBy { it.id.value }
 
     private fun LoadedSession.availableActivities(): List<SessionAvailableActivity> {
         val sceneId = currentState.currentSceneId ?: return emptyList()

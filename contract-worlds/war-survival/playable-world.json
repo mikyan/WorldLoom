@@ -23,21 +23,24 @@
             "label": "废墟边缘",
             "actionIds": [
                 "war.action.search-supplies"
-            ]
+            ],
+            "participantEntityIds": ["npc-mara", "npc-tomas"]
         },
         {
             "id": "war.scene.shelter",
             "label": "临时避难所",
             "actionIds": [
                 "war.action.signal-convoy"
-            ]
+            ],
+            "participantEntityIds": ["npc-mara"]
         },
         {
             "id": "war.scene.under-fire",
             "label": "巡逻队火力下",
             "actionIds": [
                 "war.action.escape-patrol"
-            ]
+            ],
+            "participantEntityIds": ["npc-tomas"]
         }
     ],
     "actions": [
@@ -350,6 +353,31 @@
         {"id": "war.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
         {"id": "war.behavior.quest-raises-threat", "path": "behaviors/quest-raises-threat.json"},
         {"id": "war.behavior.nightfall-supply", "path": "behaviors/timed-supply.json"}
+    ],
+    "npcs": [
+        {
+            "id": "war.npc.mara",
+            "entityId": "npc-mara",
+            "displayName": "玛拉",
+            "identityPrompt": "你是玛拉，一名谨慎但愿意保护孩子的战地医护员。保持简短、具体，不替玩家决定行动。",
+            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
+            "visiblePresentationIds": ["war.presentation.primary-status"],
+            "goals": ["帮助队伍避开巡逻并找到安全补给"],
+            "privateKnowledge": ["你怀疑北侧道路已经被巡逻队封锁，但尚未亲眼确认。"],
+            "capabilities": ["SPEAK", "ACT"],
+            "publicActionIds": ["war.npc-action.check-wounds"]
+        },
+        {
+            "id": "war.npc.tomas",
+            "entityId": "npc-tomas",
+            "displayName": "托马斯",
+            "identityPrompt": "你是托马斯，熟悉废墟道路的少年信使。只根据当前感知回应，不泄露未确认的路线情报。",
+            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
+            "goals": ["找到能绕开交火区的路线"],
+            "privateKnowledge": ["你在旧水塔下藏了一张残缺地图，这件事还没有告诉玛拉。"],
+            "capabilities": ["SPEAK", "ACT"],
+            "publicActionIds": ["war.npc-action.scout-cover"]
+        }
     ],
     "goldenRoutes": [
         {

@@ -97,11 +97,13 @@ class CharacterCreationCoordinator(
     private val profile: ValidatedCharacterCreationProfile,
     private val playerEntityId: String,
     private val initialSceneId: DefinitionId,
+    private val initialSceneParticipantIds: List<EntityId> = emptyList(),
 ) {
     fun commandPolicy(): CharacterCreationCommandPolicy = CharacterCreationCommandPolicy(
         profileId = profile.source.id,
         playerEntityId = EntityId(playerEntityId),
         initialSceneId = initialSceneId,
+        initialSceneParticipantIds = initialSceneParticipantIds,
     )
 
     fun createDraft(runId: RunId, confirmationCommandId: CommandId): CharacterCreationDraft {
@@ -142,6 +144,7 @@ class CharacterCreationCoordinator(
                     profileId = profile.source.id,
                     entity = creation.entity,
                     initialSceneId = initialSceneId,
+                    initialSceneParticipantIds = initialSceneParticipantIds,
                 ),
             ),
             pointsSpent = creation.pointsSpent,
