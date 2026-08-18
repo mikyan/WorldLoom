@@ -4,13 +4,13 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成三十四轮工程迭代并处于 `0.1.0-alpha.1` 候选：两个约 60 分钟的内置短剧本已经共用主持、NPC、规则、存档和回放管线；TXT/EPUB 资料先进入可恢复、可溯源且禁止直接安装的识别工作区。
+> 项目已经完成三十五轮工程迭代并处于 `0.1.0-alpha.1` 候选：两个约 60 分钟的内置短剧本共用主持、NPC、规则、存档和回放管线；TXT/EPUB 草稿只有通过聚合可玩性验证后才能进入隔离试玩并原子安装。
 
 ## 产品方向
 
 - 自然语言自由行动为主，情境化快捷建议为辅；
 - 先把内置剧本的主持、游玩、存档和结局体验做完整；
-- 第 34 轮以后再深化 TXT/EPUB 剧情识别和受控草稿试玩；
+- 第 34–35 轮开始深化 TXT/EPUB 剧情识别、受控草稿试玩和安全安装；
 - 后续接入语音转写与 TTS 模型，支持全程语音游玩；
 - 属性、技能、资源、角色创建与领域规则由剧本生成，世界包按需启用规则模块，经 Schema 验证后加载；
 - 世界状态和规则由本地权威引擎维护，掷骰通过可审计的 Agent Tool 执行并写入事件记录；
@@ -31,6 +31,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 - [内置空间站短剧本说明](docs/BUILT_IN_STATION_SCENARIO.md)
 - [存档与公开回放说明](docs/SAVES_AND_PUBLIC_REPLAY.md)
 - [TXT/EPUB 剧本识别工作区](docs/SOURCE_RECOGNITION_WORKSPACE.md)
+- [世界草稿试玩沙箱](docs/DRAFT_PLAYTEST_SANDBOX.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -115,7 +116,7 @@ NPC 知识使用世界包声明的稳定 DefinitionId 区分私有正文与可�
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 
-TXT/EPUB 现在还可以先进入独立的识别工作区。任务用来源 SHA-256、版本化阶段和 SQLDelight 检查点支持取消、重启恢复与来源变化诊断；角色、地点、场景、目标和候选事实都携带片段 ID、字符范围和置信说明。共享 UI 只显示选中候选的局部来源上下文，未经完整可玩性验证的草稿不能试玩或安装。
+TXT/EPUB 现在还可以先进入独立的识别工作区。任务用来源 SHA-256、版本化阶段和 SQLDelight 检查点支持取消、重启恢复与来源变化诊断；角色、地点、场景、目标和候选事实都携带片段 ID、字符范围和置信说明。草稿必须通过 Schema、引用、模块、Behavior、失败推进、黄金路线、结局覆盖和来源映射聚合验证，才会获得固定版本的 Sandbox Run。沙箱复用正式建角、主持、NPC、Behavior、存档和回放逻辑，但 EventLog、Agent Session、记忆和目录均使用独立命名空间；安装重新验证并只发布内容寻址的声明式资源，排除来源、密钥和沙箱事实。
 
 BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用 Keychain，Windows 使用用户级 DPAPI 加密。已保存密钥不会回显，也不会写入模型正文、世界包、存档或 EventLog。
 
@@ -130,6 +131,7 @@ BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
 ./gradlew.bat alphaGate
+./gradlew.bat round35CandidateGate --no-configuration-cache
 ./tools/alpha-audit.ps1
 ```
 

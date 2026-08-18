@@ -6,9 +6,9 @@
 
 ## 1. 本轮产品范围
 
-封闭 Alpha 的主路径是“选择内置《灰烬中的车队》→ 建角 → 由主持人推进 → NPC/Behavior 响应 → 保存恢复 → 抵达结局 → 校验公开回放”。Fake Agent 是发布权威，真实 Provider 只作为开发者自带凭据后的可选协议冒烟，不参与确定性发布判定。
+封闭 Alpha 的主路径是“选择任一内置短篇 → 建角 → 由主持人推进 → NPC/Behavior 响应 → 保存恢复 → 抵达结局 → 校验公开回放”。Fake Agent 是发布权威，真实 Provider 只作为开发者自带凭据后的可选协议冒烟，不参与确定性发布判定。
 
-TXT/EPUB 导入、自动世界生成和世界工坊已有实验性基础模块，但不进入本轮玩家主路径，也不是 Alpha ready 的前置条件；新的相关产品迭代从第 26 轮以后再启动。
+TXT/EPUB 识别与草稿沙箱已有实验性竖切，但不进入本轮普通玩家主路径，也不是 Alpha ready 的前置条件。它们只能处理通过聚合可玩性门禁的固定草稿版本，并与正式 Run/Agent/存档隔离。
 
 ## 2. 主持人关键旅程
 
@@ -35,6 +35,8 @@ TXT/EPUB 导入、自动世界生成和世界工坊已有实验性基础模块�
 | 进程退出后继续游戏 | Snapshot + 尾部 Event 重建同一状态后继续 | `AlphaJourneySystemTest`、`PersistentGameSessionTest` |
 | Snapshot JSON/Schema/身份损坏 | 丢弃缓存并从完整 EventLog 重建，给出诊断 | `SqlDelightEventStoreTest.corruptSnapshotFallsBackToCompleteEventLogWithDiagnostic` |
 | EventLog 损坏或不连续 | 拒绝继续，不以默认值掩盖 | `SqlDelightEventStoreTest.corruptStoredEventIsReportedWithoutSilentDefaults` |
+| 草稿含脚本、未授权 Behavior 或不可达结局 | 在 Run/Provider 前拒绝并报告路径 | `DraftPlaytestGateTest.forbiddenBehaviorCommandAndUnreachableEndingAreRejectedWithPaths` |
+| 沙箱重置/删除或安装发布失败 | 正式 EventLog 不变；旧安装版本继续有效 | `HostedDraftSandboxTest.validatedDraftUsesHostedPipelineWhileResetAndDeleteStayIsolated`、`DraftPlaytestGateTest.atomicInstallStripsSourcesAndSandboxFactsWhileFailureKeepsPreviousRecord` |
 
 ## 4. Provider 与隐私
 
@@ -84,11 +86,11 @@ build/alpha/artifact-hashes.sha256
 完整仓库门禁使用：
 
 ```powershell
-./gradlew.bat alphaGate --no-configuration-cache
+./gradlew.bat round35CandidateGate --no-configuration-cache
 ./tools/alpha-audit.ps1
 ```
 
-2026-08-19 的 Windows 仓库门禁执行成功，共完成或复用 574 个 Gradle 任务；秘密/题材审计与其绑定的主持人、应用、世界包和凭据保险箱测试同样通过。Desktop Release Uber JAR 已完成 5 秒启动存活冒烟。该结果证明仓库候选版本可构建、可启动和可完成确定性的主持旅程，不替代下述真机与人工验收。
+2026-08-19 的 Windows 仓库候选门禁执行成功，共完成或复用 635 个 Gradle 任务；覆盖全仓检查、数据库迁移、两个内置世界和来源草稿、秘密/题材审计、Android/Desktop Release、artifact hash、Desktop 5 秒启动存活与 iOS Simulator Kotlin 编译。该结果只证明仓库候选版本可构建、可启动并完成确定性的主持/沙箱旅程，不替代下述真机与人工验收。
 
 iOS 交接使用 `apps/iosApp/iosApp.xcodeproj`；Windows 门禁编译 iOS Simulator Kotlin 目标，最终宿主构建必须在 macOS/Xcode 执行：
 
@@ -108,7 +110,7 @@ xcodebuild \
 - Desktop Alpha 当前产出可运行 Uber JAR；生成 MSI/DMG/DEB 安装包还要求构建机提供带 `jpackage` 的完整 JDK；
 - Windows 不能完成 iOS Xcode 宿主构建、签名或真机测试；
 - 实时 Provider 冒烟需要开发者主动提供自己的 Vault 凭据，本仓库和发布门禁不会读取或保存该密钥；
-- 目前只有一个完整内置短剧本，空间站世界仍主要承担跨题材契约验证；
+- 两个内置短剧本已经完整；草稿 Sandbox/InstalledWorld Store 当前仍是进程内实现，尚未提供跨进程沙箱恢复或平台文件目录安装；
 - 最低设备的帧时间与常驻内存需要在封闭测试设备池补录。
 
 因此当前状态保持为 **Alpha candidate**。在真实 Provider 可选冒烟、最低设备采样、多轮人工试玩与 macOS/iOS 宿主构建完成前，不把版本标记为 Alpha ready。

@@ -36,6 +36,7 @@ kotlin {
             api(projects.shared.definitionRuntime)
             api(projects.shared.domainWorld)
             implementation(projects.shared.application)
+            implementation(projects.shared.contentGeneration)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }

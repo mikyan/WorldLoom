@@ -82,10 +82,10 @@
 
 ## 35. 受控世界草稿试玩沙箱与候选门禁
 
-- [ ] 35.1 实现聚合 DraftPlayabilityValidator，串联 Schema、引用、模块、Behavior、权限、失败推进和结局可达性诊断
-- [ ] 35.2 实现独立 Sandbox Run/Event/Agent 命名空间及创建、重置和删除，不进入正式 Run 目录
-- [ ] 35.3 让通过验证的草稿复用内置世界的建角、主持、NPC、Behavior、存档和回放管线完成快速试玩
-- [ ] 35.4 实现内容寻址的原子安装事务，失败保留上一版本且排除来源全文、密钥和沙箱事实
-- [ ] 35.5 添加有效草稿、恶意 Behavior、不可达结局、隔离重置、安装失败和两个内置世界防回归测试
-- [ ] 35.6 更新版本/Schema 清单与候选门禁，运行全仓 check、迁移、审计、Android/Desktop Release、Desktop 冒烟和 iOS Simulator Kotlin 编译
-- [ ] 35.7 更新 README、DESIGN、AGENTS、已知限制和 26–35 迭代证据；未完成真机/真人验收时保持 candidate
+- [x] 35.1 实现聚合 DraftPlayabilityValidator，串联 Schema、引用、模块、Behavior、权限、失败推进和结局可达性诊断
+- [x] 35.2 实现独立 Sandbox Run/Event/Agent 命名空间及创建、重置和删除，不进入正式 Run 目录
+- [x] 35.3 让通过验证的草稿复用内置世界的建角、主持、NPC、Behavior、存档和回放管线完成快速试玩
+- [x] 35.4 实现内容寻址的原子安装事务，失败保留上一版本且排除来源全文、密钥和沙箱事实
+- [x] 35.5 添加有效草稿、恶意 Behavior、不可达结局、隔离重置、安装失败和两个内置世界防回归测试
+- [x] 35.6 更新版本/Schema 清单与候选门禁，运行全仓 check、迁移、审计、Android/Desktop Release、Desktop 冒烟和 iOS Simulator Kotlin 编译
+- [x] 35.7 更新 README、DESIGN、AGENTS、已知限制和 26–35 迭代证据；未完成真机/真人验收时保持 candidate

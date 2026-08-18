@@ -1,6 +1,6 @@
 # Worldloom 迭代执行与验收记录
 
-文档状态：Alpha candidate 3.8<br>
+文档状态：Alpha candidate 3.9<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
@@ -60,6 +60,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 32. 快速继续与自动存档状态 | Run 目录增加 Event/终态 Turn 持久化证据、保存状态与时间戳；Event/Turn 落盘和目录更新分离，快速继续严格复用恢复校验，共享 UI 显示已保存/待修复及分类操作 | migration 9 回填、目录写失败事实保留、修复、最近损坏拒绝、跨 Run 排序、取消重试、主持历史刷新和三端编译 |
 | 33. 内置空间站短剧本 | 完成《静默轨道：赫利俄斯危机》内容 v2：9 场景、17 行动、2 名 NPC、全部通用冒险模块、3 个 Behavior 与三类结局；持久 Run 初始化固定内容版本 | 三条主持黄金路线、SQL 存档恢复、完整回放、莱拉/索伦定向对话与知识揭示、跨题材契约、题材审计和三端入口 |
 | 34. TXT/EPUB 识别工作区 | 增加 Recognition Job/Draft v1、来源 SHA-256、SQL revision 检查点、后台取消/恢复、五类候选来源范围与置信诊断，以及只读共享工作区 | SHA-256、TXT/EPUB 边界、内存/SQL 重建、来源变化、重复恢复、协程取消、正文日志隐私、局部来源上下文和三端编译 |
+| 35. 草稿试玩沙箱与候选门禁 | 增加聚合可玩性验证、`sandbox.*` Run/Agent/Memory 隔离、正式主持管线快速试玩、内容寻址清理包和比较交换原子安装，并把全仓检查、审计、发行与启动冒烟收敛到单一任务 | 两个内置世界、来源映射草稿、恶意脚本/Behavior、不可达结局、重置/删除隔离、安装失败保留旧版本、迁移、Android/Desktop Release、iOS Kotlin 编译和 artifact hash |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -78,6 +79,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - 主持连续性只从持久化终态回合和公开 Event 生成，并使用 `worldloom.agent.gm` 在每 Run 的独立 SQL 分区中保存。检查点是叙事辅助而非事实；候选范围冻结、校验后原子发布，失败保留上一有效检查点，前台始终以最新 Presentation 与动态 Tool 为准。Android、iOS 与 Desktop 会在宿主生命周期结束时取消尚未完成的后台压缩。
 - Guidance 只能引用当前 Scene 中经过契约验证的 Action、Activity 或 Travel Route。投影不读取世界题材键，建议只预填玩家输入且不自动调用 Tool；没有动态推进出口的场景在加载或运行投影时产生显式诊断，不以虚构事实掩盖内容错误。
 - 自动存档证据是可重建目录元数据，不是世界事实。EventLog 与 GM Turn 先各自持久化，再尽力更新 Run 目录；后者失败时不得回滚前者或显示“已保存”，只能投影待修复状态。快速继续始终重新验证世界版本、事件连续性、Snapshot 和生命周期，不因目录排序跳过损坏的最近 Run。
+- 草稿试玩只能接收完整通过 `DraftPlayabilityValidator` 的固定包版本。Sandbox Run、Event、GM/NPC Session、Turn、Work 与 Memory 使用独立 Store 和 `sandbox.*` 命名空间；重置/删除不能触碰正式目录。安装仅复制二次验证后的权威声明式资源，以 SHA-256 内容地址和期望旧地址原子发布；来源全文、识别中间数据、密钥、Agent 数据和 Sandbox EventLog 一律排除。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
 
@@ -97,6 +99,7 @@ Windows 开发机需要 JDK 17 或更高版本及 Android API 36 SDK：
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:classes
 ./gradlew.bat alphaGate
+./gradlew.bat round35CandidateGate --no-configuration-cache
 ./tools/alpha-audit.ps1
 ```
 
@@ -117,8 +120,9 @@ xcodebuild \
 - `.worldloom` v1 共享编解码当前只接受 STORED 条目且尚未签名；Desktop/Android 的 EPUB 平台读取器支持常见压缩条目；
 - iOS 公共内容生成目标已编译，但压缩 EPUB、GB18030 与系统文件选择的 iOS 平台桥仍待接入并做真机验证；
 - `GenerationTaskStore` 已提供可恢复接口和内存实现，跨进程持久化实现仍待接入；
+- Sandbox Directory、Event、Agent 和 Memory Store 当前为进程内快速试玩实现，退出应用后不恢复沙箱；安装目录 Store 也尚未接入平台文件系统；
 - 当前只实现 OpenAI Chat Completions Adapter；Anthropic、语音 Provider 仍是后续增量；
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-第 31–34 轮已补齐场景引导、快速继续、第二个完整内置世界与可恢复 TXT/EPUB 识别工作区。两个短篇现在都能通过同一主持管线从建角运行到三类结局；识别草稿只读且不能安装。第 35 轮将以现有内置剧本契约为门槛，加入聚合验证、隔离试玩和原子安装。
+第 31–35 轮已补齐场景引导、快速继续、第二个完整内置世界、可恢复 TXT/EPUB 识别工作区以及受控草稿试玩。两个短篇和通过门禁的草稿共用建角、主持、NPC、规则与回放管线；草稿只有在聚合验证、隔离试玩和清理后二次验证都成功时才能原子安装。真机、真人和跨进程沙箱仍是后续验收，不把当前候选标记为 ready。

@@ -706,7 +706,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成三十四轮工程基线并处于 `0.1.0-alpha.1` 候选，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成三十五轮工程基线并处于 `0.1.0-alpha.1` 候选，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -756,13 +756,15 @@ Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector
 
 第 33 轮把 `station-ai` 从跨题材契约夹具扩展为第二个完整内置短篇。内容 v2 用同一 `playable-world/v1`、Module Registry、主持动态 Tool、NPC 调度、SQLDelight EventLog/Snapshot 与公开回放运行 9 个场景和三条结局路线。持久 EventStore 初始化时同时固定世界内容版本，避免直接创建 Session 时把 v2 Run 错记为 v1；恢复仍拒绝内容版本不匹配。世界包测试与题材审计确保新增内容没有在 Runtime、Presenter 或存档层引入 `station.*` 分支。
 
-第 34 轮把 TXT/EPUB 输入收敛到独立识别工作区。`RecognitionJobState` v1 用 SHA-256 绑定来源字节，并以 revision、阶段、进度、诊断和草稿版本写入 SQLDelight；恢复必须重新核对来源身份，变化后只能创建新 JobId。解析和识别在工作 Dispatcher 中执行，协程取消传播后清除临时正文与未发布草稿。角色、地点、场景、目标和候选事实都引用 SourceChunk、合法字符范围与置信说明；共享 UI 只读展示候选、诊断和有界来源上下文。识别草稿不进入内置目录或正式 Run，第 35 轮聚合验证与隔离沙箱完成前不能试玩或安装。
+第 34 轮把 TXT/EPUB 输入收敛到独立识别工作区。`RecognitionJobState` v1 用 SHA-256 绑定来源字节，并以 revision、阶段、进度、诊断和草稿版本写入 SQLDelight；恢复必须重新核对来源身份，变化后只能创建新 JobId。解析和识别在工作 Dispatcher 中执行，协程取消传播后清除临时正文与未发布草稿。角色、地点、场景、目标和候选事实都引用 SourceChunk、合法字符范围与置信说明；共享 UI 只读展示候选、诊断和有界来源上下文。完成识别本身不授权写入内置目录或正式 Run，只有通过下一段聚合门禁的固定草稿版本才能试玩或安装。
 
-平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。识别工作区任务已经持久化，既有 `GenerationTaskStore` 仍只有内存实现。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
+第 35 轮以 `DraftPlayabilityValidator` 统一手写世界与来源草稿的准入条件：先由 WorldPackage Loader 检查容器、Definition、模块、引用、`playable-world/v1` 和 Behavior Command 白名单，再要求黄金路线完整模拟并覆盖每个结局；带 Recognition Job 的草稿还必须使用完成检查点，并让每个候选引用合法 SourceChunk 范围与置信诊断。任一错误在创建 Run 或调用 Provider 前返回具体路径。`HostedDraftSandboxManager` 只把 manifest、Definition、角色 Profile、可玩契约和已验证 Behavior 装入 `sandbox.*` 命名空间，复用正式建角、主持、NPC、Behavior、EventLog/Reducer、存档投影和公开回放，但为 Event、GM/NPC Session、Turn、Work 与 Memory 分配独立 Store；重置和删除不接触正式目录。安装会剥离来源、中间生成数据、Agent 数据与沙箱事实，对清理包再次验证、计算 SHA-256 内容地址并以期望旧地址原子发布，失败保持上一版本。`round35CandidateGate` 聚合完整检查、迁移、隐私/题材审计、Android/Desktop Release、哈希、Desktop 启动存活和 iOS Simulator Kotlin 编译；在真机与真人证据缺失时仍保持 candidate。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，逐轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)与[空间站短剧本说明](BUILT_IN_STATION_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)，来源任务边界见[TXT/EPUB 剧本识别工作区](SOURCE_RECOGNITION_WORKSPACE.md)。
+平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。识别工作区任务已经持久化，既有 `GenerationTaskStore` 和 Sandbox Store 仍只有内存实现。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务/沙箱实现和语音仍属于后续增量。
 
-从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七至二十二轮依次补齐建角、主持人、时间与冒险状态、Behavior 和 NPC，第二十三轮完成内置短剧本，第二十四轮完成多 Run 存档与公开回放，第二十五轮完成封闭 Alpha 工程门禁，第二十六轮开始深化可恢复主持体验。第 26–33 轮继续处理主持历史、NPC 对话、长局连续性、引导、恢复和第二内置世界；第 34 轮完成 TXT/EPUB 识别工作区，第 35 轮再接入隔离草稿试玩。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，逐轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)，Alpha 门禁见[封闭 Alpha 验收](ALPHA_ACCEPTANCE.md)，内置试玩内容见[战争生存短剧本说明](BUILT_IN_WAR_SCENARIO.md)与[空间站短剧本说明](BUILT_IN_STATION_SCENARIO.md)，存档与回放边界见[存档与公开回放说明](SAVES_AND_PUBLIC_REPLAY.md)，来源任务边界见[TXT/EPUB 剧本识别工作区](SOURCE_RECOGNITION_WORKSPACE.md)，草稿验证、隔离和安装边界见[世界草稿试玩沙箱](DRAFT_PLAYTEST_SANDBOX.md)。
+
+从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七至二十二轮依次补齐建角、主持人、时间与冒险状态、Behavior 和 NPC，第二十三轮完成内置短剧本，第二十四轮完成多 Run 存档与公开回放，第二十五轮完成封闭 Alpha 工程门禁，第二十六轮开始深化可恢复主持体验。第 26–33 轮继续处理主持历史、NPC 对话、长局连续性、引导、恢复和第二内置世界；第 34 轮完成 TXT/EPUB 识别工作区，第 35 轮接入聚合验证、隔离草稿试玩和原子安装。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
 
 ## 8. 世界包格式
 

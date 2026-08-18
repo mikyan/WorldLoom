@@ -6,7 +6,7 @@
 
 Worldloom（织境）是一款面向 Android、iOS 与 Desktop、由 Agent 主持的单人数字跑团 RPG。自然语言模型负责理解、扮演和叙述；确定性的本地世界引擎负责规则裁决、随机审计和事实更新。
 
-仓库目前处于“核心竖切可运行、产品能力继续增量扩展”阶段，已经加入 Gradle/Kotlin Multiplatform 工程骨架、三端入口、规则模块、可审计判定、SQLDelight EventLog、受限 Agent Runtime、OpenAI Provider 和平台凭据保险箱。因此：
+仓库目前处于“两个内置剧本可完整游玩、受控草稿试玩已接入、继续做候选验收”阶段，已经加入 Gradle/Kotlin Multiplatform 工程骨架、三端入口、规则模块、可审计判定、SQLDelight EventLog、受限 Agent Runtime、OpenAI Provider、平台凭据保险箱、可恢复识别工作区和隔离草稿沙箱。因此：
 
 - 先用 `settings.gradle.kts` 和模块构建文件确认模块与任务是否已经存在，不要假定完整目标架构已经落地；
 - 新增模块、平台入口或稳定任务时应同步更新本文件中的目录和验证命令；
@@ -150,6 +150,7 @@ docs/       # 设计文档和 ADR
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat alphaGate
 ./gradlew.bat alphaRelease
+./gradlew.bat round35CandidateGate --no-configuration-cache
 ./tools/alpha-audit.ps1
 ```
 

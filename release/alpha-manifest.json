@@ -1,7 +1,7 @@
 {
     "schema": "worldloom.release-manifest/v1",
     "release": "0.1.0-alpha.1",
-    "channel": "closed-alpha",
+    "channel": "closed-alpha-candidate",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
         {"id": "contract.station-ai", "contentVersion": 2, "contractOnly": false}
@@ -23,7 +23,10 @@
         "npcAddress": 1,
         "npcKnowledgeReveal": 1,
         "recognitionJob": 1,
-        "recognitionDraft": 1
+        "recognitionDraft": 1,
+        "draftPlayability": 1,
+        "draftSandbox": 1,
+        "installedWorld": 1
     },
     "database": {"schemaVersion": 11, "latestMigration": "10.sqm"},
     "artifacts": [
@@ -31,5 +34,7 @@
         {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}
     ],
     "hashes": "build/alpha/artifact-hashes.sha256",
+    "candidateGate": "round35CandidateGate",
+    "status": "candidate",
     "iosHandoff": "apps/iosApp/iosApp.xcodeproj"
 }

@@ -26,6 +26,10 @@ tasks.named("check") {
         ":shared:provider-api:check",
         ":shared:provider-openai:check",
         ":shared:agent-runtime:check",
+        ":shared:world-package:check",
+        ":shared:behavior-runtime:check",
+        ":shared:content-schema:check",
+        ":shared:content-generation:check",
         ":platform:secure-vault:check",
         ":shared:application:check",
         ":shared:ui-game:check",
@@ -103,5 +107,96 @@ tasks.register("alphaGate") {
         ":shared:persistence:verifyCommonMainWorldloomDatabaseMigration",
         ":shared:ui-game:compileKotlinIosSimulatorArm64",
         "alphaRelease",
+    )
+}
+
+tasks.register("alphaAudit") {
+    group = "verification"
+    description = "Audit committed secrets and topic-specific Runtime branches."
+    notCompatibleWithConfigurationCache("The audit invokes git against the working tree")
+    doLast {
+        fun requireNoGitGrepMatches(label: String, pattern: String, pathspecs: List<String>) {
+            val command = listOf("git", "grep", "-n", "-I", "-E", pattern, "--") + pathspecs
+            val process = ProcessBuilder(command)
+                .directory(layout.projectDirectory.asFile)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            check(exitCode == 1) {
+                if (exitCode == 0) "$label found:\n$output" else "$label could not complete (exit $exitCode):\n$output"
+            }
+        }
+
+        requireNoGitGrepMatches(
+            "Potential committed secret material",
+            "sk-[A-Za-z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY",
+            listOf(".", ":(exclude)**/build/**"),
+        )
+        val topicPattern = Regex("contract\\.(war-survival|station-ai)|DefinitionId\\(\"(war|station)\\.")
+        val topicMatches = layout.projectDirectory.dir("shared").asFile.walkTopDown()
+            .filter { file ->
+                file.isFile && file.extension == "kt" &&
+                    "/src/commonMain/" in file.invariantSeparatorsPath
+            }
+            .flatMap { file ->
+                file.readLines().asSequence().mapIndexedNotNull { index, line ->
+                    if (topicPattern.containsMatchIn(line)) {
+                        "${file.relativeTo(layout.projectDirectory.asFile).invariantSeparatorsPath}:${index + 1}:$line"
+                    } else {
+                        null
+                    }
+                }
+            }
+            .toList()
+        check(topicMatches.isEmpty()) {
+            "Topic-specific branch material in shared production Runtime found:\n${topicMatches.joinToString("\n")}"
+        }
+        logger.lifecycle("Alpha audit passed: secrets and topic boundaries.")
+    }
+}
+
+tasks.register("desktopReleaseSmoke") {
+    group = "verification"
+    description = "Launch the Desktop release JAR and require it to remain alive for five seconds."
+    notCompatibleWithConfigurationCache("The smoke gate launches a release process")
+    dependsOn(":apps:desktopApp:packageReleaseUberJarForCurrentOS")
+    doLast {
+        val jarRoot = layout.projectDirectory.dir("apps/desktopApp/build/compose/jars").asFile
+        val releaseJars = jarRoot.walkTopDown()
+            .filter { it.isFile && it.name.endsWith("-release.jar") }
+            .toList()
+        check(releaseJars.size == 1) { "Expected one Desktop release JAR, found ${releaseJars.size}" }
+        val smokeLog = layout.buildDirectory.file("alpha/desktop-smoke.log").get().asFile
+        smokeLog.parentFile.mkdirs()
+        val javaExecutable = java.io.File(
+            System.getProperty("java.home"),
+            if (System.getProperty("os.name").startsWith("Windows")) "bin/java.exe" else "bin/java",
+        )
+        val process = ProcessBuilder(javaExecutable.absolutePath, "-jar", releaseJars.single().absolutePath)
+            .directory(layout.projectDirectory.asFile)
+            .redirectErrorStream(true)
+            .redirectOutput(smokeLog)
+            .start()
+        val exitedEarly = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+        if (!exitedEarly) {
+            process.destroy()
+            if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) process.destroyForcibly()
+        }
+        check(!exitedEarly) {
+            "Desktop release exited during smoke window with code ${process.exitValue()}:\n${smokeLog.readText()}"
+        }
+        logger.lifecycle("Desktop release remained alive for the five-second smoke window.")
+    }
+}
+
+tasks.register("round35CandidateGate") {
+    group = "verification"
+    description = "Run the round 35 playable-draft candidate gates and release smoke."
+    dependsOn(
+        "alphaGate",
+        "alphaAudit",
+        "desktopReleaseSmoke",
+        ":shared:content-generation:compileKotlinIosSimulatorArm64",
     )
 }
