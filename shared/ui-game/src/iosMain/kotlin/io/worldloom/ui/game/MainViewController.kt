@@ -33,6 +33,10 @@ import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 fun MainViewController(
     manifestSources: List<String>,
@@ -43,6 +47,7 @@ fun MainViewController(
     questBehaviorSources: List<String>,
     timedBehaviorSources: List<String>,
 ): UIViewController {
+    val agentBackgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     require(
         listOf(
             worldSources,
@@ -99,11 +104,16 @@ fun MainViewController(
         gameSession = session,
         turnStore = SqlDelightGameTurnStore(database),
         directToolGateway = playerAndGmTools,
+        memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
+        backgroundScope = agentBackgroundScope,
     )
     val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
     return ComposeUIViewController {
         DisposableEffect(providerClient) {
-            onDispose { providerClient.close() }
+            onDispose {
+                agentBackgroundScope.cancel()
+                providerClient.close()
+            }
         }
         WorldloomApp(
             session = session,

@@ -97,6 +97,19 @@ class AgentMemoryTest {
         val store = InMemoryAgentMemoryStore()
         val agent = AgentId("npc.invalid")
         repeat(4) { index -> store.appendTurn(turn(agent, index + 1L)) }
+        val valid = ContextCheckpoint(
+            idempotencyKey = "npc.invalid:1:4:1",
+            agentId = agent,
+            fromSequence = 1,
+            toSequence = 4,
+            promptVersion = 1,
+            modelId = "compact-fast",
+            summary = "last valid summary",
+            sourceEventIds = (1L..4L).mapTo(mutableSetOf()) { "event.$it" },
+            publishedAtEpochMillis = 99,
+        )
+        assertTrue(store.publish(CompactionPublication(valid, emptyList())))
+        repeat(4) { index -> store.appendTurn(turn(agent, index + 5L)) }
         val model = object : ContextCompactionModel {
             override suspend fun compact(
                 agentId: AgentId,
@@ -109,7 +122,7 @@ class AgentMemoryTest {
         coordinator.schedule(agent, 1_000, 10_000, true, 1, "compact-fast", 100)
         coordinator.awaitIdle(agent)
 
-        assertNull(store.latestCheckpoint(agent))
+        assertEquals(valid, store.latestCheckpoint(agent))
     }
 
     @Test

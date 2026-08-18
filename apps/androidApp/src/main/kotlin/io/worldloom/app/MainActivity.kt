@@ -35,11 +35,16 @@ import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
 class MainActivity : ComponentActivity() {
     private var providerClient: HttpClient? = null
+    private val agentBackgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +84,8 @@ class MainActivity : ComponentActivity() {
             gameSession = session,
             turnStore = SqlDelightGameTurnStore(database),
             directToolGateway = playerAndGmTools,
+            memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
+            backgroundScope = agentBackgroundScope,
         )
         val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
         setContent {
@@ -94,6 +101,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        agentBackgroundScope.cancel()
         providerClient?.close()
         providerClient = null
         super.onDestroy()

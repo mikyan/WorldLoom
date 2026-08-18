@@ -1,6 +1,6 @@
 # Worldloom 迭代执行与验收记录
 
-文档状态：Alpha candidate 3.3<br>
+文档状态：Alpha candidate 3.4<br>
 更新日期：2026-08-19
 
 ## 1. 目的与完成标准
@@ -55,6 +55,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 27. 回合恢复与继续体验 | 启动扫描遗留 GM Turn，按 EventLog 边界区分安全重试和只读补叙述；v3 Turn 记录请求类型/父 Turn，控制器与共享 UI 恢复分页主持对话和可操作错误 | 工具前/后中断、重复扫描、新 TurnId 重试、无工具补叙述、取消持久化、证据越界、历史损坏以及 Desktop/iOS/Android 编译 |
 | 28. 定向 NPC 对话 | 增加 `AddressNpcCommand/Event`、动态 `npc.address`、当前场景角色选择和目标 NPC 工作调度；玩家发言与 NPC 工具回应均进入公开 EventLog | 场景外目标、500 字限制、幂等重复、多 NPC 记忆隔离、重放、`war-survival`/`station-ai` 动态目标和三端编译 |
 | 29. NPC 知识揭示与记忆 | 将 NPC 私有知识升级为稳定 Definition，`npc.speak` 只接受自身动态白名单内的知识 ID；固定公开摘要通过类型化 Command/Event 进入 EventLog、后续主持上下文、独立 NPC 情景记忆与公开回放 | 合法/越权/重复揭示、固定摘要不可改写、旧 Profile 兼容、跨 NPC/Run 隔离、序列化、重放和双世界测试 |
+| 30. 主持人长期连续性 | 从终态 GM Turn 与已提交公开 Event 修复稳定连续性流，按 Run/GM AgentId 写入 SQL 记忆；上下文组合最后检查点、未压缩尾部和当前 Presentation，旧范围由生命周期受控后台任务冻结并原子压缩 | 长局继续、压缩中前台回合、SQL 重启、候选失败保留旧检查点、上下文裁剪、跨 Run/NPC 隔离和三端编译 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -70,6 +71,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - 库存、状态、关系、任务和进度钟都由世界 Definition 与 manifest 显式选择，不向通用状态增加题材字段。每类写操作使用独立权限和 Tool Schema，私有状态不进入玩家 Presentation；旧 Snapshot 恢复时只初始化缺失的模块状态，新增事件类型沿用既有 EventLog Schema。
 - Behavior 只在事件提交后调度；guard 使用冻结触发上下文和最新状态，每个 effect 都重新经过 CommandValidator/WorldEngine。稳定工作项记录 root/parent event、因果深度和派生 Command；深度、触发、重复签名或命令预算超限时暂停单条链，恢复补扫已提交事件，回放只校验审计链而不重新执行。
 - NPC 只接收当前参与场景、白名单 Presentation、自己的目标/知识/记忆和抽象触发事件；稳定工作项按 Run/NPC/Event 幂等恢复，遗留运行项不重新调用 Provider。公开发言、动作与知识揭示必须经过 NPC Actor、当前参与者和动态白名单约束的 Tool→Command→Event；知识事件只携带世界包固定的公开摘要，模型最终正文和私有知识不进入主持上下文、Presentation 或公开重放。
+- 主持连续性只从持久化终态回合和公开 Event 生成，并使用 `worldloom.agent.gm` 在每 Run 的独立 SQL 分区中保存。检查点是叙事辅助而非事实；候选范围冻结、校验后原子发布，失败保留上一有效检查点，前台始终以最新 Presentation 与动态 Tool 为准。Android、iOS 与 Desktop 会在宿主生命周期结束时取消尚未完成的后台压缩。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
 
@@ -113,4 +115,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-第 30–33 轮优先补齐主持长期连续性、场景引导、快速继续和第二内置世界，从而先跑稳内置剧本的主持闭环。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。
+第 31–33 轮继续优先补齐场景引导、快速继续和第二内置世界，从而先跑稳内置剧本的主持闭环。TXT/EPUB 识别工作区与受控草稿沙箱固定在第 34–35 轮，不抢占前述内置剧本主持体验。

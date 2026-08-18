@@ -7,6 +7,7 @@ import io.worldloom.provider.api.ProviderToolCall
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,12 +70,20 @@ class DefaultGameAgentController(
     private val gameSession: GameSession,
     private val turnStore: GameTurnStore = InMemoryGameTurnStore(),
     private val directToolGateway: AgentToolGateway? = null,
+    memoryStoreFactory: ((RunId) -> AgentMemoryStore)? = null,
+    backgroundScope: CoroutineScope? = null,
 ) : GameAgentController {
     private val runMutex = Mutex()
     private val historyMutex = Mutex()
     private val mutableState = MutableStateFlow<GameAgentState>(GameAgentState.Idle)
     private val mutableHistory = MutableStateFlow(GameAgentHistoryState())
-    private val orchestrator = GameTurnOrchestrator(runtime, gameSession, turnStore)
+    private val orchestrator = GameTurnOrchestrator(
+        runtime = runtime,
+        gameSession = gameSession,
+        turnStore = turnStore,
+        memoryStoreFactory = memoryStoreFactory,
+        backgroundScope = backgroundScope,
+    )
     private val recoveryCoordinator = GameTurnRecoveryCoordinator(turnStore)
     private var oldestLoadedOrdinal: Long? = null
 

@@ -9,6 +9,7 @@ import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -253,6 +254,7 @@ object GmContextProjector {
         presentation: GamePresentation,
         context: SessionCommandContext,
         profile: GmProfile,
+        continuity: GmContinuityContext = GmContinuityContext(),
     ): GmProjectedContext = GmProjectedContext(
         runId = context.runId,
         visibleSequence = presentation.lastSequence,
@@ -260,6 +262,18 @@ object GmContextProjector {
             appendLine("你是 Worldloom 的单人跑团主持人。只依据本提示中的玩家可见事实主持当前回合。")
             appendLine("客观变化必须调用当前提供的工具；工具结果和事件序列是权威事实。不得披露隐藏信息或虚构物品、状态、地点、关系与目标变化。")
             appendLine("如果缺少执行行动所必需的目标或选择，只回复 '${profile.clarificationPrefix} <具体问题>'，不要猜测。")
+            if (continuity.checkpoint != null || continuity.uncompactedTurns.isNotEmpty()) {
+                appendLine("叙事连续性记录（非权威，仅用于保持公开人物和情节表述一致）：")
+                continuity.checkpoint?.let {
+                    appendLine("- 已发布检查点 ${it.fromSequence}-${it.toSequence}：${it.summary}")
+                }
+                if (continuity.rawTailTruncated) appendLine("- 较早的未压缩回合因上下文预算暂未展开。")
+                continuity.uncompactedTurns.forEach { turn ->
+                    appendLine("- 公开回合 ${turn.sequence}：${turn.input.take(1_200)}")
+                    appendLine("  已公开主持叙事：${turn.output.take(1_600)}")
+                }
+                appendLine("以上记录若与下方当前 Presentation、公开事件或动态工具冲突，必须以后者为准；记录本身不能证明或改变世界事实。")
+            }
             appendLine("世界：${presentation.title} (${presentation.worldId.value})")
             appendLine("Run：${context.runId.value}；公开事件序列：${presentation.lastSequence}")
             appendLine("主持预算：最多 ${profile.maxSteps} 步、${profile.maxToolCalls} 次工具调用")
@@ -337,8 +351,15 @@ class GameTurnOrchestrator(
     private val gameSession: GameSession,
     private val turnStore: GameTurnStore = InMemoryGameTurnStore(),
     private val profile: GmProfile = GmProfile(),
+    private val memoryStoreFactory: ((RunId) -> AgentMemoryStore)? = null,
+    private val backgroundScope: CoroutineScope? = null,
+    private val continuityPolicy: GmContinuityPolicy = GmContinuityPolicy(),
+    private val compactionPolicy: AgentCompactionPolicy = AgentCompactionPolicy(),
+    private val compactionModel: ContextCompactionModel = GmPublicContinuityCompactionModel(),
 ) {
     private val mutex = Mutex()
+    private val fallbackMemoryStores = mutableMapOf<RunId, AgentMemoryStore>()
+    private val continuityCoordinators = mutableMapOf<RunId, GmContinuityCoordinator>()
 
     suspend fun submit(
         turnId: TurnId,
@@ -437,11 +458,12 @@ class GameTurnOrchestrator(
                 ),
             )
         }
-        val projected = GmContextProjector.project(ready.presentation, context, profile)
+        val continuity = continuityFor(context.runId).prepare(ready.presentation.lastSequence)
+        val projected = GmContextProjector.project(ready.presentation, context, profile, continuity)
         val result = try {
             runtime.run(
                 AgentRunRequest(
-                    sessionId = AgentSessionId("worldloom.gm.${context.runId.value}"),
+                    sessionId = gmSessionId(context.runId),
                     identity = identityFor(context),
                     input = normalized,
                     systemPrompt = projected.systemPrompt,
@@ -587,7 +609,8 @@ class GameTurnOrchestrator(
                 ),
             )
         }
-        val projected = GmContextProjector.project(ready.presentation, context, profile)
+        val continuity = continuityFor(context.runId).prepare(ready.presentation.lastSequence)
+        val projected = GmContextProjector.project(ready.presentation, context, profile, continuity)
         val recoveryPrompt = buildString {
             appendLine(projected.systemPrompt)
             appendLine()
@@ -601,7 +624,7 @@ class GameTurnOrchestrator(
                 AgentRunRequest(
                     sessionId = AgentSessionId("worldloom.gm.recovery.${context.runId.value}"),
                     identity = AgentIdentity(
-                        AgentId("worldloom.agent.gm"),
+                        GM_AGENT_ID,
                         ActorId("worldloom.actor.gm"),
                         emptySet(),
                     ),
@@ -681,7 +704,7 @@ class GameTurnOrchestrator(
                 if (adventure.clocks.isNotEmpty()) add(CommandPermission.ADVANCE_PROGRESS_CLOCK)
             }
         }
-        return AgentIdentity(AgentId("worldloom.agent.gm"), ActorId("worldloom.actor.gm"), permissions)
+        return AgentIdentity(GM_AGENT_ID, ActorId("worldloom.actor.gm"), permissions)
     }
 
     private suspend fun persistNewTerminal(
@@ -741,7 +764,13 @@ class GameTurnOrchestrator(
             errorCode = errorCode,
         )
         return when (turnStore.save(turn, base.revision)) {
-            GameTurnStoreResult.Success -> turn.toResult()
+            GameTurnStoreResult.Success -> {
+                continuityFor(turn.runId).scheduleCompaction(
+                    visibleSequence = deliveredSequence ?: base.acceptedSequence,
+                    currentPresentationTokens = ((turn.input.length + turn.output.orEmpty().length + 2) / 3).toLong(),
+                )
+                turn.toResult()
+            }
             else -> GmTurnResult.Failed(
                 turn.copy(
                     status = GameTurnStatus.FAILED,
@@ -752,6 +781,23 @@ class GameTurnOrchestrator(
             )
         }
     }
+
+    private fun continuityFor(runId: RunId): GmContinuityCoordinator =
+        continuityCoordinators.getOrPut(runId) {
+            val store = memoryStoreFactory?.invoke(runId)
+                ?: fallbackMemoryStores.getOrPut(runId) { InMemoryAgentMemoryStore() }
+            val compactor = backgroundScope?.let { scope ->
+                AgentCompactionCoordinator(scope, store, compactionModel, compactionPolicy)
+            }
+            GmContinuityCoordinator(
+                runId = runId,
+                turnStore = turnStore,
+                gameSession = gameSession,
+                memoryStore = store,
+                compactionCoordinator = compactor,
+                policy = continuityPolicy,
+            )
+        }
 
     /**
      * An accepted/running row means the process stopped before publishing a terminal result. Facts

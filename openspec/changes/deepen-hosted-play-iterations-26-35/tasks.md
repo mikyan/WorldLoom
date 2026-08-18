@@ -36,12 +36,12 @@
 
 ## 30. 主持人长期连续性与上下文压缩接入
 
-- [ ] 30.1 定义 GM 连续性输入和公开情节记忆记录，从已完成 Turn 与已提交公开 Event 构建稳定候选
-- [ ] 30.2 将每 Run 的 `SqlDelightAgentMemoryStore` 注入主持人，并严格使用 GM AgentId 与 NPC 分区隔离
-- [ ] 30.3 扩展 `GmContextProjector` 以组合最后有效检查点、未压缩回合尾部和当前 Presentation，并声明冲突时事实优先
-- [ ] 30.4 接入增量异步 `AgentContextCompactor`，冻结范围、校验原子发布且不阻塞前台回合
-- [ ] 30.5 添加长局、压缩并发、候选失败、重启恢复、跨 Run/NPC 泄露和上下文预算测试
-- [ ] 30.6 更新设计与运维说明并运行 Agent/Persistence/三端组装验证
+- [x] 30.1 定义 GM 连续性输入和公开情节记忆记录，从已完成 Turn 与已提交公开 Event 构建稳定候选
+- [x] 30.2 将每 Run 的 `SqlDelightAgentMemoryStore` 注入主持人，并严格使用 GM AgentId 与 NPC 分区隔离
+- [x] 30.3 扩展 `GmContextProjector` 以组合最后有效检查点、未压缩回合尾部和当前 Presentation，并声明冲突时事实优先
+- [x] 30.4 接入增量异步 `AgentContextCompactor`，冻结范围、校验原子发布且不阻塞前台回合
+- [x] 30.5 添加长局、压缩并发、候选失败、重启恢复、跨 Run/NPC 泄露和上下文预算测试
+- [x] 30.6 更新设计与运维说明并运行 Agent/Persistence/三端组装验证
 
 ## 31. 场景引导、教程和无死路行动建议
 

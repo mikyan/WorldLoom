@@ -64,3 +64,9 @@ Snapshot 是缓存。Schema 不兼容、JSON 损坏或身份/序列不匹配时�
 玩家定向 NPC 的公开发言属于 EventLog 事实，并随存档、回放和公开导出保存；它包含目标 NPC/Entity、场景、限长文本与幂等键。NPC 模型的私有最终正文仍不属于公开回放，只有后续 `npc.speak` / `npc.act` 工具提交的内容可见。
 
 NPC 揭示知识时，EventLog 只保存知识 DefinitionId 与世界包固定的 `publicSummary`。私有正文不进入 Command/Event、主持历史或公开回放；重复揭示会复用既有公开事实，不产生第二条知识事件。
+
+## 6. 主持人长期连续性
+
+终态主持回合会按 Run 修复成只含玩家输入、公开主持叙事和已提交公开 EventId 的连续记录，并使用固定 `worldloom.agent.gm` 身份写入该 Run 的 Agent Memory 分区。重启后，主持上下文组合最后有效检查点、检查点后的原始公开回合尾部和当前 Presentation；其他 Run 的 GM 记录以及任意 NPC 的私密记忆不会参与召回。
+
+达到回合数或上下文水位后，压缩任务冻结开始时的连续回合范围，在后台生成候选并校验 AgentId、范围、来源 Event 与非空摘要，再把检查点和公开情节记忆原子发布。候选失败或应用退出不会覆盖旧检查点；新回合直接使用旧检查点加当前原始尾部，不等待压缩。检查点只用于叙事连贯，不能恢复或修改 GameState；提示始终声明当前 Presentation、EventLog 结果和动态 Tool Schema 优先。

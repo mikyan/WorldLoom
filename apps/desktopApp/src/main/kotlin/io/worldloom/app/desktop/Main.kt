@@ -35,12 +35,17 @@ import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import java.nio.file.Files
 import java.nio.file.Paths
 
 private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
 fun main() {
+    val agentBackgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val catalog = loadContractWorldCatalog()
     val database = createDatabase()
     val eventStore = SqlDelightEventStore(database)
@@ -77,6 +82,8 @@ fun main() {
         gameSession = session,
         turnStore = SqlDelightGameTurnStore(database),
         directToolGateway = playerAndGmTools,
+        memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
+        backgroundScope = agentBackgroundScope,
     )
     val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
 
@@ -85,6 +92,7 @@ fun main() {
             title = "Worldloom / 织境",
             state = WindowState(width = 1100.dp, height = 820.dp),
             onCloseRequest = {
+                agentBackgroundScope.cancel()
                 providerClient.close()
                 exitApplication()
             },

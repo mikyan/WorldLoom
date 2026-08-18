@@ -1,5 +1,6 @@
 package io.worldloom.agent.runtime
 
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.worldloom.application.DefaultGameSession
 import io.worldloom.application.GameSessionUiState
 import io.worldloom.application.LoadResult
@@ -16,6 +17,12 @@ import io.worldloom.provider.api.ProviderResult
 import io.worldloom.provider.api.ProviderToolCall
 import io.worldloom.provider.api.ProviderTurn
 import io.worldloom.provider.api.ProviderUsage
+import io.worldloom.persistence.SqlDelightAgentMemoryStore
+import io.worldloom.persistence.SqlDelightGameTurnStore
+import io.worldloom.persistence.db.WorldloomDatabase
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +31,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GameTurnOrchestratorContractTest {
@@ -155,6 +163,96 @@ class GameTurnOrchestratorContractTest {
         assertEquals(5, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
     }
 
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun gmContinuityCompactsInBackgroundAndSurvivesSqlRestartWithoutNpcSecrets() = runTest {
+        val session = playableSession("gm-continuity")
+        val runId = assertNotNull(session.currentRunId)
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        database.worldloomQueries.insertRun(runId.value, "contract.war-survival", 1)
+        val otherRunId = io.worldloom.world.RunId("gm-continuity.other-run")
+        database.worldloomQueries.insertRun(otherRunId.value, "contract.war-survival", 1)
+        val turnStore = SqlDelightGameTurnStore(database)
+        val gmMemory = SqlDelightAgentMemoryStore(database, runId)
+        SqlDelightAgentMemoryStore(database, otherRunId).appendTurn(
+            AgentTurnRecord(
+                agentId = GM_AGENT_ID,
+                sessionId = gmSessionId(otherRunId),
+                sequence = 1,
+                input = "OTHER_RUN_SECRET_MUST_NOT_REACH_GM",
+                output = "other run narration",
+                tokenCount = 10,
+            ),
+        )
+        gmMemory.upsertMemory(
+            AgentMemoryRecord(
+                id = AgentMemoryId("npc-private-secret"),
+                agentId = AgentId("worldloom.agent.npc.secret-keeper"),
+                kind = AgentMemoryKind.BELIEF,
+                content = "NPC_PRIVATE_SECRET_MUST_NOT_REACH_GM",
+                salience = 1.0,
+                confidence = 1.0,
+                createdSequence = 0,
+            ),
+        )
+        val provider = ContinuityNarratorProvider()
+        val compactionStarted = CompletableDeferred<Unit>()
+        val releaseCompaction = CompletableDeferred<Unit>()
+        val compactionModel = GatedGmCompactionModel(compactionStarted, releaseCompaction)
+        val orchestrator = GameTurnOrchestrator(
+            runtime = AgentRuntime(provider, DefaultAgentToolGateway(session)),
+            gameSession = session,
+            turnStore = turnStore,
+            memoryStoreFactory = { SqlDelightAgentMemoryStore(database, it) },
+            backgroundScope = this,
+            compactionPolicy = AgentCompactionPolicy(turnThreshold = 7, retainedRawTurns = 6),
+            compactionModel = compactionModel,
+        )
+        repeat(7) { index ->
+            assertIs<GmTurnResult.Completed>(
+                orchestrator.submit(TurnId("gm-continuity.${index + 1}"), "公开行动 ${index + 1}"),
+            )
+        }
+        runCurrent()
+        assertTrue(compactionStarted.isCompleted)
+
+        assertIs<GmTurnResult.Completed>(
+            orchestrator.submit(TurnId("gm-continuity.8"), "压缩期间继续行动"),
+        )
+        assertTrue(provider.systemPrompts.last().contains("公开回合 1"))
+        releaseCompaction.complete(Unit)
+        advanceUntilIdle()
+        assertNotNull(gmMemory.latestCheckpoint(GM_AGENT_ID))
+
+        val resumedProvider = ContinuityNarratorProvider()
+        val resumedDatabase = WorldloomDatabase(driver)
+        val resumed = GameTurnOrchestrator(
+            runtime = AgentRuntime(resumedProvider, DefaultAgentToolGateway(session)),
+            gameSession = session,
+            turnStore = SqlDelightGameTurnStore(resumedDatabase),
+            memoryStoreFactory = { SqlDelightAgentMemoryStore(resumedDatabase, it) },
+        )
+        assertIs<GmTurnResult.Completed>(
+            resumed.submit(TurnId("gm-continuity.9"), "重启后继续"),
+        )
+
+        val prompt = resumedProvider.systemPrompts.single()
+        assertTrue(prompt.contains("已发布检查点"))
+        assertTrue(prompt.contains("公开叙事 8"))
+        assertTrue(prompt.contains("必须以后者为准"))
+        assertTrue(prompt.contains("钟楼废墟"))
+        assertFalse(prompt.contains("NPC_PRIVATE_SECRET_MUST_NOT_REACH_GM"))
+        assertFalse(prompt.contains("OTHER_RUN_SECRET_MUST_NOT_REACH_GM"))
+        assertTrue(gmMemory.memories(GM_AGENT_ID).none { it.content.contains("NPC_PRIVATE_SECRET") })
+        assertTrue(
+            gmMemory.memories(AgentId("worldloom.agent.npc.secret-keeper")).single().content
+                .contains("NPC_PRIVATE_SECRET"),
+        )
+        driver.close()
+    }
+
     private suspend fun kotlinx.coroutines.test.TestScope.playableSession(prefix: String): DefaultGameSession {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(listOf(loadPackage("war-survival"))),
@@ -225,6 +323,35 @@ class GameTurnOrchestratorContractTest {
                 ProviderTurn(toolCalls = listOf(actionCall("war.action.search-supplies")), usage = ProviderUsage(4, 1)),
             )
             else -> ProviderResult.Failure(ProviderFailureCode.NETWORK, "connection lost", retryable = true)
+        }
+    }
+
+    private class ContinuityNarratorProvider : LanguageModelProvider {
+        override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
+        val systemPrompts = mutableListOf<String>()
+        private var calls = 0
+
+        override suspend fun complete(request: ProviderRequest): ProviderResult {
+            systemPrompts += request.messages.first().content.orEmpty()
+            calls += 1
+            return ProviderResult.Success(ProviderTurn("公开叙事 $calls", usage = ProviderUsage(30, 12)))
+        }
+    }
+
+    private class GatedGmCompactionModel(
+        private val started: CompletableDeferred<Unit>,
+        private val release: CompletableDeferred<Unit>,
+    ) : ContextCompactionModel {
+        private val delegate = GmPublicContinuityCompactionModel()
+
+        override suspend fun compact(
+            agentId: AgentId,
+            turns: List<AgentTurnRecord>,
+            promptVersion: Int,
+        ): CompactionModelOutput {
+            started.complete(Unit)
+            release.await()
+            return delegate.compact(agentId, turns, promptVersion)
         }
     }
 
