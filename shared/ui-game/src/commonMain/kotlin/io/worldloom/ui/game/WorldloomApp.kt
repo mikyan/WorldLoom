@@ -40,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.worldloom.agent.runtime.GameAgentController
 import io.worldloom.agent.runtime.GameAgentState
+import io.worldloom.agent.runtime.GameTurnRecoveryKind
+import io.worldloom.agent.runtime.GameTurnStatus
+import io.worldloom.agent.runtime.HostedTurnHistoryItem
 import io.worldloom.application.GamePresentation
 import io.worldloom.application.CharacterCreationPresentation
 import io.worldloom.application.request
@@ -153,7 +156,9 @@ fun WorldloomApp(
                             scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
                         },
                         agentController = agentController,
+                        agentHistoryKey = "${session.currentRunId?.value}:${current.presentation.lastSequence}",
                         replayInspector = session as? ReplayInspector,
+                        reduceMotion = reduceMotion,
                     )
 
                     is GameSessionUiState.CharacterCreation -> CharacterCreationState(
@@ -175,6 +180,7 @@ fun WorldloomApp(
                         agentController = null,
                         interactive = false,
                         replayInspector = session as? ReplayInspector,
+                        reduceMotion = reduceMotion,
                     )
 
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
@@ -512,8 +518,10 @@ private fun ReadyState(
     onActivity: (io.worldloom.definition.DefinitionId) -> Unit,
     onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
+    agentHistoryKey: String = "",
     interactive: Boolean = true,
     replayInspector: ReplayInspector? = null,
+    reduceMotion: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     var displayedTimeline by remember(presentation.worldId, presentation.lastSequence) {
@@ -556,7 +564,9 @@ private fun ReadyState(
         notice?.let { EmptyState(it.message, isError = true) }
         replayVerification?.let { EmptyState(it, isError = it.contains("失败")) }
 
-        if (interactive) agentController?.let { AgentPanel(it) }
+        if (interactive) agentController?.let {
+            AgentPanel(it, agentHistoryKey, reduceMotion)
+        }
 
         presentation.scene?.let { scene ->
             Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
@@ -836,19 +846,78 @@ private fun CredentialPanel(configuration: CredentialConfiguration) {
 }
 
 @Composable
-private fun AgentPanel(controller: GameAgentController) {
+private fun AgentPanel(
+    controller: GameAgentController,
+    historyKey: String,
+    reduceMotion: Boolean,
+) {
     val state by controller.state.collectAsState()
+    val history by controller.history.collectAsState()
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var runningJob by remember { mutableStateOf<Job?>(null) }
     val running = state is GameAgentState.Running
+    LaunchedEffect(controller, historyKey) { controller.refreshHistory() }
 
     Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("自然语言行动", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("主持人", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                if (history.loading && !reduceMotion) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(16.dp).height(16.dp),
+                        color = MaterialTheme.colors.primary,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(
+                        if (history.error == null) "${history.items.size} 个回合" else "历史不可用",
+                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            if (history.hasEarlier) {
+                Button(
+                    onClick = { scope.launch { controller.loadEarlierHistory() } },
+                    enabled = !history.loading && !running,
+                    colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                ) {
+                    Text("加载较早回合")
+                }
+            }
+            if (history.items.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(280.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(history.items, key = { it.turnId.value }) { item ->
+                        HostedTurnRow(
+                            item = item,
+                            enabled = !running,
+                            onRetry = {
+                                runningJob = scope.launch { controller.retry(item.turnId) }
+                            },
+                            onRecoverNarration = {
+                                runningJob = scope.launch { controller.recoverNarration(item.turnId) }
+                            },
+                        )
+                    }
+                }
+            } else if (!history.loading) {
+                Text(
+                    "描述行动后，玩家输入和主持公开叙事会保存在当前 Run。",
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
+                )
+            }
+            history.issues.forEach { issue ->
+                Text(issue.message, color = MaterialTheme.colors.error, fontSize = 12.sp)
+            }
+            history.error?.let { Text(it, color = MaterialTheme.colors.error, fontSize = 12.sp) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -883,10 +952,7 @@ private fun AgentPanel(controller: GameAgentController) {
                 }
             }
             when (val current = state) {
-                GameAgentState.Idle -> Text(
-                    "Agent 的写操作同样必须经过 Tool → Command → Event。",
-                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
-                )
+                GameAgentState.Idle -> Unit
 
                 is GameAgentState.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
@@ -898,18 +964,74 @@ private fun AgentPanel(controller: GameAgentController) {
                     Text(current.partialText.ifBlank { "正在思考…" })
                 }
 
-                is GameAgentState.Completed -> Text(current.text)
-                is GameAgentState.AwaitingPlayer -> Text(
-                    current.question,
-                    color = MaterialTheme.colors.primary,
-                )
+                is GameAgentState.Completed -> Unit
+                is GameAgentState.AwaitingPlayer -> Unit
                 is GameAgentState.Failed -> Text(
-                    if (current.worldChanged) "${current.message}（部分工具操作已写入事件）" else current.message,
+                    when (current.recoveryKind) {
+                        GameTurnRecoveryKind.RETRY_SAFE -> "${current.message} 可以安全重试。"
+                        GameTurnRecoveryKind.NARRATION_REQUIRED -> "${current.message} 事实已保存，可补叙述。"
+                        GameTurnRecoveryKind.NONE -> if (current.worldChanged) {
+                            "${current.message}（权威事实已写入事件）"
+                        } else {
+                            current.message
+                        }
+                    },
                     color = MaterialTheme.colors.error,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun HostedTurnRow(
+    item: HostedTurnHistoryItem,
+    enabled: Boolean,
+    onRetry: () -> Unit,
+    onRecoverNarration: () -> Unit,
+) {
+    Card(backgroundColor = MaterialTheme.colors.background) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text("你 · ${item.playerInput}", fontWeight = FontWeight.SemiBold)
+            item.publicOutput?.let { Text("主持人 · $it") }
+            item.safeFailureMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    hostedTurnStatus(item.status),
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.56f),
+                    fontSize = 12.sp,
+                )
+                item.evidence?.let {
+                    Text(
+                        "事件 (${it.fromSequenceExclusive}, ${it.throughSequenceInclusive}]",
+                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.56f),
+                        fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                when (item.recoveryKind) {
+                    GameTurnRecoveryKind.RETRY_SAFE -> Button(onClick = onRetry, enabled = enabled) { Text("重试") }
+                    GameTurnRecoveryKind.NARRATION_REQUIRED -> Button(
+                        onClick = onRecoverNarration,
+                        enabled = enabled,
+                    ) { Text("补叙述") }
+                    GameTurnRecoveryKind.NONE -> Unit
+                }
+            }
+        }
+    }
+}
+
+private fun hostedTurnStatus(status: GameTurnStatus): String = when (status) {
+    GameTurnStatus.ACCEPTED -> "已接受"
+    GameTurnStatus.RUNNING -> "主持中"
+    GameTurnStatus.AWAITING_PLAYER -> "等待你的选择"
+    GameTurnStatus.COMPLETED -> "已完成"
+    GameTurnStatus.CANCELLED -> "已取消"
+    GameTurnStatus.FAILED -> "未完成"
 }
 
 private fun credentialStatus(state: CredentialConfigurationState): String = when (state) {

@@ -102,6 +102,73 @@ class HostedTurnHistoryTest {
         assertEquals(4, current.evidenceThroughSequenceInclusive)
     }
 
+    @Test
+    fun recoveryScanClassifiesInterruptedTurnsOnceWithoutReplayingThem() = runTest {
+        val store = InMemoryGameTurnStore()
+        val run = RunId("run.recovery")
+        val retrySafe = GameTurn(
+            runId = run,
+            turnId = TurnId("run.recovery.turn.1"),
+            input = "look",
+            status = GameTurnStatus.ACCEPTED,
+            revision = 0,
+            acceptedSequence = 4,
+        )
+        val narrationRequired = GameTurn(
+            runId = run,
+            turnId = TurnId("run.recovery.turn.2"),
+            input = "travel",
+            status = GameTurnStatus.RUNNING,
+            revision = 1,
+            acceptedSequence = 2,
+        )
+        assertIs<GameTurnStoreResult.Success>(store.save(retrySafe, null))
+        assertIs<GameTurnStoreResult.Success>(store.save(narrationRequired, null))
+
+        val first = assertIs<GameTurnRecoveryResult.Completed>(
+            GameTurnRecoveryCoordinator(store).recover(run, currentEventSequence = 4),
+        ).report
+        assertEquals(2, first.recovered.size)
+        assertEquals(GameTurnRecoveryKind.RETRY_SAFE, store.load(run, retrySafe.turnId)?.recoveryKind)
+        val recoveredNarration = assertIs<GameTurn>(store.load(run, narrationRequired.turnId))
+        assertEquals(GameTurnRecoveryKind.NARRATION_REQUIRED, recoveredNarration.recoveryKind)
+        assertEquals(2, recoveredNarration.evidenceFromSequenceExclusive)
+        assertEquals(4, recoveredNarration.evidenceThroughSequenceInclusive)
+
+        val second = assertIs<GameTurnRecoveryResult.Completed>(
+            GameTurnRecoveryCoordinator(store).recover(run, currentEventSequence = 4),
+        ).report
+        assertTrue(second.recovered.isEmpty())
+        assertEquals(recoveredNarration.revision, store.load(run, narrationRequired.turnId)?.revision)
+    }
+
+    @Test
+    fun recoveryAndProjectionQuarantineTurnAcceptedBeyondCurrentEventLog() = runTest {
+        val store = InMemoryGameTurnStore()
+        val run = RunId("run.future-acceptance")
+        val future = GameTurn(
+            runId = run,
+            turnId = TurnId("run.future-acceptance.turn.1"),
+            input = "continue",
+            status = GameTurnStatus.RUNNING,
+            revision = 1,
+            acceptedSequence = 9,
+        )
+        assertIs<GameTurnStoreResult.Success>(store.save(future, null))
+
+        val recovery = assertIs<GameTurnRecoveryResult.Completed>(
+            GameTurnRecoveryCoordinator(store).recover(run, currentEventSequence = 4),
+        ).report
+        assertTrue(recovery.recovered.isEmpty())
+        assertEquals(GameTurnStatus.RUNNING, store.load(run, future.turnId)?.status)
+
+        val projected = assertIs<HostedTurnHistoryResult.Success>(
+            HostedTurnHistoryProjector.project(store.history(run), currentEventSequence = 4),
+        ).page
+        assertTrue(projected.items.isEmpty())
+        assertEquals(GameTurnHistoryProblemCode.FUTURE_EVIDENCE, projected.issues.single().code)
+    }
+
     private fun completedTurn(runId: RunId, ordinal: Int) = GameTurn(
         runId = runId,
         turnId = TurnId("${runId.value}.turn.$ordinal"),

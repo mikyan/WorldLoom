@@ -15,7 +15,7 @@
         "event": 1,
         "saveData": 1,
         "snapshot": 1,
-        "gmTurn": 2,
+        "gmTurn": 3,
         "npcWork": 1
     },
     "database": {"schemaVersion": 9, "latestMigration": "8.sqm"},

@@ -9,13 +9,15 @@ import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlin.jvm.JvmInline
 
 const val LEGACY_GM_TURN_SCHEMA_VERSION: Int = 1
-const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 2
+const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 3
 const val CURRENT_GM_PROFILE_SCHEMA_VERSION: Int = 1
 
 @Serializable
@@ -32,6 +34,9 @@ enum class GameTurnOutputKind { NONE, NARRATION, CLARIFICATION, FAILURE }
 
 @Serializable
 enum class GameTurnRecoveryKind { NONE, RETRY_SAFE, NARRATION_REQUIRED }
+
+@Serializable
+enum class GameTurnRequestKind { PLAYER_ACTION, RETRY, NARRATION_RECOVERY }
 
 @Serializable
 enum class GameTurnErrorCode {
@@ -62,6 +67,8 @@ data class GameTurn(
     val evidenceThroughSequenceInclusive: Long? = null,
     val recoveryKind: GameTurnRecoveryKind = GameTurnRecoveryKind.NONE,
     val errorCode: GameTurnErrorCode? = null,
+    val requestKind: GameTurnRequestKind = GameTurnRequestKind.PLAYER_ACTION,
+    val parentTurnId: TurnId? = null,
 ) {
     init {
         require(schemaVersion in LEGACY_GM_TURN_SCHEMA_VERSION..CURRENT_GM_TURN_SCHEMA_VERSION) {
@@ -85,6 +92,13 @@ data class GameTurn(
             require(deliveredSequence == null || evidenceThroughSequenceInclusive <= deliveredSequence) {
                 "GM turn evidence cannot exceed its delivered sequence"
             }
+        }
+        require(
+            requestKind == GameTurnRequestKind.PLAYER_ACTION ||
+                parentTurnId != null ||
+                status == GameTurnStatus.FAILED,
+        ) {
+            "Retry and narration-recovery turns must reference their source turn"
         }
     }
 
@@ -324,10 +338,49 @@ class GameTurnOrchestrator(
         turnId: TurnId,
         input: String,
         onTextDelta: suspend (String) -> Unit = {},
+        requestKind: GameTurnRequestKind = GameTurnRequestKind.PLAYER_ACTION,
+        parentTurnId: TurnId? = null,
     ): GmTurnResult = mutex.withLock {
         val context = gameSession.commandContext()
             ?: return@withLock failedWithoutRun(turnId, input, "Run command context is unavailable")
         val normalized = input.trim()
+        if (requestKind == GameTurnRequestKind.NARRATION_RECOVERY) {
+            return@withLock invalidRequest(
+                context.runId,
+                turnId,
+                normalized,
+                requestKind,
+                parentTurnId,
+                "Narration recovery must use recoverNarration",
+            )
+        }
+        if (requestKind == GameTurnRequestKind.PLAYER_ACTION && parentTurnId != null) {
+            return@withLock invalidRequest(
+                context.runId,
+                turnId,
+                normalized,
+                requestKind,
+                parentTurnId,
+                "A new player action cannot reference a previous turn",
+            )
+        }
+        if (requestKind == GameTurnRequestKind.RETRY) {
+            val parent = parentTurnId?.let { turnStore.load(context.runId, it) }
+            if (
+                parent == null ||
+                parent.recoveryKind != GameTurnRecoveryKind.RETRY_SAFE ||
+                parent.input != normalized
+            ) {
+                return@withLock invalidRequest(
+                    context.runId,
+                    turnId,
+                    normalized,
+                    requestKind,
+                    parentTurnId,
+                    "Only an unchanged input from a retry-safe turn can be retried",
+                )
+            }
+        }
         turnStore.load(context.runId, turnId)?.let { existing ->
             if (existing.input != normalized) {
                 return@withLock GmTurnResult.Failed(
@@ -349,6 +402,8 @@ class GameTurnOrchestrator(
             status = GameTurnStatus.ACCEPTED,
             revision = 0,
             acceptedSequence = ready.presentation.lastSequence,
+            requestKind = requestKind,
+            parentTurnId = parentTurnId,
         )
         if (normalized.isBlank()) return@withLock persistNewTerminal(
             accepted,
@@ -389,12 +444,14 @@ class GameTurnOrchestrator(
                 onTextDelta,
             )
         } catch (cancelled: CancellationException) {
-            persistTerminal(
-                running,
-                GameTurnStatus.CANCELLED,
-                error = "Turn was cancelled",
-                errorCode = GameTurnErrorCode.CANCELLED,
-            )
+            withContext(NonCancellable) {
+                persistTerminal(
+                    running,
+                    GameTurnStatus.CANCELLED,
+                    error = "Turn was cancelled",
+                    errorCode = GameTurnErrorCode.CANCELLED,
+                )
+            }
             throw cancelled
         }
         val deliveredSequence = gameSession.commandContext()?.lastSequence ?: projected.visibleSequence
@@ -426,6 +483,165 @@ class GameTurnOrchestrator(
                 error = result.error.message,
                 worldChanged = result.error.worldChanged,
                 deliveredSequence = deliveredSequence,
+                errorCode = result.error.code.toGameTurnErrorCode(),
+            )
+        }
+    }
+
+    suspend fun recoverNarration(
+        sourceTurnId: TurnId,
+        newTurnId: TurnId,
+        onTextDelta: suspend (String) -> Unit = {},
+    ): GmTurnResult = mutex.withLock {
+        val context = gameSession.commandContext()
+            ?: return@withLock failedWithoutRun(newTurnId, "", "Run command context is unavailable")
+        val ready = gameSession.state.value as? GameSessionUiState.Ready
+            ?: return@withLock invalidRequest(
+                context.runId,
+                newTurnId,
+                "",
+                GameTurnRequestKind.NARRATION_RECOVERY,
+                sourceTurnId,
+                "Run is not active",
+            )
+        val source = turnStore.load(context.runId, sourceTurnId)
+        val through = source?.evidenceThroughSequenceInclusive
+        if (
+            source == null ||
+            source.recoveryKind != GameTurnRecoveryKind.NARRATION_REQUIRED ||
+            source.evidenceFromSequenceExclusive == null ||
+            through == null ||
+            through > ready.presentation.lastSequence
+        ) {
+            return@withLock invalidRequest(
+                context.runId,
+                newTurnId,
+                source?.input.orEmpty(),
+                GameTurnRequestKind.NARRATION_RECOVERY,
+                sourceTurnId,
+                "Turn does not have a valid narration-recovery evidence range",
+            )
+        }
+        turnStore.load(context.runId, newTurnId)?.let { existing ->
+            if (
+                existing.requestKind != GameTurnRequestKind.NARRATION_RECOVERY ||
+                existing.parentTurnId != sourceTurnId
+            ) {
+                return@withLock GmTurnResult.Failed(
+                    existing.copy(
+                        error = "TurnId was reused for a different narration recovery",
+                        outputKind = GameTurnOutputKind.FAILURE,
+                        errorCode = GameTurnErrorCode.INVALID_REQUEST,
+                    ),
+                )
+            }
+            return@withLock recoverOrReturn(existing, context.lastSequence)
+        }
+        val visibleEvidence = ready.presentation.timeline.filter {
+            it.sequence > source.evidenceFromSequenceExclusive && it.sequence <= through
+        }
+        if (visibleEvidence.isEmpty()) {
+            return@withLock invalidRequest(
+                context.runId,
+                newTurnId,
+                source.input,
+                GameTurnRequestKind.NARRATION_RECOVERY,
+                sourceTurnId,
+                "No public evidence is available for narration recovery",
+            )
+        }
+        val accepted = GameTurn(
+            runId = context.runId,
+            turnId = newTurnId,
+            input = source.input,
+            status = GameTurnStatus.ACCEPTED,
+            revision = 0,
+            acceptedSequence = source.acceptedSequence,
+            requestKind = GameTurnRequestKind.NARRATION_RECOVERY,
+            parentTurnId = sourceTurnId,
+        )
+        if (turnStore.save(accepted, null) !is GameTurnStoreResult.Success) {
+            return@withLock GmTurnResult.Failed(
+                accepted.copy(
+                    status = GameTurnStatus.FAILED,
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    error = "Narration recovery could not be stored",
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
+            )
+        }
+        val running = accepted.copy(status = GameTurnStatus.RUNNING, revision = 1)
+        if (turnStore.save(running, 0) !is GameTurnStoreResult.Success) {
+            return@withLock GmTurnResult.Failed(
+                running.copy(
+                    status = GameTurnStatus.FAILED,
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    error = "Narration recovery could not start",
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
+            )
+        }
+        val projected = GmContextProjector.project(ready.presentation, context, profile)
+        val recoveryPrompt = buildString {
+            appendLine(projected.systemPrompt)
+            appendLine()
+            appendLine("这是只读补叙述回合。不得调用工具、不得改变事实，只能根据下列已提交的玩家可见事件补写简洁叙述。")
+            appendLine("原玩家输入：${source.input}")
+            appendLine("证据范围：(${source.evidenceFromSequenceExclusive}, $through]")
+            visibleEvidence.forEach { appendLine("- #${it.sequence} ${it.summary}") }
+        }.trim()
+        val result = try {
+            runtime.run(
+                AgentRunRequest(
+                    sessionId = AgentSessionId("worldloom.gm.recovery.${context.runId.value}"),
+                    identity = AgentIdentity(
+                        AgentId("worldloom.agent.gm"),
+                        ActorId("worldloom.actor.gm"),
+                        emptySet(),
+                    ),
+                    input = "补写已提交事实的玩家可见叙述。",
+                    systemPrompt = recoveryPrompt,
+                    runId = context.runId,
+                ),
+                onTextDelta,
+            )
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                persistTerminal(
+                    running,
+                    GameTurnStatus.CANCELLED,
+                    error = "Narration recovery was cancelled",
+                    errorCode = GameTurnErrorCode.CANCELLED,
+                )
+            }
+            throw cancelled
+        }
+        when (result) {
+            is AgentRunResult.Completed -> {
+                val text = result.text.trim()
+                if (result.worldChanged || text.isBlank()) {
+                    persistTerminal(
+                        running,
+                        GameTurnStatus.FAILED,
+                        error = "Narration recovery returned an invalid result",
+                        deliveredSequence = through,
+                        errorCode = GameTurnErrorCode.TOOL_FAILURE,
+                    )
+                } else {
+                    persistTerminal(
+                        running,
+                        GameTurnStatus.COMPLETED,
+                        output = text,
+                        deliveredSequence = through,
+                        outputKind = GameTurnOutputKind.NARRATION,
+                    )
+                }
+            }
+            is AgentRunResult.Failure -> persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = result.error.message,
+                deliveredSequence = through,
                 errorCode = result.error.code.toGameTurnErrorCode(),
             )
         }
@@ -537,29 +753,17 @@ class GameTurnOrchestrator(
         if (existing.status !in setOf(GameTurnStatus.ACCEPTED, GameTurnStatus.RUNNING)) {
             return existing.toResult()
         }
-        val recovered = existing.copy(
-            schemaVersion = CURRENT_GM_TURN_SCHEMA_VERSION,
-            status = GameTurnStatus.FAILED,
-            revision = existing.revision + 1,
-            deliveredSequence = visibleSequence,
-            worldChanged = visibleSequence > existing.acceptedSequence,
-            outputKind = GameTurnOutputKind.FAILURE,
-            evidenceFromSequenceExclusive = existing.acceptedSequence.takeIf {
-                visibleSequence > existing.acceptedSequence
-            },
-            evidenceThroughSequenceInclusive = visibleSequence.takeIf { visibleSequence > existing.acceptedSequence },
-            recoveryKind = if (visibleSequence > existing.acceptedSequence) {
-                GameTurnRecoveryKind.NARRATION_REQUIRED
-            } else {
-                GameTurnRecoveryKind.RETRY_SAFE
-            },
-            errorCode = GameTurnErrorCode.INTERRUPTED,
-            error = if (visibleSequence > existing.acceptedSequence) {
-                "Turn was interrupted after authoritative facts were committed; retry with a new TurnId"
-            } else {
-                "Turn was interrupted before authoritative facts were committed; retry with a new TurnId"
-            },
-        )
+        if (visibleSequence < existing.acceptedSequence) {
+            return GmTurnResult.Failed(
+                existing.copy(
+                    status = GameTurnStatus.FAILED,
+                    outputKind = GameTurnOutputKind.FAILURE,
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                    error = "Interrupted turn references EventLog facts unavailable in this run",
+                ),
+            )
+        }
+        val recovered = existing.asInterruptedRecovery(visibleSequence)
         return when (turnStore.save(recovered, existing.revision)) {
             GameTurnStoreResult.Success -> GmTurnResult.Failed(recovered)
             else -> GmTurnResult.Failed(existing.copy(error = "Interrupted turn could not be recovered"))
@@ -580,6 +784,29 @@ class GameTurnOrchestrator(
                 errorCode = GameTurnErrorCode.INVALID_REQUEST,
             ),
         )
+
+    private fun invalidRequest(
+        runId: RunId,
+        turnId: TurnId,
+        input: String,
+        requestKind: GameTurnRequestKind,
+        parentTurnId: TurnId?,
+        message: String,
+    ): GmTurnResult.Failed = GmTurnResult.Failed(
+        GameTurn(
+            runId = runId,
+            turnId = turnId,
+            input = input,
+            status = GameTurnStatus.FAILED,
+            revision = 0,
+            acceptedSequence = 0,
+            outputKind = GameTurnOutputKind.FAILURE,
+            error = message,
+            errorCode = GameTurnErrorCode.INVALID_REQUEST,
+            requestKind = requestKind,
+            parentTurnId = parentTurnId,
+        ),
+    )
 
     private fun GameTurn.toResult(): GmTurnResult = when (status) {
         GameTurnStatus.AWAITING_PLAYER -> GmTurnResult.AwaitingPlayer(this)

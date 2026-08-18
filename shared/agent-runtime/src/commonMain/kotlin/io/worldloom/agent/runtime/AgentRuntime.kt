@@ -50,6 +50,7 @@ class AgentRuntime(
             )
         }
         val tools = toolGateway.availableTools(request.identity)
+        val offeredToolNames = tools.mapTo(mutableSetOf()) { it.name }
         if (tools.isNotEmpty() && !provider.capabilities.toolCalling) {
             return failure(
                 AgentRunErrorCode.PROVIDER_CAPABILITY_UNAVAILABLE,
@@ -175,6 +176,13 @@ class AgentRuntime(
             }
             val batchSignatures = mutableSetOf<String>()
             turn.toolCalls.forEach { call ->
+                if (call.name !in offeredToolNames) {
+                    return failure(
+                        AgentRunErrorCode.TOOL_REJECTED,
+                        "Provider called a tool that was not offered for this turn",
+                        worldChanged,
+                    )
+                }
                 if (!toolCallIds.add(call.id)) {
                     return failure(
                         AgentRunErrorCode.INVALID_PROVIDER_RESPONSE,

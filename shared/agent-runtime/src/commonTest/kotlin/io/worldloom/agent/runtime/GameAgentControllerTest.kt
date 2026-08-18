@@ -2,6 +2,7 @@ package io.worldloom.agent.runtime
 
 import io.worldloom.application.ActionResult
 import io.worldloom.application.GamePresentation
+import io.worldloom.application.PresentedEvent
 import io.worldloom.application.GameSession
 import io.worldloom.application.GameSessionAction
 import io.worldloom.application.GameSessionCommand
@@ -24,6 +25,7 @@ import io.worldloom.world.ActorId
 import io.worldloom.world.RunId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -31,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class GameAgentControllerTest {
     @Test
@@ -77,14 +80,109 @@ class GameAgentControllerTest {
         assertEquals("请先加载一个世界。", assertIs<GameAgentState.Failed>(controller.state.value).message)
     }
 
-    private fun readyState(): GameSessionUiState.Ready = GameSessionUiState.Ready(
+    @Test
+    fun refreshRecoversRetryAndReadOnlyNarrationWithoutRepeatingTools() = runTest {
+        val session = StubGameSession(
+            readyState(
+                lastSequence = 2,
+                timeline = listOf(PresentedEvent(2, "抵达了新的场景")),
+            ),
+        )
+        val store = InMemoryGameTurnStore()
+        val source = GameTurn(
+            runId = RunId("test.run"),
+            turnId = TurnId("test.run.turn.1"),
+            input = "前往出口",
+            status = GameTurnStatus.RUNNING,
+            revision = 1,
+            acceptedSequence = 1,
+        )
+        assertIs<GameTurnStoreResult.Success>(store.save(source, null))
+        val provider = ReadOnlyNarrationProvider()
+        val controller = DefaultGameAgentController(
+            runtime = AgentRuntime(provider, EmptyToolGateway),
+            gameSession = session,
+            turnStore = store,
+        )
+
+        controller.refreshHistory()
+
+        val interrupted = assertNotNull(controller.history.value.items.singleOrNull())
+        assertEquals(GameTurnRecoveryKind.NARRATION_REQUIRED, interrupted.recoveryKind)
+        controller.recoverNarration(interrupted.turnId)
+
+        assertEquals("你抵达了新的场景。", assertIs<GameAgentState.Completed>(controller.state.value).text)
+        assertTrue(provider.request.tools.isEmpty())
+        val recovery = assertIs<GameTurn>(store.latest(RunId("test.run")))
+        assertEquals(GameTurnRequestKind.NARRATION_RECOVERY, recovery.requestKind)
+        assertEquals(source.turnId, recovery.parentTurnId)
+        assertEquals(1, recovery.evidenceFromSequenceExclusive)
+        assertEquals(2, recovery.evidenceThroughSequenceInclusive)
+    }
+
+    @Test
+    fun retryUsesNewTurnIdAndKeepsTheOriginalInterruptedRecord() = runTest {
+        val session = StubGameSession(readyState())
+        val store = InMemoryGameTurnStore()
+        val source = GameTurn(
+            runId = RunId("test.run"),
+            turnId = TurnId("test.run.turn.1"),
+            input = "观察",
+            status = GameTurnStatus.ACCEPTED,
+            revision = 0,
+            acceptedSequence = 0,
+        )
+        assertIs<GameTurnStoreResult.Success>(store.save(source, null))
+        val controller = DefaultGameAgentController(
+            runtime = AgentRuntime(ImmediateNarrationProvider, EmptyToolGateway),
+            gameSession = session,
+            turnStore = store,
+        )
+        controller.refreshHistory()
+
+        controller.retry(source.turnId)
+
+        val history = assertIs<GameTurnHistoryResult.Success>(store.history(RunId("test.run"))).page
+        assertEquals(2, history.entries.size)
+        val original = assertNotNull(history.entries.first().turn)
+        val retried = assertNotNull(history.entries.last().turn)
+        assertEquals(GameTurnRecoveryKind.RETRY_SAFE, original.recoveryKind)
+        assertEquals(GameTurnRequestKind.RETRY, retried.requestKind)
+        assertEquals(original.turnId, retried.parentTurnId)
+        assertEquals(GameTurnStatus.COMPLETED, retried.status)
+    }
+
+    @Test
+    fun cancellationPersistsAndRefreshesTheVisibleTurnHistory() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val store = InMemoryGameTurnStore()
+        val controller = DefaultGameAgentController(
+            runtime = AgentRuntime(GatedStreamingProvider(release), EmptyToolGateway),
+            gameSession = StubGameSession(readyState()),
+            turnStore = store,
+        )
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { controller.send("等待主持") }
+        assertIs<GameAgentState.Running>(controller.state.value)
+
+        job.cancelAndJoin()
+
+        val cancelled = assertNotNull(controller.history.value.items.singleOrNull())
+        assertEquals(GameTurnStatus.CANCELLED, cancelled.status)
+        assertEquals("该回合已取消。", cancelled.safeFailureMessage)
+        assertIs<GameAgentState.Idle>(controller.state.value)
+    }
+
+    private fun readyState(
+        lastSequence: Long = 0,
+        timeline: List<PresentedEvent> = emptyList(),
+    ): GameSessionUiState.Ready = GameSessionUiState.Ready(
         GamePresentation(
             worldId = DefinitionId("test.world"),
             title = "测试世界",
-            lastSequence = 0,
+            lastSequence = lastSequence,
             fields = emptyList(),
             checks = emptyList(),
-            timeline = emptyList(),
+            timeline = timeline,
         ),
     )
 
@@ -154,6 +252,23 @@ class GameAgentControllerTest {
             request: ProviderRequest,
             onEvent: suspend (ProviderStreamEvent) -> Unit,
         ): ProviderResult = error("Provider must not be called")
+    }
+
+    private class ReadOnlyNarrationProvider : io.worldloom.provider.api.LanguageModelProvider {
+        override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
+        lateinit var request: ProviderRequest
+
+        override suspend fun complete(request: ProviderRequest): ProviderResult {
+            this.request = request
+            return ProviderResult.Success(ProviderTurn("你抵达了新的场景。", usage = ProviderUsage(5, 4)))
+        }
+    }
+
+    private data object ImmediateNarrationProvider : io.worldloom.provider.api.LanguageModelProvider {
+        override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
+
+        override suspend fun complete(request: ProviderRequest): ProviderResult =
+            ProviderResult.Success(ProviderTurn("周围暂时安静。", usage = ProviderUsage(4, 3)))
     }
 
     private data object EmptyToolGateway : AgentToolGateway {
