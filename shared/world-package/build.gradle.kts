@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.multiplatform.library)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -25,8 +26,14 @@ kotlin {
         commonMain.dependencies {
             api(projects.shared.definitionRuntime)
             api(projects.shared.ruleModuleRegistry)
+            api(projects.shared.contentSchema)
+            implementation(projects.shared.behaviorRuntime)
+            implementation(libs.kotlinx.serialization.json)
         }
-        commonTest.dependencies { implementation(kotlin("test")) }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
         named("desktopTest") {
             resources.srcDir(rootProject.layout.projectDirectory.dir("contract-worlds"))
         }

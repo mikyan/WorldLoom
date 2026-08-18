@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成十五轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置，以及 Brief/Corpus-to-World 内容生成管线。
+> 项目已经完成十六轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础，以及用于内置剧本验收的 `playable-world/v1` 可玩世界契约。
 
 ## 产品方向
 

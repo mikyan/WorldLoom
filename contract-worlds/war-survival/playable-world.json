@@ -1,0 +1,234 @@
+{
+    "schema": "worldloom.playable-world/v1",
+    "character": {
+        "profilePath": "character-profile.json"
+    },
+    "initialSceneId": "war.scene.ruins",
+    "requiredModuleIds": [
+        "worldloom.core.numeric-state",
+        "worldloom.rules.random-check"
+    ],
+    "scenes": [
+        {
+            "id": "war.scene.ruins",
+            "label": "废墟边缘",
+            "actionIds": [
+                "war.action.search-supplies"
+            ]
+        },
+        {
+            "id": "war.scene.shelter",
+            "label": "临时避难所",
+            "actionIds": [
+                "war.action.signal-convoy"
+            ]
+        },
+        {
+            "id": "war.scene.under-fire",
+            "label": "巡逻队火力下",
+            "actionIds": [
+                "war.action.escape-patrol"
+            ]
+        }
+    ],
+    "actions": [
+        {
+            "id": "war.action.search-supplies",
+            "sceneId": "war.scene.ruins",
+            "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {
+                    "outcomeId": "war.outcome.success",
+                    "kind": "SUCCESS",
+                    "progression": {
+                        "nextSceneId": "war.scene.shelter",
+                        "objectiveIds": [
+                            "war.objective.find-supplies"
+                        ]
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.cost",
+                    "kind": "COST",
+                    "progression": {
+                        "nextSceneId": "war.scene.shelter",
+                        "objectiveIds": [
+                            "war.objective.find-supplies"
+                        ]
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.failure",
+                    "kind": "FAILURE",
+                    "progression": {
+                        "nextSceneId": "war.scene.under-fire",
+                        "objectiveIds": [
+                            "war.objective.escape-danger"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "id": "war.action.signal-convoy",
+            "sceneId": "war.scene.shelter",
+            "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {
+                    "outcomeId": "war.outcome.success",
+                    "kind": "SUCCESS",
+                    "progression": {
+                        "objectiveIds": [
+                            "war.objective.reach-convoy"
+                        ],
+                        "endingId": "war.ending.hopeful"
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.cost",
+                    "kind": "COST",
+                    "progression": {
+                        "objectiveIds": [
+                            "war.objective.reach-convoy"
+                        ],
+                        "endingId": "war.ending.costly"
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.failure",
+                    "kind": "FAILURE",
+                    "progression": {
+                        "endingId": "war.ending.captured"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "war.action.escape-patrol",
+            "sceneId": "war.scene.under-fire",
+            "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {
+                    "outcomeId": "war.outcome.success",
+                    "kind": "SUCCESS",
+                    "progression": {
+                        "nextSceneId": "war.scene.shelter",
+                        "objectiveIds": [
+                            "war.objective.escape-danger"
+                        ]
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.cost",
+                    "kind": "COST",
+                    "progression": {
+                        "endingId": "war.ending.costly"
+                    }
+                },
+                {
+                    "outcomeId": "war.outcome.failure",
+                    "kind": "FAILURE",
+                    "progression": {
+                        "endingId": "war.ending.captured"
+                    }
+                }
+            ]
+        }
+    ],
+    "objectives": [
+        {
+            "id": "war.objective.find-supplies",
+            "label": "找到可用补给",
+            "presentationId": "war.presentation.primary-status"
+        },
+        {
+            "id": "war.objective.escape-danger",
+            "label": "摆脱巡逻队"
+        },
+        {
+            "id": "war.objective.reach-convoy",
+            "label": "与撤离车队会合"
+        }
+    ],
+    "endings": [
+        {
+            "id": "war.ending.hopeful",
+            "label": "带着希望撤离"
+        },
+        {
+            "id": "war.ending.costly",
+            "label": "付出代价后幸存"
+        },
+        {
+            "id": "war.ending.captured",
+            "label": "落入巡逻队之手"
+        }
+    ],
+    "presentationIds": [
+        "war.presentation.primary-status",
+        "war.presentation.survival-check"
+    ],
+    "behaviors": [],
+    "goldenRoutes": [
+        {
+            "id": "war.route.golden",
+            "steps": [
+                {
+                    "actionId": "war.action.search-supplies",
+                    "randomValues": [
+                        6,
+                        6
+                    ]
+                },
+                {
+                    "actionId": "war.action.signal-convoy",
+                    "randomValues": [
+                        6,
+                        6
+                    ]
+                }
+            ],
+            "expectedEndingId": "war.ending.hopeful"
+        },
+        {
+            "id": "war.route.costly",
+            "steps": [
+                {
+                    "actionId": "war.action.search-supplies",
+                    "randomValues": [
+                        3,
+                        4
+                    ]
+                },
+                {
+                    "actionId": "war.action.signal-convoy",
+                    "randomValues": [
+                        3,
+                        4
+                    ]
+                }
+            ],
+            "expectedEndingId": "war.ending.costly"
+        },
+        {
+            "id": "war.route.failure",
+            "steps": [
+                {
+                    "actionId": "war.action.search-supplies",
+                    "randomValues": [
+                        1,
+                        1
+                    ]
+                },
+                {
+                    "actionId": "war.action.escape-patrol",
+                    "randomValues": [
+                        1,
+                        1
+                    ]
+                }
+            ],
+            "expectedEndingId": "war.ending.captured"
+        }
+    ]
+}

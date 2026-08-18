@@ -43,6 +43,8 @@ data class WorldManifest(
     val worldId: DefinitionId,
     val worldDefinitionPath: String,
     val modules: List<WorldModuleSelection>,
+    /** Optional declarative entry contract. Worlds without it remain valid legacy/fixture packages. */
+    val playableContractPath: String? = null,
 )
 
 sealed interface WorldManifestDecodeResult {

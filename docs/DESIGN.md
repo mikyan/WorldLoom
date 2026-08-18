@@ -706,13 +706,15 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成十五轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成十六轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
-已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Tool 注册、状态更新、持久化、回放和 UI 投影，不在生产 Runtime 中引入题材分支。
+已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，十五轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，十六轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
+
+从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
 
 ## 8. 世界包格式
 
@@ -755,6 +757,8 @@ locales/
 - 资产索引与哈希；
 - 兼容的最低 Runtime 版本。
 
+声明可完整游玩的包还必须通过 `playableContractPath` 指向 `worldloom.playable-world/v1` 契约。旧夹具或尚未完成的内容包可以不声明该字段，并继续按原有格式加载，但不得标记为可玩世界。
+
 `generation.json` 记录创作会话、来源片段映射、结构化提取结果和修订历史。`sources/` 保存用户选择随世界包归档的原始文本或资料，使后续定向再生成、来源核对和协作编辑具有稳定上下文。
 
 上述目录是逻辑布局示例。`definitions/` 下只需要提供当前世界实际使用的定义类型，文件可以拆分或合并，并由 manifest 索引；没有属性、技能、场景或某类组件的世界不需要提供相应文件。
@@ -765,7 +769,20 @@ locales/
 
 世界包不能携带任意可执行代码。行为只能由受版本控制的 Behavior AST、类型化表达式和已注册的 GameCommand 权限表达。
 
-### 8.1 行为描述 DSL
+### 8.1 可玩世界契约
+
+`playable-world/v1` 描述角色入口、初始场景、所需模块、场景和行动图、玩家可见目标、显式失败推进、结局、表现绑定、Behavior 引用和确定性黄金路线。加载器在创建 Run 前完成以下检查：
+
+- CharacterCreationProfile 或预建玩家入口恰好存在一个，并能解析到当前世界 Definition；
+- 所需模块已经由 manifest 启用且版本兼容；
+- Scene、Action、CheckProfile、Objective、Ending、Presentation 和 Behavior 引用闭合；
+- 每个玩家行动包含显式失败后续，不允许无事件、无提示的停滞；
+- 从初始场景至少能到达声明的每个结局，所有可达场景都存在后续行动；
+- 随机黄金路线保存具体骰值，验证和回放不重新抽取随机事实。
+
+黄金路线执行器本身没有状态写权限。application adapter 必须为每步返回 Tool、Command、已提交 Event 和递增序号的审计回执，并证明 replay 重建同一结局。完整字段、示例和作者检查表见[世界包创作指南](WORLD_PACKAGE_AUTHORING.md)。
+
+### 8.2 行为描述 DSL
 
 世界包采用“事件—条件—效果”的声明式 DSL。YAML 是作者可读和 Agent 生成格式，带类型的 JSON AST 是世界包中的规范存储格式；世界工坊和可视化行为图也编译到同一种 AST。下面的饥饿行为仅是首个战争世界的配置示例，不属于 Runtime 内置行为：
 

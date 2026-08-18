@@ -23,10 +23,24 @@ class WorldPackageTest {
                 WorldDefinitionCodec.decode(resource("$directory/world.json")),
             ).definition
             val source = "source for $directory".encodeToByteArray()
+            val contractPath = requireNotNull(manifest.playableContractPath)
+            val contractJson = resource("$directory/$contractPath")
+            val contract = assertIs<PlayableWorldContractDecodeResult.Success>(
+                PlayableWorldContractCodec.decode(contractJson),
+            ).contract
+            val contentEntries = buildList {
+                add(ArchiveEntry(contractPath, contractJson.encodeToByteArray()))
+                contract.character.profilePath?.let { profilePath ->
+                    add(ArchiveEntry(profilePath, resource("$directory/$profilePath").encodeToByteArray()))
+                }
+                contract.behaviors.forEach { behavior ->
+                    add(ArchiveEntry(behavior.path, resource("$directory/${behavior.path}").encodeToByteArray()))
+                }
+            }
             val archive = WorldPackageBuilder.build(
                 manifest,
                 definition,
-                listOf(ArchiveEntry("sources/source.txt", source)),
+                contentEntries + ArchiveEntry("sources/source.txt", source),
             )
 
             assertContentEquals(byteArrayOf(0x50, 0x4b, 0x03, 0x04), archive.copyOfRange(0, 4))
@@ -34,6 +48,7 @@ class WorldPackageTest {
                 WorldPackageLoader(StandardRuleModules.registry()).load(archive),
             ).worldPackage
             assertEquals(manifest.worldId, loaded.definition.source.id)
+            assertEquals(contract.schema, requireNotNull(loaded.playableContract).source.schema)
             assertContentEquals(source, loaded.entry("sources/source.txt"))
         }
     }

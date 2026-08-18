@@ -1,0 +1,29 @@
+{
+    "schemaVersion": 1,
+    "id": "war.character-profile.survivor",
+    "modes": [
+        "FIXED"
+    ],
+    "fields": [
+        {
+            "componentId": "war.vitals",
+            "fieldId": "war.health",
+            "defaultValue": {
+                "kind": "integer",
+                "value": 7
+            },
+            "minimumInteger": 0,
+            "maximumInteger": 10,
+            "pointCostPerStep": 1
+        }
+    ],
+    "fixedOptions": [
+        {
+            "id": "war.character.survivor",
+            "label": "前线幸存者",
+            "values": []
+        }
+    ],
+    "templates": [],
+    "narrativeMaximumCharacters": 5000
+}

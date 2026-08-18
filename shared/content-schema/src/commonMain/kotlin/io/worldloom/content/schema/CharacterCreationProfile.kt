@@ -9,7 +9,11 @@ import io.worldloom.definition.TypedValue
 import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.definition.ValueType
 import io.worldloom.definition.valueType
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 const val CURRENT_CHARACTER_CREATION_SCHEMA_VERSION: Int = 1
 
@@ -63,6 +67,34 @@ data class CharacterCreationProfile(
     init {
         require(narrativeMaximumCharacters in 1..5_000) { "Narrative background limit must be within 1..5000" }
     }
+}
+
+sealed interface CharacterCreationProfileDecodeResult {
+    data class Success(val profile: CharacterCreationProfile) : CharacterCreationProfileDecodeResult
+
+    data class Failure(val message: String) : CharacterCreationProfileDecodeResult
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+object CharacterCreationProfileCodec {
+    private val json = Json {
+        classDiscriminator = "kind"
+        encodeDefaults = true
+        explicitNulls = false
+        ignoreUnknownKeys = false
+        prettyPrint = true
+    }
+
+    fun decode(source: String): CharacterCreationProfileDecodeResult =
+        try {
+            CharacterCreationProfileDecodeResult.Success(json.decodeFromString<CharacterCreationProfile>(source))
+        } catch (error: SerializationException) {
+            CharacterCreationProfileDecodeResult.Failure(error.message ?: "Character profile JSON is invalid")
+        } catch (error: IllegalArgumentException) {
+            CharacterCreationProfileDecodeResult.Failure(error.message ?: "Character profile contains an invalid value")
+        }
+
+    fun encode(profile: CharacterCreationProfile): String = json.encodeToString(profile)
 }
 
 enum class CharacterProfileProblemCode {

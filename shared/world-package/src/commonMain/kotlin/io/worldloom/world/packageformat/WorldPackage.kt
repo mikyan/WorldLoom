@@ -19,6 +19,7 @@ data class LoadedWorldPackage(
     val manifest: WorldManifest,
     val definition: ValidatedWorldDefinition,
     val modules: RegisteredWorldModules,
+    val playableContract: ValidatedPlayableWorldContract?,
     val entries: Map<String, ByteArray>,
 ) {
     fun entry(path: String): ByteArray? = entries[path]?.copyOf()
@@ -32,6 +33,8 @@ enum class WorldPackageProblemCode {
     DEFINITION_INVALID,
     WORLD_ID_MISMATCH,
     MODULE_REGISTRATION_FAILED,
+    PLAYABLE_CONTRACT_MISSING,
+    PLAYABLE_CONTRACT_INVALID,
 }
 
 data class WorldPackageProblem(val code: WorldPackageProblemCode, val message: String)
@@ -105,8 +108,33 @@ class WorldPackageLoader(
                 },
             )
         }
+        val playableContract = manifest.playableContractPath?.let { path ->
+            val contractSource = entries[path]?.decodeToString()
+                ?: return failure(
+                    WorldPackageProblemCode.PLAYABLE_CONTRACT_MISSING,
+                    "Playable world contract entry is missing: $path",
+                )
+            val contract = when (val decoded = PlayableWorldContractCodec.decode(contractSource)) {
+                is PlayableWorldContractDecodeResult.Success -> decoded.contract
+                is PlayableWorldContractDecodeResult.Failure -> return failure(
+                    WorldPackageProblemCode.PLAYABLE_CONTRACT_INVALID,
+                    "$path: ${decoded.message}",
+                )
+            }
+            when (val result = PlayableWorldValidator.validate(contract, validated, modules, entries)) {
+                is PlayableWorldValidationResult.Valid -> result.contract
+                is PlayableWorldValidationResult.Invalid -> return WorldPackageLoadResult.Failure(
+                    result.problems.map {
+                        WorldPackageProblem(
+                            WorldPackageProblemCode.PLAYABLE_CONTRACT_INVALID,
+                            "$path:${it.path}: ${it.message}",
+                        )
+                    },
+                )
+            }
+        }
         return WorldPackageLoadResult.Success(
-            LoadedWorldPackage(manifest, validated, modules, entries.mapValues { it.value.copyOf() }),
+            LoadedWorldPackage(manifest, validated, modules, playableContract, entries.mapValues { it.value.copyOf() }),
         )
     }
 

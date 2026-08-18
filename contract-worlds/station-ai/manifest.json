@@ -27,5 +27,6 @@
             },
             "parameters": {}
         }
-    ]
+    ],
+    "playableContractPath": "playable-world.json"
 }

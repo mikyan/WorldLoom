@@ -1,0 +1,82 @@
+{
+    "schema": "worldloom.playable-world/v1",
+    "character": {
+        "prebuiltPlayerEntityId": "player-ai"
+    },
+    "initialSceneId": "station.scene.core",
+    "requiredModuleIds": [
+        "worldloom.core.numeric-state",
+        "worldloom.rules.deterministic-check"
+    ],
+    "scenes": [
+        {
+            "id": "station.scene.core",
+            "label": "主反应堆控制层",
+            "actionIds": [
+                "station.action.reroute-energy"
+            ]
+        }
+    ],
+    "actions": [
+        {
+            "id": "station.action.reroute-energy",
+            "sceneId": "station.scene.core",
+            "checkProfileId": "station.check.system-integrity",
+            "resolutions": [
+                {
+                    "outcomeId": "station.outcome.stable",
+                    "kind": "SUCCESS",
+                    "progression": {
+                        "objectiveIds": [
+                            "station.objective.restore-grid"
+                        ],
+                        "endingId": "station.ending.stable"
+                    }
+                },
+                {
+                    "outcomeId": "station.outcome.degraded",
+                    "kind": "FAILURE",
+                    "progression": {
+                        "objectiveIds": [
+                            "station.objective.restore-grid"
+                        ],
+                        "endingId": "station.ending.degraded"
+                    }
+                }
+            ]
+        }
+    ],
+    "objectives": [
+        {
+            "id": "station.objective.restore-grid",
+            "label": "恢复能源网格",
+            "presentationId": "station.presentation.primary-status"
+        }
+    ],
+    "endings": [
+        {
+            "id": "station.ending.stable",
+            "label": "空间站恢复稳定"
+        },
+        {
+            "id": "station.ending.degraded",
+            "label": "空间站降级运行"
+        }
+    ],
+    "presentationIds": [
+        "station.presentation.primary-status",
+        "station.presentation.integrity-check"
+    ],
+    "behaviors": [],
+    "goldenRoutes": [
+        {
+            "id": "station.route.golden",
+            "steps": [
+                {
+                    "actionId": "station.action.reroute-energy"
+                }
+            ],
+            "expectedEndingId": "station.ending.stable"
+        }
+    ]
+}

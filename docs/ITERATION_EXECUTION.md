@@ -1,11 +1,11 @@
-# Worldloom 十五轮迭代执行与验收记录
+# Worldloom 十六轮迭代执行与验收记录
 
-文档状态：Implemented 2.0<br>
+文档状态：Implemented 2.1<br>
 更新日期：2026-08-18
 
 ## 1. 目的与完成标准
 
-本记录把项目初始化后的十五个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
+本记录把项目初始化后的十六个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
 
 所有世界事实变化继续遵守：
 
@@ -41,6 +41,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 13. 角色与规则配置 | 增加固定、模板、点数、叙述四种 CharacterCreationProfile 模式及 RuleProfile | DefinitionId/TypedValue 类型、预算/边界、模块版本与 Check 引用验证和规范 JSON 往返 |
 | 14. Brief-to-World | 将 5000 字以内提示词分阶段转换为大纲、结构化草稿、校验、快速模拟和可加载世界包 | 5000/5001 字边界、来源映射、复核问题、取消/恢复和发布包重载测试 |
 | 15. Corpus-to-World | 增加 TXT/EPUB 解析、章节/分块/来源定位、50 万字符限制和可恢复生成管线 | UTF-8/BOM/UTF-16/GB18030、压缩 EPUB spine 顺序、取消/恢复、可选原文归档和进度测试 |
+| 16. 可玩世界契约 | 增加 `worldloom.playable-world/v1`、静态引用/模块/失败推进/可达性校验、确定性黄金路线和 application driver 审计接口；战争与空间站夹具共用加载路径 | 缺失入口、悬空引用、不可达结局、缺少失败、未启用模块、未记录随机事实、跨题材加载和 Tool/Command/Event/replay 回执测试 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -50,6 +51,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - Tool Gateway 与 Behavior Runtime 都只能提交白名单内的类型化 Command，写操作仍由 CommandValidator 和 WorldEngine 裁决；
 - `.worldloom` v1 拒绝绝对路径、路径穿越、重复项、CRC 不一致、超限内容和当前不支持的压缩方法；世界包不能携带任意脚本；
 - 内容生成先校验 Definition、角色配置、规则配置、Behavior 和来源引用，再创建初始状态做快速模拟，最后重新装载生成包；
+- 声明 `playableContractPath` 的世界必须在创建 Run 前通过角色入口、Scene/Action、目标、结局、表现、Behavior、模块和黄金路线验证；旧包不声明时保持兼容但不能标记为可玩；
 - Command、Event 和既有世界包 Schema 未发生破坏性变更；数据库通过 `2.sqm` 从第一版迁移新增 Agent 与 Provider 表。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
@@ -92,4 +94,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-下一条竖切应优先补齐持久化生成任务与 iOS 内容导入桥，并用真实长对话调优压缩水位和召回权重；这些工作都不得扩大世界事实写入边界。
+下一条竖切优先把 CharacterCreationProfile 接入显式 Run 生命周期和权威 Command/Event，使内置战争短篇能够从正式“新游戏”入口创建角色。主持人 Agent、场景、时间、冒险模块、Behavior/NPC 和完整剧本随后按可玩闭环推进；持久化生成任务与 iOS 内容导入桥延后到该闭环稳定之后。
