@@ -96,6 +96,62 @@ object StandardRuleModules {
         ),
     )
 
+    val inventory: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.inventory"),
+        capabilities = listOf(
+            capability("worldloom.schema.inventory", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.inventory.change", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.inventory.changed", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.inventory.change", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.inventory", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val condition: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.condition"),
+        dependencies = listOf(ModuleDependency(WORLD_TIME_ID, VERSION_1, VERSION_2)),
+        capabilities = listOf(
+            capability("worldloom.schema.condition", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.condition.update", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.condition.updated", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.condition.update", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.condition", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val relationship: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.relationship"),
+        capabilities = listOf(
+            capability("worldloom.schema.relationship", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.relationship.adjust", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.relationship.adjusted", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.relationship.adjust", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.relationship", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val quest: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.quest"),
+        capabilities = listOf(
+            capability("worldloom.schema.quest", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.quest.advance", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.quest.advanced", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.quest.advance", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.quest", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val progressClock: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.progress-clock"),
+        capabilities = listOf(
+            capability("worldloom.schema.progress-clock", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.progress-clock.advance", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.progress-clock.advanced", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.progress-clock.advance", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.progress-clock", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
     val all: List<RuleModule> = listOf(
         numericState,
         randomCheck,
@@ -103,6 +159,11 @@ object StandardRuleModules {
         worldTime,
         activity,
         travel,
+        inventory,
+        condition,
+        relationship,
+        quest,
+        progressClock,
     )
 
     fun registry(): RuleModuleRegistry = RuleModuleRegistry(all)

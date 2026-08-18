@@ -149,6 +149,23 @@ object GmContextProjector {
                     appendLine("- ${it.label} (${it.id.value}) → ${it.destinationSceneId.value}，耗时 ${it.durationMinutes} 分钟")
                 }
             }
+            presentation.adventureState?.let { adventure ->
+                if (adventure.inventory.isNotEmpty()) appendLine(
+                    "公开库存：${adventure.inventory.joinToString { "${it.label}×${it.quantity}" }}",
+                )
+                if (adventure.conditions.isNotEmpty()) appendLine(
+                    "公开状态：${adventure.conditions.joinToString { "${it.label}(${it.stacks})" }}",
+                )
+                if (adventure.relationships.isNotEmpty()) appendLine(
+                    "玩家可见关系：${adventure.relationships.joinToString { "${it.label}:${it.value}" }}",
+                )
+                if (adventure.quests.isNotEmpty()) appendLine(
+                    "任务：${adventure.quests.joinToString { "${it.label}:${it.status.name}" }}",
+                )
+                if (adventure.clocks.isNotEmpty()) appendLine(
+                    "进度钟：${adventure.clocks.joinToString { "${it.label}:${it.value}/${it.segments}" }}",
+                )
+            }
             if (presentation.timeline.isNotEmpty()) {
                 appendLine("最近公开事件：")
                 presentation.timeline.takeLast(profile.visibleEventLimit).forEach {
@@ -273,6 +290,13 @@ class GameTurnOrchestrator(
             if (context.availableTravelRoutes.isNotEmpty()) {
                 add(CommandPermission.TRAVEL)
                 if (context.availableTravelRoutes.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
+            }
+            context.adventureStateDefinition?.let { adventure ->
+                if (adventure.inventory != null) add(CommandPermission.MANAGE_INVENTORY)
+                if (adventure.conditions.isNotEmpty()) add(CommandPermission.UPDATE_CONDITION)
+                if (adventure.relationships.isNotEmpty()) add(CommandPermission.UPDATE_RELATIONSHIP)
+                if (adventure.quests.isNotEmpty()) add(CommandPermission.UPDATE_QUEST)
+                if (adventure.clocks.isNotEmpty()) add(CommandPermission.ADVANCE_PROGRESS_CLOCK)
             }
         }
         return AgentIdentity(AgentId("worldloom.agent.gm"), ActorId("worldloom.actor.gm"), permissions)

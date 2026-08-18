@@ -33,6 +33,10 @@
                     ]
                 }
             ]
+        },
+        {
+            "entityId": "operator-lyra",
+            "components": []
         }
     ],
     "checkProfiles": [

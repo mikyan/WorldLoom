@@ -33,6 +33,10 @@
                     ]
                 }
             ]
+        },
+        {
+            "entityId": "npc-mara",
+            "components": []
         }
     ],
     "checkProfiles": [

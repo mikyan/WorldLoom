@@ -72,6 +72,11 @@ enum class CommandPermission {
     ADVANCE_WORLD_TIME,
     PERFORM_ACTIVITY,
     TRAVEL,
+    MANAGE_INVENTORY,
+    UPDATE_CONDITION,
+    UPDATE_RELATIONSHIP,
+    UPDATE_QUEST,
+    ADVANCE_PROGRESS_CLOCK,
 }
 
 data class CommandAuthorization(

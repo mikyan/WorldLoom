@@ -19,6 +19,12 @@ import io.worldloom.rules.ScheduledTriggerFiredEvent
 import io.worldloom.rules.TravelCompletedEvent
 import io.worldloom.rules.TravelStartedEvent
 import io.worldloom.rules.WorldTimeAdvancedEvent
+import io.worldloom.rules.AdventureEndingReachedEvent
+import io.worldloom.rules.ConditionUpdatedEvent
+import io.worldloom.rules.InventoryChangedEvent
+import io.worldloom.rules.ProgressClockAdvancedEvent
+import io.worldloom.rules.QuestAdvancedEvent
+import io.worldloom.rules.RelationshipAdjustedEvent
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -56,6 +62,12 @@ object PersistenceCodec {
                 subclass(TravelStartedEvent::class)
                 subclass(TravelCompletedEvent::class)
                 subclass(ScheduledTriggerFiredEvent::class)
+                subclass(InventoryChangedEvent::class)
+                subclass(ConditionUpdatedEvent::class)
+                subclass(RelationshipAdjustedEvent::class)
+                subclass(QuestAdvancedEvent::class)
+                subclass(ProgressClockAdvancedEvent::class)
+                subclass(AdventureEndingReachedEvent::class)
             }
         }
         classDiscriminator = "kind"

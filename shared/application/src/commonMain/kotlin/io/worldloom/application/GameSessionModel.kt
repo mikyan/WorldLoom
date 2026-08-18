@@ -6,6 +6,10 @@ import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.EntityId
 import io.worldloom.world.RunId
 import io.worldloom.world.RunLifecycle
+import io.worldloom.rules.AdventureStateDefinition
+import io.worldloom.rules.AdventureStatePresentation
+import io.worldloom.rules.InventoryOperation
+import io.worldloom.rules.QuestStatus
 import kotlinx.coroutines.flow.StateFlow
 
 data class PresentedField(
@@ -38,6 +42,7 @@ data class GamePresentation(
     val worldTimeMinutes: Long? = null,
     val activities: List<PresentedActivity> = emptyList(),
     val travelRoutes: List<PresentedTravelRoute> = emptyList(),
+    val adventureState: AdventureStatePresentation? = null,
 )
 
 data class PresentedScene(
@@ -143,6 +148,28 @@ sealed interface GameSessionCommand {
         val routeId: DefinitionId,
         val selectedOutcomeId: DefinitionId? = null,
     ) : GameSessionCommand
+
+    data class ChangeInventory(
+        val itemId: DefinitionId,
+        val quantity: Long,
+        val operation: InventoryOperation,
+    ) : GameSessionCommand
+
+    data class UpdateCondition(
+        val conditionId: DefinitionId,
+        val stackDelta: Long = 0,
+        val elapsedMinutes: Long = 0,
+    ) : GameSessionCommand
+
+    data class AdjustRelationship(val relationshipId: DefinitionId, val delta: Long) : GameSessionCommand
+
+    data class AdvanceQuest(
+        val questId: DefinitionId,
+        val stageId: DefinitionId,
+        val status: QuestStatus,
+    ) : GameSessionCommand
+
+    data class AdvanceProgressClock(val clockId: DefinitionId, val delta: Long) : GameSessionCommand
 }
 
 data class SessionCommandContext(
@@ -156,6 +183,7 @@ data class SessionCommandContext(
     val worldTimeMinutes: Long? = null,
     val availableActivities: List<SessionAvailableActivity> = emptyList(),
     val availableTravelRoutes: List<SessionAvailableTravelRoute> = emptyList(),
+    val adventureStateDefinition: AdventureStateDefinition? = null,
 )
 
 data class SessionAvailableAction(

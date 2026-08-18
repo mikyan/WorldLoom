@@ -12,6 +12,8 @@ import io.worldloom.provider.api.ProviderToolDefinition
 import io.worldloom.provider.api.ProviderToolParameter
 import io.worldloom.provider.api.ProviderToolValueType
 import io.worldloom.rules.module.api.RegisteredWorldModules
+import io.worldloom.rules.InventoryOperation
+import io.worldloom.rules.QuestStatus
 import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.EntityId
@@ -30,6 +32,11 @@ val PERFORM_ACTION_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.action.p
 val ADVANCE_TIME_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.time.advance")
 val PERFORM_ACTIVITY_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.activity.perform")
 val TRAVEL_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.travel.perform")
+val INVENTORY_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.inventory.change")
+val CONDITION_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.condition.update")
+val RELATIONSHIP_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.relationship.adjust")
+val QUEST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.quest.advance")
+val PROGRESS_CLOCK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.progress-clock.advance")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -199,6 +206,34 @@ class DefaultAgentToolGateway(
                 selectedOutcomeId = call.optionalString("outcomeId")?.let(::DefinitionId),
             )
 
+            INVENTORY_TOOL_ID.value -> GameSessionCommand.ChangeInventory(
+                itemId = DefinitionId(call.requireString("itemId")),
+                quantity = call.requireLong("quantity"),
+                operation = InventoryOperation.valueOf(call.requireString("operation")),
+            )
+
+            CONDITION_TOOL_ID.value -> GameSessionCommand.UpdateCondition(
+                conditionId = DefinitionId(call.requireString("conditionId")),
+                stackDelta = call.optionalLong("stackDelta") ?: 0,
+                elapsedMinutes = call.optionalLong("elapsedMinutes") ?: 0,
+            )
+
+            RELATIONSHIP_TOOL_ID.value -> GameSessionCommand.AdjustRelationship(
+                relationshipId = DefinitionId(call.requireString("relationshipId")),
+                delta = call.requireLong("delta"),
+            )
+
+            QUEST_TOOL_ID.value -> GameSessionCommand.AdvanceQuest(
+                questId = DefinitionId(call.requireString("questId")),
+                stageId = DefinitionId(call.requireString("stageId")),
+                status = QuestStatus.valueOf(call.requireString("status")),
+            )
+
+            PROGRESS_CLOCK_TOOL_ID.value -> GameSessionCommand.AdvanceProgressClock(
+                clockId = DefinitionId(call.requireString("clockId")),
+                delta = call.requireLong("delta"),
+            )
+
             else -> return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
@@ -290,6 +325,16 @@ private data class StandardAgentTool(
         context.availableActivities.isNotEmpty()
     } else if (capabilityId == TRAVEL_TOOL_ID) {
         context.availableTravelRoutes.isNotEmpty()
+    } else if (capabilityId == INVENTORY_TOOL_ID) {
+        context.adventureStateDefinition?.inventory != null
+    } else if (capabilityId == CONDITION_TOOL_ID) {
+        context.adventureStateDefinition?.conditions?.isNotEmpty() == true
+    } else if (capabilityId == RELATIONSHIP_TOOL_ID) {
+        context.adventureStateDefinition?.relationships?.isNotEmpty() == true
+    } else if (capabilityId == QUEST_TOOL_ID) {
+        context.adventureStateDefinition?.quests?.isNotEmpty() == true
+    } else if (capabilityId == PROGRESS_CLOCK_TOOL_ID) {
+        context.adventureStateDefinition?.clocks?.isNotEmpty() == true
     } else {
         enabledByManifest(context.modules)
     }
@@ -378,8 +423,24 @@ private data class StandardAgentTool(
             },
         )
 
+        INVENTORY_TOOL_ID -> definition.withAllowed("itemId", context.adventureStateDefinition?.items.orEmpty().map { it.id.value })
+        CONDITION_TOOL_ID -> definition.withAllowed("conditionId", context.adventureStateDefinition?.conditions.orEmpty().map { it.id.value })
+        RELATIONSHIP_TOOL_ID -> definition.withAllowed("relationshipId", context.adventureStateDefinition?.relationships.orEmpty().map { it.id.value })
+        QUEST_TOOL_ID -> definition.copy(
+            parameters = definition.parameters.map { parameter -> when (parameter.name) {
+                "questId" -> parameter.copy(allowedValues = context.adventureStateDefinition?.quests.orEmpty().map { it.id.value })
+                "stageId" -> parameter.copy(allowedValues = context.adventureStateDefinition?.quests.orEmpty().flatMap { quest -> quest.stages.map { it.id.value } })
+                else -> parameter
+            } },
+        )
+        PROGRESS_CLOCK_TOOL_ID -> definition.withAllowed("clockId", context.adventureStateDefinition?.clocks.orEmpty().map { it.id.value })
+
         else -> definition
     }
+
+    private fun ProviderToolDefinition.withAllowed(name: String, values: List<String>) = copy(
+        parameters = parameters.map { if (it.name == name) it.copy(allowedValues = values.distinct().sorted()) else it },
+    )
 }
 
 private object StandardAgentTools {
@@ -492,6 +553,79 @@ private object StandardAgentTools {
             ),
             capabilityId = TRAVEL_TOOL_ID,
             permission = CommandPermission.TRAVEL,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = INVENTORY_TOOL_ID.value,
+                description = "Acquire, lose, or use a configured item through inventory capacity rules.",
+                parameters = listOf(
+                    stringParameter("itemId", "Configured item identifier."),
+                    ProviderToolParameter("quantity", "Positive item quantity.", ProviderToolValueType.INTEGER),
+                    ProviderToolParameter(
+                        "operation",
+                        "Inventory operation.",
+                        ProviderToolValueType.STRING,
+                        allowedValues = InventoryOperation.entries.map { it.name },
+                    ),
+                ),
+            ),
+            capabilityId = INVENTORY_TOOL_ID,
+            permission = CommandPermission.MANAGE_INVENTORY,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = CONDITION_TOOL_ID.value,
+                description = "Apply, remove, or decay a configured condition.",
+                parameters = listOf(
+                    stringParameter("conditionId", "Configured condition identifier."),
+                    ProviderToolParameter("stackDelta", "Optional signed stack change.", ProviderToolValueType.INTEGER, required = false),
+                    ProviderToolParameter("elapsedMinutes", "Optional elapsed world minutes for duration decay.", ProviderToolValueType.INTEGER, required = false),
+                ),
+            ),
+            capabilityId = CONDITION_TOOL_ID,
+            permission = CommandPermission.UPDATE_CONDITION,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = RELATIONSHIP_TOOL_ID.value,
+                description = "Adjust one configured relationship dimension without exposing private projections.",
+                parameters = listOf(
+                    stringParameter("relationshipId", "Configured relationship identifier."),
+                    ProviderToolParameter("delta", "Signed relationship change.", ProviderToolValueType.INTEGER),
+                ),
+            ),
+            capabilityId = RELATIONSHIP_TOOL_ID,
+            permission = CommandPermission.UPDATE_RELATIONSHIP,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = QUEST_TOOL_ID.value,
+                description = "Advance or resolve a configured quest stage.",
+                parameters = listOf(
+                    stringParameter("questId", "Configured quest identifier."),
+                    stringParameter("stageId", "Configured stage identifier."),
+                    ProviderToolParameter(
+                        "status",
+                        "Target quest status.",
+                        ProviderToolValueType.STRING,
+                        allowedValues = QuestStatus.entries.filterNot { it == QuestStatus.NOT_STARTED }.map { it.name },
+                    ),
+                ),
+            ),
+            capabilityId = QUEST_TOOL_ID,
+            permission = CommandPermission.UPDATE_QUEST,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = PROGRESS_CLOCK_TOOL_ID.value,
+                description = "Advance or rewind one bounded progress clock.",
+                parameters = listOf(
+                    stringParameter("clockId", "Configured progress-clock identifier."),
+                    ProviderToolParameter("delta", "Signed segment change.", ProviderToolValueType.INTEGER),
+                ),
+            ),
+            capabilityId = PROGRESS_CLOCK_TOOL_ID,
+            permission = CommandPermission.ADVANCE_PROGRESS_CLOCK,
         ),
     )
 
@@ -607,6 +741,46 @@ private fun validateIdentifiers(
                 if (!route.requiresCheck && outcomeId != null && outcomeId !in route.outcomeIds) {
                     return "Tool outcome is not configured for the selected route"
                 }
+            }
+
+            INVENTORY_TOOL_ID.value -> {
+                val definition = context.adventureStateDefinition ?: return "Adventure-state definition is unavailable"
+                val itemId = DefinitionId(call.requireString("itemId"))
+                if (definition.items.none { it.id == itemId }) return "Tool item is not configured"
+                if (call.requireLong("quantity") <= 0) return "Inventory quantity must be positive"
+                InventoryOperation.valueOf(call.requireString("operation"))
+            }
+
+            CONDITION_TOOL_ID.value -> {
+                val definition = context.adventureStateDefinition ?: return "Adventure-state definition is unavailable"
+                val conditionId = DefinitionId(call.requireString("conditionId"))
+                if (definition.conditions.none { it.id == conditionId }) return "Tool condition is not configured"
+                val stackDelta = call.optionalLong("stackDelta") ?: 0
+                val elapsed = call.optionalLong("elapsedMinutes") ?: 0
+                if (stackDelta == 0L && elapsed <= 0) return "Condition update requires stacks or elapsed time"
+            }
+
+            RELATIONSHIP_TOOL_ID.value -> {
+                val definition = context.adventureStateDefinition ?: return "Adventure-state definition is unavailable"
+                val relationshipId = DefinitionId(call.requireString("relationshipId"))
+                if (definition.relationships.none { it.id == relationshipId }) return "Tool relationship is not configured"
+                if (call.requireLong("delta") == 0L) return "Relationship delta cannot be zero"
+            }
+
+            QUEST_TOOL_ID.value -> {
+                val definition = context.adventureStateDefinition ?: return "Adventure-state definition is unavailable"
+                val questId = DefinitionId(call.requireString("questId"))
+                val stageId = DefinitionId(call.requireString("stageId"))
+                val quest = definition.quests.firstOrNull { it.id == questId } ?: return "Tool quest is not configured"
+                if (quest.stages.none { it.id == stageId }) return "Tool stage does not belong to the selected quest"
+                QuestStatus.valueOf(call.requireString("status"))
+            }
+
+            PROGRESS_CLOCK_TOOL_ID.value -> {
+                val definition = context.adventureStateDefinition ?: return "Adventure-state definition is unavailable"
+                val clockId = DefinitionId(call.requireString("clockId"))
+                if (definition.clocks.none { it.id == clockId }) return "Tool progress clock is not configured"
+                if (call.requireLong("delta") == 0L) return "Progress-clock delta cannot be zero"
             }
         }
         null

@@ -10,7 +10,12 @@
         "worldloom.rules.deterministic-check",
         "worldloom.rules.world-time",
         "worldloom.rules.activity",
-        "worldloom.rules.travel"
+        "worldloom.rules.travel",
+        "worldloom.rules.inventory",
+        "worldloom.rules.condition",
+        "worldloom.rules.relationship",
+        "worldloom.rules.quest",
+        "worldloom.rules.progress-clock"
     ],
     "scenes": [
         {
@@ -137,6 +142,53 @@
                     {"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": -5}
                 ]
             }
+        ]
+    },
+    "adventureState": {
+        "schemaVersion": 1,
+        "items": [
+            {"id": "station.item.coolant-cell", "label": "冷却剂单元", "unitWeight": 2},
+            {"id": "station.item.relay-fuse", "label": "中继保险丝", "unitWeight": 1}
+        ],
+        "inventory": {
+            "ownerEntityId": "player-ai",
+            "capacity": 12,
+            "initialStacks": [
+                {"itemId": "station.item.coolant-cell", "quantity": 2},
+                {"itemId": "station.item.relay-fuse", "quantity": 1}
+            ]
+        },
+        "conditions": [
+            {"id": "station.condition.latency", "label": "运算延迟", "maximumStacks": 4, "durationMinutes": 60},
+            {"id": "station.condition.corruption", "label": "数据损坏", "maximumStacks": 4, "visibility": "PRIVATE"}
+        ],
+        "relationships": [
+            {
+                "id": "station.relationship.lyra-trust",
+                "label": "莱拉的信任",
+                "sourceEntityId": "operator-lyra",
+                "targetEntityId": "player-ai",
+                "minimum": 0,
+                "maximum": 100,
+                "initialValue": 40,
+                "visibility": "PLAYER"
+            }
+        ],
+        "quests": [
+            {
+                "id": "station.quest.restore-grid",
+                "label": "恢复能源网格",
+                "stages": [
+                    {"id": "station.quest-stage.diagnose", "label": "完成诊断"},
+                    {"id": "station.quest-stage.reroute", "label": "重定向能源"}
+                ]
+            }
+        ],
+        "clocks": [
+            {"id": "station.clock.cascade", "label": "级联故障", "segments": 4, "initialValue": 0}
+        ],
+        "endingConditions": [
+            {"endingId": "station.ending.degraded", "clockId": "station.clock.cascade", "minimumClockValue": 4}
         ]
     },
     "behaviors": [],

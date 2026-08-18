@@ -18,6 +18,7 @@ import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Card
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.LinearProgressIndicator
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -494,6 +495,36 @@ private fun ReadyState(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        presentation.adventureState?.let { adventure ->
+            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("冒险状态", fontWeight = FontWeight.SemiBold)
+                    if (adventure.inventory.isNotEmpty()) Text(
+                        "库存 · ${adventure.inventory.joinToString { "${it.label} × ${it.quantity}" }}",
+                    )
+                    if (adventure.conditions.isNotEmpty()) Text(
+                        "状态 · ${adventure.conditions.joinToString { "${it.label} ${it.stacks} 层" }}",
+                    )
+                    if (adventure.relationships.isNotEmpty()) Text(
+                        "关系 · ${adventure.relationships.joinToString { "${it.label} ${it.value}" }}",
+                    )
+                    adventure.quests.forEach { quest ->
+                        Text("任务 · ${quest.label} · ${quest.stageLabel ?: "尚未开始"} · ${quest.status.name}")
+                    }
+                    adventure.clocks.forEach { clock ->
+                        Text("${clock.label} · ${clock.value}/${clock.segments}")
+                        LinearProgressIndicator(
+                            progress = if (clock.segments == 0L) 0f else clock.value.toFloat() / clock.segments.toFloat(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }

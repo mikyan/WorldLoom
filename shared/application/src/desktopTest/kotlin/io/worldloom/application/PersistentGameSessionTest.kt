@@ -13,6 +13,9 @@ import io.worldloom.rules.RandomRecordId
 import io.worldloom.rules.RandomServiceResult
 import io.worldloom.rules.SeededRandomService
 import io.worldloom.world.RunId
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandAuthorization
+import io.worldloom.world.CommandPermission
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -125,6 +128,24 @@ class PersistentGameSessionTest {
             assertIs<ActionResult.Success>(session.confirmCharacter())
             val check = assertIs<GameSessionUiState.Ready>(session.state.value).presentation.checks.single()
             assertIs<ActionResult.Success>(session.perform(GameSessionAction.ResolvePresentedCheck(check.presentationId)))
+            val clockId = if (entry.id.value == "contract.war-survival") {
+                DefinitionId("war.clock.patrol-threat")
+            } else {
+                DefinitionId("station.clock.cascade")
+            }
+            assertIs<ActionResult.Success>(
+                session.execute(
+                    GameSessionCommand.AdvanceProgressClock(clockId, 1),
+                    CommandAuthorization(
+                        ActorId("gm.persistence"),
+                        setOf(CommandPermission.ADVANCE_PROGRESS_CLOCK),
+                    ),
+                ),
+            )
+            val expectedClock = assertNotNull(
+                assertIs<GameSessionUiState.Ready>(session.state.value)
+                    .presentation.adventureState,
+            ).clocks.single().value
 
             val resumed = DefaultGameSession(
                 catalog,
@@ -135,7 +156,9 @@ class PersistentGameSessionTest {
                 characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
             )
             assertIs<LoadResult.Success>(resumed.resume(entry.id, RunId("$prefix.run.1")))
-            assertEquals(6, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
+            val presentation = assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation
+            assertEquals(7, presentation.lastSequence)
+            assertEquals(expectedClock, assertNotNull(presentation.adventureState).clocks.single().value)
         }
         driver.close()
     }

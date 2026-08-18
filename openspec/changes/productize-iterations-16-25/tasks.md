@@ -40,13 +40,13 @@
 
 ## 20. 冒险状态规则模块
 
-- [ ] 20.1 在 manifest 与 Module Registry 中定义库存、状态、关系、任务和进度钟模块的版本、依赖、Schema 与能力注册边界
-- [ ] 20.2 实现库存模块的动态物品组件、获取/失去/使用 Command/Event、容量约束和只读投影
-- [ ] 20.3 实现状态模块的 Definition 驱动 Condition、叠加/消退规则、持续时间和表现绑定，不增加固定题材枚举
-- [ ] 20.4 实现关系模块的角色间 TypedValue、可见性规则和修改 Command/Event，禁止向无权角色泄露私有关系事实
-- [ ] 20.5 实现任务与进度钟模块的阶段、目标、推进、失败和完成事件，使结局条件可引用稳定投影
-- [ ] 20.6 为各模块注册最小权限 Tool，并让 UI 仅通过 PresentationDefinition 与模块投影展示状态
-- [ ] 20.7 添加组合、权限、边界、序列化、迁移、重放与 `war-survival`/`station-ai` 跨题材契约测试
+- [x] 20.1 在 manifest 与 Module Registry 中定义库存、状态、关系、任务和进度钟模块的版本、依赖、Schema 与能力注册边界
+- [x] 20.2 实现库存模块的动态物品组件、获取/失去/使用 Command/Event、容量约束和只读投影
+- [x] 20.3 实现状态模块的 Definition 驱动 Condition、叠加/消退规则、持续时间和表现绑定，不增加固定题材枚举
+- [x] 20.4 实现关系模块的角色间 TypedValue、可见性规则和修改 Command/Event，禁止向无权角色泄露私有关系事实
+- [x] 20.5 实现任务与进度钟模块的阶段、目标、推进、失败和完成事件，使结局条件可引用稳定投影
+- [x] 20.6 为各模块注册最小权限 Tool，并让 UI 仅通过 PresentationDefinition 与模块投影展示状态
+- [x] 20.7 添加组合、权限、边界、序列化、迁移、重放与 `war-survival`/`station-ai` 跨题材契约测试
 
 ## 21. Behavior 推进冒险
 

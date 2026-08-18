@@ -16,6 +16,12 @@ import io.worldloom.rules.TravelCompletedEvent
 import io.worldloom.rules.TravelStartedEvent
 import io.worldloom.rules.WorldTimeAdvancedEvent
 import io.worldloom.rules.CheckResolvedEvent
+import io.worldloom.rules.AdventureEndingReachedEvent
+import io.worldloom.rules.ConditionUpdatedEvent
+import io.worldloom.rules.InventoryChangedEvent
+import io.worldloom.rules.ProgressClockAdvancedEvent
+import io.worldloom.rules.QuestAdvancedEvent
+import io.worldloom.rules.RelationshipAdjustedEvent
 
 sealed interface PresentationMappingResult {
     data class Success(val presentation: GamePresentation) : PresentationMappingResult
@@ -94,6 +100,12 @@ object PresentationMapper {
                 is TravelStartedEvent -> "开始旅行：${payload.fromSceneId.value} → ${payload.toSceneId.value}"
                 is TravelCompletedEvent -> if (payload.arrived) "旅行抵达：${payload.routeId.value}" else "旅行受阻：${payload.routeId.value}"
                 is ScheduledTriggerFiredEvent -> "计划事件触发：${payload.triggerId.value}"
+                is InventoryChangedEvent -> "物品${payload.operation.name.lowercase()}：${payload.itemId.value} · ${payload.quantity}"
+                is ConditionUpdatedEvent -> "状态更新：${payload.conditionId.value} · ${payload.stacks} 层"
+                is RelationshipAdjustedEvent -> "关系更新：${payload.relationshipId.value} · ${payload.value}"
+                is QuestAdvancedEvent -> "任务推进：${payload.questId.value} · ${payload.status.name}"
+                is ProgressClockAdvancedEvent -> "进度钟：${payload.clockId.value} · ${payload.value}"
+                is AdventureEndingReachedEvent -> "结局条件达成：${payload.endingId.value}"
 
                 else -> "事件已记录"
             }

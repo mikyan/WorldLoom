@@ -10,7 +10,12 @@
         "worldloom.rules.random-check",
         "worldloom.rules.world-time",
         "worldloom.rules.activity",
-        "worldloom.rules.travel"
+        "worldloom.rules.travel",
+        "worldloom.rules.inventory",
+        "worldloom.rules.condition",
+        "worldloom.rules.relationship",
+        "worldloom.rules.quest",
+        "worldloom.rules.progress-clock"
     ],
     "scenes": [
         {
@@ -292,6 +297,53 @@
                     {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}
                 ]
             }
+        ]
+    },
+    "adventureState": {
+        "schemaVersion": 1,
+        "items": [
+            {"id": "war.item.bread", "label": "干面包", "unitWeight": 1},
+            {"id": "war.item.bandage", "label": "绷带", "unitWeight": 1}
+        ],
+        "inventory": {
+            "ownerEntityId": "player",
+            "capacity": 10,
+            "initialStacks": [
+                {"itemId": "war.item.bread", "quantity": 2},
+                {"itemId": "war.item.bandage", "quantity": 1}
+            ]
+        },
+        "conditions": [
+            {"id": "war.condition.exhausted", "label": "精疲力竭", "maximumStacks": 3, "durationMinutes": 480},
+            {"id": "war.condition.wounded", "label": "负伤", "maximumStacks": 3, "visibility": "PUBLIC"}
+        ],
+        "relationships": [
+            {
+                "id": "war.relationship.mara-trust",
+                "label": "玛拉的信任",
+                "sourceEntityId": "npc-mara",
+                "targetEntityId": "player",
+                "minimum": -3,
+                "maximum": 3,
+                "initialValue": 0,
+                "visibility": "PLAYER"
+            }
+        ],
+        "quests": [
+            {
+                "id": "war.quest.survive",
+                "label": "活到撤离",
+                "stages": [
+                    {"id": "war.quest-stage.find-supplies", "label": "寻找补给"},
+                    {"id": "war.quest-stage.reach-convoy", "label": "抵达撤离车队"}
+                ]
+            }
+        ],
+        "clocks": [
+            {"id": "war.clock.patrol-threat", "label": "巡逻队威胁", "segments": 6, "initialValue": 1}
+        ],
+        "endingConditions": [
+            {"endingId": "war.ending.hopeful", "completedQuestId": "war.quest.survive"}
         ]
     },
     "behaviors": [],

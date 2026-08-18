@@ -53,6 +53,31 @@
                 "patch": 0
             },
             "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.inventory",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.condition",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.relationship",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.quest",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.progress-clock",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
         }
     ],
     "playableContractPath": "playable-world.json"

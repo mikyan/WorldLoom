@@ -29,6 +29,68 @@ import kotlin.test.assertTrue
 
 class ContractAgentToolTest {
     @Test
+    fun adventureToolsExposeConfiguredDefinitionsAndCommitThroughTheSession() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(listOf(loadPackage("station-ai"))),
+        ).catalog
+        val session = DefaultGameSession(
+            catalog = catalog,
+            idSource = SequentialSessionIdSource("adventure-tools"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        assertIs<LoadResult.Success>(session.load(DefinitionId("contract.station-ai")))
+        assertIs<io.worldloom.application.ActionResult.Success>(session.confirmCharacter())
+        val identity = AgentIdentity(
+            AgentId("agent.gm.adventure"),
+            ActorId("gm.adventure"),
+            setOf(
+                CommandPermission.MANAGE_INVENTORY,
+                CommandPermission.UPDATE_CONDITION,
+                CommandPermission.UPDATE_RELATIONSHIP,
+                CommandPermission.UPDATE_QUEST,
+                CommandPermission.ADVANCE_PROGRESS_CLOCK,
+            ),
+        )
+        val gateway = DefaultAgentToolGateway(session)
+        val tools = gateway.availableTools(identity).associateBy { it.name }
+
+        assertEquals(
+            setOf(
+                INVENTORY_TOOL_ID.value,
+                CONDITION_TOOL_ID.value,
+                RELATIONSHIP_TOOL_ID.value,
+                QUEST_TOOL_ID.value,
+                PROGRESS_CLOCK_TOOL_ID.value,
+            ),
+            tools.keys,
+        )
+        assertEquals(
+            listOf("station.clock.cascade"),
+            tools.getValue(PROGRESS_CLOCK_TOOL_ID.value).parameters.single { it.name == "clockId" }.allowedValues,
+        )
+        assertIs<ToolInvocationResult.Success>(
+            gateway.invoke(
+                identity,
+                ProviderToolCall(
+                    "clock-call",
+                    PROGRESS_CLOCK_TOOL_ID.value,
+                    JsonObject(
+                        mapOf(
+                            "clockId" to JsonPrimitive("station.clock.cascade"),
+                            "delta" to JsonPrimitive(1),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            1,
+            assertIs<GameSessionUiState.Ready>(session.state.value)
+                .presentation.adventureState?.clocks?.single()?.value,
+        )
+    }
+
+    @Test
     fun gmTemporalToolsExposeOnlyCurrentOptionsAndCommitWorldTime() = runTest {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(listOf(loadPackage("station-ai"))),

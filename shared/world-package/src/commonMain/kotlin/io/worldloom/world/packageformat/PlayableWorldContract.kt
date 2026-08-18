@@ -19,6 +19,14 @@ import io.worldloom.rules.TemporalAdventureDefinitionValidator
 import io.worldloom.rules.TemporalDefinitionValidationResult
 import io.worldloom.rules.TRAVEL_MODULE_ID
 import io.worldloom.rules.WORLD_TIME_MODULE_ID
+import io.worldloom.rules.AdventureDefinitionValidationResult
+import io.worldloom.rules.AdventureStateDefinition
+import io.worldloom.rules.AdventureStateDefinitionValidator
+import io.worldloom.rules.CONDITION_MODULE_ID
+import io.worldloom.rules.INVENTORY_MODULE_ID
+import io.worldloom.rules.PROGRESS_CLOCK_MODULE_ID
+import io.worldloom.rules.QUEST_MODULE_ID
+import io.worldloom.rules.RELATIONSHIP_MODULE_ID
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -118,6 +126,7 @@ data class PlayableWorldContract(
     val endings: List<PlayableEnding>,
     val presentationIds: List<DefinitionId>,
     val temporal: TemporalAdventureDefinition? = null,
+    val adventureState: AdventureStateDefinition? = null,
     val behaviors: List<PlayableBehaviorReference> = emptyList(),
     val goldenRoutes: List<PlayableRouteFixture>,
 )
@@ -185,6 +194,7 @@ enum class PlayableWorldProblemCode {
     ROUTE_RANDOM_RECORD_INVALID,
     ROUTE_ENDING_MISMATCH,
     TEMPORAL_INVALID,
+    ADVENTURE_STATE_INVALID,
 }
 
 data class PlayableWorldProblem(
@@ -289,6 +299,7 @@ object PlayableWorldValidator {
         }
         validateScenes(contract, definition, scenes, actions, problems)
         validateTemporal(contract, definition, scenes.keys, problems)
+        validateAdventureState(contract, definition, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
         validateBehaviors(contract, definition, entries, problems)
@@ -436,6 +447,22 @@ object PlayableWorldValidator {
                 )
             }
         }
+        contract.adventureState?.let { adventure ->
+            val required = buildList {
+                if (adventure.inventory != null) add(INVENTORY_MODULE_ID)
+                if (adventure.conditions.isNotEmpty()) add(CONDITION_MODULE_ID)
+                if (adventure.relationships.isNotEmpty()) add(RELATIONSHIP_MODULE_ID)
+                if (adventure.quests.isNotEmpty()) add(QUEST_MODULE_ID)
+                if (adventure.clocks.isNotEmpty()) add(PROGRESS_CLOCK_MODULE_ID)
+            }
+            required.filterNot(contract.requiredModuleIds::contains).forEach { moduleId ->
+                problems += problem(
+                    PlayableWorldProblemCode.REQUIRED_MODULE_MISSING,
+                    "requiredModuleIds",
+                    "Adventure-state configuration must declare module: $moduleId",
+                )
+            }
+        }
     }
 
     private fun validateTemporal(
@@ -452,6 +479,30 @@ object PlayableWorldValidator {
                     PlayableWorldProblemCode.TEMPORAL_INVALID,
                     "temporal.${temporalProblem.path}",
                     temporalProblem.message,
+                )
+            }
+        }
+    }
+
+    private fun validateAdventureState(
+        contract: PlayableWorldContract,
+        definition: ValidatedWorldDefinition,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        val adventure = contract.adventureState ?: return
+        when (
+            val validation = AdventureStateDefinitionValidator.validate(
+                adventure,
+                definition,
+                contract.endings.map(PlayableEnding::id).toSet(),
+            )
+        ) {
+            AdventureDefinitionValidationResult.Valid -> Unit
+            is AdventureDefinitionValidationResult.Invalid -> validation.problems.forEach { adventureProblem ->
+                problems += problem(
+                    PlayableWorldProblemCode.ADVENTURE_STATE_INVALID,
+                    "adventureState.${adventureProblem.path}",
+                    adventureProblem.message,
                 )
             }
         }

@@ -13,6 +13,14 @@ import io.worldloom.rules.ScheduledTriggerFiredEvent
 import io.worldloom.rules.TravelCompletedEvent
 import io.worldloom.rules.TravelStartedEvent
 import io.worldloom.rules.WorldTimeAdvancedEvent
+import io.worldloom.rules.AdventureEndingReachedEvent
+import io.worldloom.rules.ConditionUpdatedEvent
+import io.worldloom.rules.InventoryChangedEvent
+import io.worldloom.rules.InventoryOperation
+import io.worldloom.rules.ProgressClockAdvancedEvent
+import io.worldloom.rules.QuestAdvancedEvent
+import io.worldloom.rules.QuestStatus
+import io.worldloom.rules.RelationshipAdjustedEvent
 import io.worldloom.world.CommandId
 import io.worldloom.world.CURRENT_EVENT_SCHEMA_VERSION
 import io.worldloom.world.EventEnvelope
@@ -24,6 +32,63 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class PersistenceCodecTest {
+    @Test
+    fun roundTripsEveryAdventureStateEvent() {
+        val payloads = listOf(
+            InventoryChangedEvent(
+                itemId = DefinitionId("test.item"),
+                operation = InventoryOperation.ACQUIRE,
+                previousQuantity = 1,
+                quantityDelta = 2,
+                quantity = 3,
+            ),
+            ConditionUpdatedEvent(
+                conditionId = DefinitionId("test.condition"),
+                previousStacks = 0,
+                stacks = 1,
+                previousRemainingMinutes = 0,
+                remainingMinutes = 30,
+            ),
+            RelationshipAdjustedEvent(
+                relationshipId = DefinitionId("test.relationship"),
+                previousValue = 0,
+                delta = 1,
+                value = 1,
+            ),
+            QuestAdvancedEvent(
+                questId = DefinitionId("test.quest"),
+                stageId = DefinitionId("test.quest.stage"),
+                previousStatus = QuestStatus.NOT_STARTED,
+                status = QuestStatus.ACTIVE,
+            ),
+            ProgressClockAdvancedEvent(
+                clockId = DefinitionId("test.clock"),
+                previousValue = 0,
+                delta = 2,
+                value = 2,
+            ),
+            AdventureEndingReachedEvent(endingId = DefinitionId("test.ending")),
+        )
+
+        payloads.forEachIndexed { index, payload ->
+            val event = EventEnvelope(
+                schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+                eventId = EventId("event.adventure.$index"),
+                runId = RunId("run.adventure"),
+                sequence = index + 1L,
+                causationId = CommandId("command.adventure"),
+                correlationId = "command.adventure",
+                payload = payload,
+            )
+            assertEquals(
+                event,
+                assertIs<PersistenceDecodeResult.Success<EventEnvelope>>(
+                    PersistenceCodec.decodeEvent(PersistenceCodec.encodeEvent(event)),
+                ).value,
+            )
+        }
+    }
+
     @Test
     fun roundTripsEveryTemporalAuditEvent() {
         val payloads = listOf(

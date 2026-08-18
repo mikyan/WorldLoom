@@ -58,6 +58,17 @@ import io.worldloom.rules.TravelResolutionDefinition
 import io.worldloom.rules.TravelRouteCommand
 import io.worldloom.rules.RandomRestoreResult
 import io.worldloom.rules.RestorableRandomService
+import io.worldloom.rules.AdventureCommandValidationResult
+import io.worldloom.rules.AdventureCommandValidator
+import io.worldloom.rules.AdventureEventReducer
+import io.worldloom.rules.AdventureRuleEngine
+import io.worldloom.rules.AdventureState
+import io.worldloom.rules.AdventureStateProjector
+import io.worldloom.rules.AdjustRelationshipCommand
+import io.worldloom.rules.AdvanceProgressClockCommand
+import io.worldloom.rules.AdvanceQuestCommand
+import io.worldloom.rules.ChangeInventoryCommand
+import io.worldloom.rules.UpdateConditionCommand
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
 import io.worldloom.world.packageformat.PlayableActionResolution
@@ -86,7 +97,9 @@ class DefaultGameSession(
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow<GameSessionUiState>(GameSessionUiState.Idle)
     private var loaded: LoadedSession? = null
-    private val reducer: EventReducer = EventReducerChain(listOf(StateReducer, CheckEventReducer, TemporalEventReducer))
+    private val reducer: EventReducer = EventReducerChain(
+        listOf(StateReducer, CheckEventReducer, TemporalEventReducer, AdventureEventReducer),
+    )
 
     override val availableWorlds: List<WorldCatalogEntry> = catalog.entries
     override val state: StateFlow<GameSessionUiState> = mutableState.asStateFlow()
@@ -120,8 +133,10 @@ class DefaultGameSession(
             } else {
                 InitialGameStateFactory.create(definition, runId)
             }
-            val initialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
+            val temporalInitialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
                 ?: baseInitialState
+            val initialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
+                ?: temporalInitialState
             if (eventStore is DurableEventStore) {
                 when (val initialized = eventStore.initialize(initialState)) {
                     DurableStoreWriteResult.Success -> Unit
@@ -263,10 +278,13 @@ class DefaultGameSession(
             } else {
                 InitialGameStateFactory.create(definition, runId)
             }
-            val initialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
+            val temporalInitialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
                 ?: baseInitialState
+            val initialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
+                ?: temporalInitialState
             val replayBase = (persistedSnapshot ?: initialState).let { state ->
-                playable?.source?.temporal?.let { TemporalState.initialize(state, it) } ?: state
+                val temporalState = playable?.source?.temporal?.let { TemporalState.initialize(state, it) } ?: state
+                playable?.source?.adventureState?.let { AdventureState.initialize(temporalState, it) } ?: temporalState
             }
             var currentState = when (
                 val replay = EventReplayer.replay(
@@ -627,6 +645,7 @@ class DefaultGameSession(
                 worldTimeMinutes = session.temporalDefinition()?.let { TemporalState.minute(session.currentState, it) },
                 availableActivities = session.availableActivities(),
                 availableTravelRoutes = session.availableTravelRoutes(),
+                adventureStateDefinition = session.playableContract?.source?.adventureState,
             )
         }
     }
@@ -691,6 +710,12 @@ class DefaultGameSession(
         is GameSessionCommand.PerformActivity,
         is GameSessionCommand.Travel,
         -> executeTemporalCommand(request, authorization)
+        is GameSessionCommand.ChangeInventory,
+        is GameSessionCommand.UpdateCondition,
+        is GameSessionCommand.AdjustRelationship,
+        is GameSessionCommand.AdvanceQuest,
+        is GameSessionCommand.AdvanceProgressClock,
+        -> executeAdventureCommand(request, authorization)
     }
 
     private suspend fun executeAdjustment(
@@ -1145,6 +1170,87 @@ class DefaultGameSession(
         return ActionResult.Success
     }
 
+    private suspend fun executeAdventureCommand(
+        request: GameSessionCommand,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val adventure = session.playableContract?.source?.adventureState
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "World has no adventure-state definition"))
+        val baseState = session.currentState
+        val payload = when (request) {
+            is GameSessionCommand.ChangeInventory -> ChangeInventoryCommand(
+                itemId = request.itemId,
+                quantity = request.quantity,
+                operation = request.operation,
+            )
+            is GameSessionCommand.UpdateCondition -> UpdateConditionCommand(
+                conditionId = request.conditionId,
+                stackDelta = request.stackDelta,
+                elapsedMinutes = request.elapsedMinutes,
+            )
+            is GameSessionCommand.AdjustRelationship -> AdjustRelationshipCommand(
+                relationshipId = request.relationshipId,
+                delta = request.delta,
+            )
+            is GameSessionCommand.AdvanceQuest -> AdvanceQuestCommand(
+                questId = request.questId,
+                stageId = request.stageId,
+                status = request.status,
+            )
+            is GameSessionCommand.AdvanceProgressClock -> AdvanceProgressClockCommand(
+                clockId = request.clockId,
+                delta = request.delta,
+            )
+            else -> return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Command is not an adventure-state command"))
+        }
+        val envelope = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = baseState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = baseState.lastSequence,
+            payload = payload,
+        )
+        val validated = when (
+            val validation = AdventureCommandValidator.validate(
+                baseState,
+                session.modules,
+                authorization,
+                envelope,
+                adventure,
+            )
+        ) {
+            is AdventureCommandValidationResult.Valid -> validation.command
+            is AdventureCommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val events = AdventureRuleEngine.handle(
+            validated,
+            baseState,
+            adventure,
+            List(AdventureRuleEngine.requiredEventCount(validated, baseState, adventure)) { idSource.nextEventId() },
+        )
+        val candidate = when (val reduction = reduceAll(baseState, session.definition, events)) {
+            is StateReductionResult.Success -> reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
+            )
+        }
+        session.currentState = candidate
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(baseState.runId), notice)
+        return ActionResult.Success
+    }
+
     private fun reduceAll(
         initial: GameState,
         definition: ValidatedWorldDefinition,
@@ -1331,6 +1437,7 @@ class DefaultGameSession(
             travelRoutes = contract?.source?.temporal?.routes.orEmpty()
                 .filter { it.fromSceneId == state.currentSceneId }
                 .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) },
+            adventureState = contract?.source?.adventureState?.let { AdventureStateProjector.project(state, it) },
         )
     }
 }

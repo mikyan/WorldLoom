@@ -17,6 +17,39 @@ import kotlin.test.assertTrue
 
 class RuleModuleRegistryTest {
     @Test
+    fun adventureStateModulesPublishCapabilitiesOnlyWhenSelected() {
+        val source = manifest(randomModuleSelection()).copy(
+            modules = listOf(
+                WorldModuleSelection(DefinitionId("worldloom.rules.world-time"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.inventory"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.condition"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.relationship"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.quest"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.progress-clock"), ModuleVersion(1, 0, 0)),
+            ),
+        )
+        val result = assertIs<ModuleRegistrationResult.Success>(StandardRuleModules.registry().register(source))
+
+        assertEquals(
+            setOf(
+                "worldloom.tool.time.advance",
+                "worldloom.tool.inventory.change",
+                "worldloom.tool.condition.update",
+                "worldloom.tool.relationship.adjust",
+                "worldloom.tool.quest.advance",
+                "worldloom.tool.progress-clock.advance",
+            ),
+            result.modules.capabilities(RuleCapabilityKind.TOOL).map { it.id.value }.toSet(),
+        )
+
+        val missingTime = source.copy(modules = source.modules.filterNot { it.id.value == "worldloom.rules.world-time" })
+        assertTrue(
+            assertIs<ModuleRegistrationResult.Failure>(StandardRuleModules.registry().register(missingTime))
+                .problems.any { it.code == ModuleRegistrationProblemCode.DEPENDENCY_MISSING },
+        )
+    }
+
+    @Test
     fun temporalModulesPublishToolsOnlyWhenDependenciesAreSelected() {
         val selected = manifest(randomModuleSelection()).copy(
             modules = listOf(
