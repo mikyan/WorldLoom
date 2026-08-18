@@ -4,7 +4,7 @@
     "channel": "closed-alpha",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
-        {"id": "contract.station-ai", "contentVersion": 1, "contractOnly": true}
+        {"id": "contract.station-ai", "contentVersion": 2, "contractOnly": false}
     ],
     "schemas": {
         "worldDefinition": 2,

@@ -169,7 +169,12 @@ class DefaultGameSession(
             val initialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
                 ?: temporalInitialState
             if (eventStore is DurableEventStore) {
-                when (val initialized = eventStore.initialize(initialState)) {
+                when (
+                    val initialized = eventStore.initialize(
+                        initialState = initialState,
+                        worldContentVersion = playable?.source?.contentVersion ?: 1,
+                    )
+                ) {
                     DurableStoreWriteResult.Success -> Unit
                     is DurableStoreWriteResult.Failure -> return@withContext failLoad(
                         SessionError(SessionErrorCode.PERSISTENCE_REJECTED, initialized.error.message),

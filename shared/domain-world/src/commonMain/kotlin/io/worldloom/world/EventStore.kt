@@ -74,7 +74,10 @@ sealed interface DurableStoreLoadResult {
 
 /** Optional durable capabilities implemented by persistent EventStore adapters. */
 interface DurableEventStore : EventStore {
-    suspend fun initialize(initialState: GameState): DurableStoreWriteResult
+    suspend fun initialize(
+        initialState: GameState,
+        worldContentVersion: Int = 1,
+    ): DurableStoreWriteResult
 
     suspend fun writeSnapshot(state: GameState): DurableStoreWriteResult
 

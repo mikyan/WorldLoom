@@ -332,11 +332,71 @@ class NpcSceneOrchestratorContractTest {
             setOf(CommandPermission.ADDRESS_NPC),
         )
 
-        val address = DefaultAgentToolGateway(session).availableTools(identity)
+        val initialAddress = DefaultAgentToolGateway(session).availableTools(identity)
             .single { it.name == NPC_ADDRESS_TOOL_ID.value }
 
-        assertEquals(listOf("station.npc.lyra"), address.parameters.single { it.name == "npcId" }.allowedValues)
+        assertEquals(listOf("station.npc.lyra"), initialAddress.parameters.single { it.name == "npcId" }.allowedValues)
         assertEquals(listOf("莱拉"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
+
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(id("station.action.reroute-energy"))),
+        )
+        val maintenanceAddress = DefaultAgentToolGateway(session).availableTools(identity)
+            .single { it.name == NPC_ADDRESS_TOOL_ID.value }
+        assertEquals(
+            listOf("station.npc.soren"),
+            maintenanceAddress.parameters.single { it.name == "npcId" }.allowedValues,
+        )
+        assertEquals(listOf("索伦"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
+    }
+
+    @Test
+    fun stationEngineerCanRevealOnlyHisAuthoredMaintenanceEvidence() = runTest {
+        val session = session("station-ai", "npc-soren-knowledge")
+        assertIs<LoadResult.Success>(session.load(id("contract.station-ai")))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(id("station.action.reroute-energy"))),
+        )
+        val knowledgeId = "station.knowledge.soren.manual-isolator"
+        val provider = SpeakingNpcProvider(revealKnowledgeId = knowledgeId)
+        val orchestrator = NpcSceneOrchestrator(
+            AgentRuntime(provider, DefaultAgentToolGateway(session), InMemoryAgentSessionStore()),
+            session,
+            InMemoryNpcWorkStore(),
+        )
+        val gateway = DefaultAgentToolGateway(session, orchestrator)
+        val player = AgentIdentity(
+            AgentId("worldloom.agent.player-dialogue"),
+            ActorId("system.player"),
+            setOf(CommandPermission.ADDRESS_NPC),
+        )
+
+        assertIs<ToolInvocationResult.Success>(
+            gateway.invoke(
+                player,
+                ProviderToolCall(
+                    "soren-knowledge-dialogue",
+                    NPC_ADDRESS_TOOL_ID.value,
+                    buildJsonObject {
+                        put("npcId", "station.npc.soren")
+                        put("content", "隔离器为什么被锁死？")
+                    },
+                ),
+            ),
+        )
+
+        val revealed = assertNotNull(session.commandContext()).revealedKnowledge.single()
+        assertEquals(id(knowledgeId), revealed.knowledgeId)
+        assertEquals(
+            "索伦确认维护脊柱的隔离器曾被手动锁死，物理封签来自事故前已撤离的承包团队。",
+            revealed.publicSummary,
+        )
+        assertTrue(provider.systemPrompts.single().contains("维护脊柱的隔离器"))
+        assertTrue(
+            assertIs<io.worldloom.application.PublicReplayResult.Verified>(session.exportVerifiedPublicReplay())
+                .document.events.any { it.summary == revealed.publicSummary },
+        )
     }
 
     @Test
@@ -472,6 +532,7 @@ private class SpeakingNpcProvider(
             val content = when {
                 "玛拉" in system -> "玛拉提醒大家压低声音。"
                 "托马斯" in system -> "托马斯指向一处可供掩护的断墙。"
+                "索伦" in system -> "索伦确认维护脊柱的隔离器是人为锁死的。"
                 else -> "莱拉确认控制台出现了新的诊断结果。"
             }
             return ProviderResult.Success(

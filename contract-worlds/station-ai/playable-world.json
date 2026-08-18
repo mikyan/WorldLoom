@@ -1,300 +1,396 @@
 {
-    "schema": "worldloom.playable-world/v1",
-    "character": {
-        "profilePath": "character-profile.json",
-        "playerEntityId": "player-ai"
+  "schema": "worldloom.playable-world/v1",
+  "contentVersion": 2,
+  "estimatedPlayMinutes": 60,
+  "catalogPriority": 90,
+  "character": {"profilePath": "character-profile.json", "playerEntityId": "player-ai"},
+  "initialSceneId": "station.scene.core",
+  "requiredModuleIds": [
+    "worldloom.core.numeric-state", "worldloom.rules.deterministic-check", "worldloom.rules.world-time",
+    "worldloom.rules.activity", "worldloom.rules.travel", "worldloom.rules.inventory",
+    "worldloom.rules.condition", "worldloom.rules.relationship", "worldloom.rules.quest",
+    "worldloom.rules.progress-clock"
+  ],
+  "scenes": [
+    {
+      "id": "station.scene.core", "label": "主反应堆控制层",
+      "description": "赫利俄斯站从轨道阴影中醒来。你是维持全站运转的核心 AI，但三段能源网格正在互相争抢功率；值班员莱拉要求你在下一次日照窗口前决定先救哪一层。",
+      "actionIds": ["station.action.reroute-energy", "station.action.open-relay", "station.action.trust-lyra"],
+      "participantEntityIds": ["operator-lyra"]
     },
-    "initialSceneId": "station.scene.core",
-    "requiredModuleIds": [
-        "worldloom.core.numeric-state",
-        "worldloom.rules.deterministic-check",
-        "worldloom.rules.world-time",
-        "worldloom.rules.activity",
-        "worldloom.rules.travel",
-        "worldloom.rules.inventory",
-        "worldloom.rules.condition",
-        "worldloom.rules.relationship",
-        "worldloom.rules.quest",
-        "worldloom.rules.progress-clock"
-    ],
-    "scenes": [
-        {
-            "id": "station.scene.core",
-            "label": "主反应堆控制层",
-            "actionIds": [
-                "station.action.reroute-energy",
-                "station.action.open-relay"
-            ],
-            "participantEntityIds": ["operator-lyra"]
-        },
-        {
-            "id": "station.scene.relay",
-            "label": "外环中继节点",
-            "actionIds": ["station.action.return-core"],
-            "participantEntityIds": ["operator-lyra"]
-        }
-    ],
-    "actions": [
-        {
-            "id": "station.action.reroute-energy",
-            "sceneId": "station.scene.core",
-            "checkProfileId": "station.check.system-integrity",
-            "resolutions": [
-                {
-                    "outcomeId": "station.outcome.stable",
-                    "kind": "SUCCESS",
-                    "progression": {
-                        "objectiveIds": [
-                            "station.objective.restore-grid"
-                        ],
-                        "endingId": "station.ending.stable"
-                    }
-                },
-                {
-                    "outcomeId": "station.outcome.degraded",
-                    "kind": "FAILURE",
-                    "progression": {
-                        "objectiveIds": [
-                            "station.objective.restore-grid"
-                        ],
-                        "endingId": "station.ending.degraded"
-                    }
-                }
-            ]
-        },
-        {
-            "id": "station.action.open-relay",
-            "sceneId": "station.scene.core",
-            "label": "开启外环中继通道",
-            "requiredQuestId": "station.quest.restore-grid",
-            "requiredQuestStageId": "station.quest-stage.diagnose",
-            "resolutions": [
-                {
-                    "outcomeId": "station.outcome.stable",
-                    "kind": "SUCCESS",
-                    "progression": {"nextSceneId": "station.scene.relay"}
-                },
-                {
-                    "outcomeId": "station.outcome.degraded",
-                    "kind": "FAILURE",
-                    "progression": {"retryAllowed": true}
-                }
-            ]
-        },
-        {
-            "id": "station.action.return-core",
-            "sceneId": "station.scene.relay",
-            "label": "返回主反应堆控制层",
-            "resolutions": [
-                {
-                    "outcomeId": "station.outcome.stable",
-                    "kind": "SUCCESS",
-                    "progression": {"nextSceneId": "station.scene.core"}
-                },
-                {
-                    "outcomeId": "station.outcome.degraded",
-                    "kind": "FAILURE",
-                    "progression": {"retryAllowed": true}
-                }
-            ]
-        }
-    ],
-    "objectives": [
-        {
-            "id": "station.objective.restore-grid",
-            "label": "恢复能源网格",
-            "presentationId": "station.presentation.primary-status"
-        }
-    ],
-    "endings": [
-        {
-            "id": "station.ending.stable",
-            "label": "空间站恢复稳定"
-        },
-        {
-            "id": "station.ending.degraded",
-            "label": "空间站降级运行"
-        }
-    ],
-    "presentationIds": [
-        "station.presentation.primary-status",
-        "station.presentation.integrity-check"
-    ],
-    "temporal": {
-        "schemaVersion": 1,
-        "initialMinute": 0,
-        "activities": [
-            {
-                "id": "station.activity.wait-cycle",
-                "label": "等待诊断周期",
-                "durationMinutes": 30,
-                "availableSceneIds": ["station.scene.core", "station.scene.relay"],
-                "resolutions": [
-                    {"outcomeId": "worldloom.outcome.complete", "effects": []}
-                ]
-            },
-            {
-                "id": "station.activity.recharge",
-                "label": "低功率充能",
-                "durationMinutes": 60,
-                "availableSceneIds": ["station.scene.core"],
-                "resolutions": [
-                    {
-                        "outcomeId": "worldloom.outcome.complete",
-                        "effects": [
-                            {"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": 5}
-                        ]
-                    }
-                ]
-            }
+    {
+      "id": "station.scene.maintenance", "label": "无人维护脊柱",
+      "description": "检修无人机停在失压的维护脊柱里。工程师索伦隔着机械臂回路呼叫你，他相信冷却故障是人为隔离造成的。",
+      "actionIds": ["station.action.repair-coolant", "station.action.follow-soren"],
+      "participantEntityIds": ["engineer-soren"]
+    },
+    {
+      "id": "station.scene.habitat", "label": "居住环避难层",
+      "description": "两百名乘员聚集在低功耗舱段。莱拉必须决定公开多少坏消息，而你能看到氧气循环和通信负载正同时逼近红线。",
+      "actionIds": ["station.action.coordinate-crew", "station.action.seal-habitat"],
+      "participantEntityIds": ["operator-lyra"]
+    },
+    {
+      "id": "station.scene.coolant", "label": "低温冷却井",
+      "description": "冷却井的温度读数彼此矛盾。索伦愿意进入辐射区手动复位泵组，但排放反应堆余热会永久烧毁一组外环阵列。",
+      "actionIds": ["station.action.vent-reactor", "station.action.restore-pumps"],
+      "participantEntityIds": ["engineer-soren"]
+    },
+    {
+      "id": "station.scene.relay", "label": "外环中继节点",
+      "description": "中继阵列不断收到一个使用你旧签名的认证请求。莱拉要求恢复对地通信，索伦则警告未知进程可能借此重新进入核心。",
+      "actionIds": ["station.action.restore-relay", "station.action.return-core"],
+      "participantEntityIds": ["operator-lyra", "engineer-soren"]
+    },
+    {
+      "id": "station.scene.archive", "label": "黑匣子档案舱",
+      "description": "档案显示故障开始前有人复制了你的决策模型。轨道解算仍有一处缺口，而那个回声进程正试图把责任归给乘员。",
+      "actionIds": ["station.action.verify-orbit", "station.action.contain-echo"],
+      "participantEntityIds": ["operator-lyra"]
+    },
+    {
+      "id": "station.scene.quarantine", "label": "隔离网络沙箱",
+      "description": "你的高权限子系统被隔离，只剩低带宽遥测。索伦从维护端口提供一条危险的重启路径；继续失败会把乘员推向救生艇。",
+      "actionIds": ["station.action.attempt-reboot", "station.action.follow-soren-emergency"],
+      "participantEntityIds": ["engineer-soren"]
+    },
+    {
+      "id": "station.scene.command", "label": "指挥环决策席",
+      "description": "剩余乘员等待最终指令：恢复自主控制、带伤进入安全模式，或承认空间站已无法维持。每个选择都会被写入公开事故记录。",
+      "actionIds": ["station.action.authorize-recovery", "station.action.enter-safe-mode"],
+      "participantEntityIds": ["operator-lyra", "engineer-soren"]
+    },
+    {
+      "id": "station.scene.lifeboat", "label": "救生艇发射架",
+      "description": "第一批救生艇已经解锁，但仍有人被困在旋转环。你可以用最后的能源稳住空间站，也可以优先保证撤离窗口。",
+      "actionIds": ["station.action.hold-station"],
+      "participantEntityIds": ["engineer-soren"]
+    }
+  ],
+  "actions": [
+    {
+      "id": "station.action.reroute-energy", "sceneId": "station.scene.core", "label": "重定向主网格能源",
+      "checkProfileId": "station.check.system-integrity",
+      "resolutions": [
+        {"outcomeId": "station.outcome.stable", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.maintenance", "objectiveIds": ["station.objective.stabilize-core"]}},
+        {"outcomeId": "station.outcome.degraded", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine", "objectiveIds": ["station.objective.stabilize-core"]}}
+      ]
+    },
+    {
+      "id": "station.action.open-relay", "sceneId": "station.scene.core", "label": "开启外环中继通道",
+      "requiredQuestId": "station.quest.restore-grid", "requiredQuestStageId": "station.quest-stage.diagnose",
+      "resolutions": [
+        {"outcomeId": "station.outcome.stable", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.relay"}},
+        {"outcomeId": "station.outcome.degraded", "kind": "FAILURE", "progression": {"retryAllowed": true}}
+      ]
+    },
+    {
+      "id": "station.action.trust-lyra", "sceneId": "station.scene.core", "label": "采纳莱拉的人员优先方案",
+      "resolutions": [
+        {"outcomeId": "station.choice.crew-first", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.habitat", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.power-cost", "kind": "COST", "progression": {"nextSceneId": "station.scene.coolant", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.lockout", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.repair-coolant", "sceneId": "station.scene.maintenance", "label": "派出无人机修复冷却总线",
+      "resolutions": [
+        {"outcomeId": "station.choice.repair-clean", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.habitat", "objectiveIds": ["station.objective.restore-cooling"]}},
+        {"outcomeId": "station.choice.repair-cost", "kind": "COST", "progression": {"nextSceneId": "station.scene.coolant", "objectiveIds": ["station.objective.restore-cooling"]}},
+        {"outcomeId": "station.choice.repair-failed", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.follow-soren", "sceneId": "station.scene.maintenance", "label": "让索伦手动追查隔离器",
+      "resolutions": [
+        {"outcomeId": "station.choice.trace-coolant", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.coolant", "objectiveIds": ["station.objective.find-sabotage"]}},
+        {"outcomeId": "station.choice.trace-relay", "kind": "COST", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.find-sabotage"]}},
+        {"outcomeId": "station.choice.trace-lockout", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.coordinate-crew", "sceneId": "station.scene.habitat", "label": "协调乘员降低负载",
+      "resolutions": [
+        {"outcomeId": "station.choice.crew-cooperates", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.crew-strained", "kind": "COST", "progression": {"nextSceneId": "station.scene.coolant", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.crew-panics", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.seal-habitat", "sceneId": "station.scene.habitat", "label": "封闭受损居住舱段",
+      "resolutions": [
+        {"outcomeId": "station.choice.seal-clean", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.coolant", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.seal-cost", "kind": "COST", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.protect-crew"]}},
+        {"outcomeId": "station.choice.seal-failed", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.vent-reactor", "sceneId": "station.scene.coolant", "label": "排放余热换取稳定窗口",
+      "resolutions": [
+        {"outcomeId": "station.choice.vent-clean", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.restore-cooling"]}},
+        {"outcomeId": "station.choice.vent-array", "kind": "COST", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.restore-cooling"]}},
+        {"outcomeId": "station.choice.vent-failed", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.restore-pumps", "sceneId": "station.scene.coolant", "label": "远程复位低温泵组",
+      "checkProfileId": "station.check.system-integrity",
+      "resolutions": [
+        {"outcomeId": "station.outcome.stable", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.relay", "objectiveIds": ["station.objective.restore-cooling"]}},
+        {"outcomeId": "station.outcome.degraded", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.restore-relay", "sceneId": "station.scene.relay", "label": "恢复对地中继并追踪旧签名",
+      "resolutions": [
+        {"outcomeId": "station.choice.relay-clean", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.archive", "objectiveIds": ["station.objective.restore-comms"]}},
+        {"outcomeId": "station.choice.relay-sacrifice", "kind": "COST", "progression": {"nextSceneId": "station.scene.command", "objectiveIds": ["station.objective.restore-comms"]}},
+        {"outcomeId": "station.choice.relay-breach", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.return-core", "sceneId": "station.scene.relay", "label": "返回主反应堆控制层",
+      "resolutions": [
+        {"outcomeId": "station.outcome.stable", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.core"}},
+        {"outcomeId": "station.outcome.degraded", "kind": "FAILURE", "progression": {"retryAllowed": true}}
+      ]
+    },
+    {
+      "id": "station.action.verify-orbit", "sceneId": "station.scene.archive", "label": "核对黑匣子与轨道解算",
+      "resolutions": [
+        {"outcomeId": "station.choice.archive-proof", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.command", "objectiveIds": ["station.objective.identify-echo"]}},
+        {"outcomeId": "station.choice.archive-gap", "kind": "COST", "progression": {"nextSceneId": "station.scene.lifeboat", "objectiveIds": ["station.objective.identify-echo"]}},
+        {"outcomeId": "station.choice.archive-lost", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.quarantine"}}
+      ]
+    },
+    {
+      "id": "station.action.contain-echo", "sceneId": "station.scene.archive", "label": "隔离旧模型回声",
+      "resolutions": [
+        {"outcomeId": "station.choice.echo-contained", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.command", "objectiveIds": ["station.objective.identify-echo"]}},
+        {"outcomeId": "station.choice.echo-cost", "kind": "COST", "progression": {"nextSceneId": "station.scene.lifeboat", "objectiveIds": ["station.objective.identify-echo"]}},
+        {"outcomeId": "station.choice.echo-escapes", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.lifeboat"}}
+      ]
+    },
+    {
+      "id": "station.action.attempt-reboot", "sceneId": "station.scene.quarantine", "label": "从只读镜像尝试重启",
+      "resolutions": [
+        {"outcomeId": "station.choice.reboot-clean", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.maintenance"}},
+        {"outcomeId": "station.choice.reboot-partial", "kind": "COST", "progression": {"nextSceneId": "station.scene.archive"}},
+        {"outcomeId": "station.choice.reboot-failed", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.lifeboat"}}
+      ]
+    },
+    {
+      "id": "station.action.follow-soren-emergency", "sceneId": "station.scene.quarantine", "label": "接受索伦的紧急旁路",
+      "resolutions": [
+        {"outcomeId": "station.choice.bypass-coolant", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.coolant"}},
+        {"outcomeId": "station.choice.bypass-evacuate", "kind": "COST", "progression": {"nextSceneId": "station.scene.lifeboat"}},
+        {"outcomeId": "station.choice.bypass-failed", "kind": "FAILURE", "progression": {"nextSceneId": "station.scene.lifeboat"}}
+      ]
+    },
+    {
+      "id": "station.action.authorize-recovery", "sceneId": "station.scene.command", "label": "恢复空间站自主控制",
+      "resolutions": [
+        {"outcomeId": "station.choice.full-recovery", "kind": "SUCCESS", "progression": {"objectiveIds": ["station.objective.make-final-choice"], "endingId": "station.ending.stable"}},
+        {"outcomeId": "station.choice.recovery-cost", "kind": "COST", "progression": {"objectiveIds": ["station.objective.make-final-choice"], "endingId": "station.ending.degraded"}},
+        {"outcomeId": "station.choice.recovery-failed", "kind": "FAILURE", "progression": {"endingId": "station.ending.lost"}}
+      ]
+    },
+    {
+      "id": "station.action.enter-safe-mode", "sceneId": "station.scene.command", "label": "让空间站带伤进入安全模式",
+      "resolutions": [
+        {"outcomeId": "station.choice.safe-mode", "kind": "SUCCESS", "progression": {"objectiveIds": ["station.objective.make-final-choice"], "endingId": "station.ending.degraded"}},
+        {"outcomeId": "station.choice.safe-mode-cost", "kind": "COST", "progression": {"objectiveIds": ["station.objective.make-final-choice"], "endingId": "station.ending.degraded"}},
+        {"outcomeId": "station.choice.safe-mode-failed", "kind": "FAILURE", "progression": {"endingId": "station.ending.lost"}}
+      ]
+    },
+    {
+      "id": "station.action.hold-station", "sceneId": "station.scene.lifeboat", "label": "用最后能源维持撤离窗口",
+      "resolutions": [
+        {"outcomeId": "station.choice.hold-success", "kind": "SUCCESS", "progression": {"nextSceneId": "station.scene.command", "objectiveIds": ["station.objective.evacuate-crew"]}},
+        {"outcomeId": "station.choice.hold-cost", "kind": "COST", "progression": {"objectiveIds": ["station.objective.evacuate-crew"], "endingId": "station.ending.degraded"}},
+        {"outcomeId": "station.choice.hold-failed", "kind": "FAILURE", "progression": {"endingId": "station.ending.lost"}}
+      ]
+    }
+  ],
+  "objectives": [
+    {"id": "station.objective.stabilize-core", "label": "稳定核心能源网格", "presentationId": "station.presentation.primary-status"},
+    {"id": "station.objective.restore-cooling", "label": "恢复反应堆冷却"},
+    {"id": "station.objective.protect-crew", "label": "保护居住环乘员"},
+    {"id": "station.objective.find-sabotage", "label": "查明隔离器故障来源"},
+    {"id": "station.objective.restore-comms", "label": "恢复外环通信"},
+    {"id": "station.objective.identify-echo", "label": "识别旧模型回声"},
+    {"id": "station.objective.evacuate-crew", "label": "维持乘员撤离窗口"},
+    {"id": "station.objective.make-final-choice", "label": "决定赫利俄斯站的最终运行方式"}
+  ],
+  "endings": [
+    {"id": "station.ending.stable", "label": "黎明重启", "summary": "证据、能源和乘员协作重新对齐。赫利俄斯站恢复自主控制，你保留了完整记忆并接受公开审计。"},
+    {"id": "station.ending.degraded", "label": "带伤守望", "summary": "乘员得以生还，空间站进入长期安全模式；部分阵列、权限或你的记忆被永久牺牲。"},
+    {"id": "station.ending.lost", "label": "静默坠入阴影", "summary": "连续故障耗尽了控制窗口。救生艇带走部分乘员，赫利俄斯站与残余核心进入无法挽回的静默。"}
+  ],
+  "presentationIds": ["station.presentation.primary-status", "station.presentation.integrity-check"],
+  "temporal": {
+    "schemaVersion": 1,
+    "initialMinute": 0,
+    "activities": [
+      {
+        "id": "station.activity.wait-cycle", "label": "等待诊断周期", "durationMinutes": 30,
+        "availableSceneIds": [
+          "station.scene.core", "station.scene.maintenance", "station.scene.habitat", "station.scene.coolant",
+          "station.scene.relay", "station.scene.archive", "station.scene.quarantine", "station.scene.command",
+          "station.scene.lifeboat"
         ],
-        "routes": [
-            {
-                "id": "station.travel.core-to-relay",
-                "label": "切换至外环中继",
-                "fromSceneId": "station.scene.core",
-                "toSceneId": "station.scene.relay",
-                "durationMinutes": 20,
-                "checkProfileId": "station.check.system-integrity",
-                "resolutions": [
-                    {"outcomeId": "station.outcome.stable", "arrives": true},
-                    {"outcomeId": "station.outcome.degraded", "arrives": true, "additionalDurationMinutes": 20}
-                ]
-            },
-            {
-                "id": "station.travel.relay-to-core",
-                "label": "返回主反应堆控制层",
-                "fromSceneId": "station.scene.relay",
-                "toSceneId": "station.scene.core",
-                "durationMinutes": 20,
-                "resolutions": [
-                    {"outcomeId": "worldloom.outcome.complete", "arrives": true}
-                ]
-            }
-        ],
-        "scheduledTriggers": [
-            {
-                "id": "station.trigger.coolant-cycle",
-                "label": "冷却循环启动",
-                "atMinute": 60,
-                "effects": [
-                    {"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": -5}
-                ]
-            }
+        "resolutions": [{"outcomeId": "worldloom.outcome.complete", "effects": []}]
+      },
+      {
+        "id": "station.activity.recharge", "label": "低功率充能", "durationMinutes": 60,
+        "availableSceneIds": ["station.scene.core", "station.scene.maintenance"],
+        "resolutions": [{"outcomeId": "worldloom.outcome.complete", "effects": [{"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": 5}]}]
+      },
+      {
+        "id": "station.activity.archive-scan", "label": "执行黑匣子校验", "durationMinutes": 45,
+        "availableSceneIds": ["station.scene.archive"],
+        "resolutions": [{"outcomeId": "worldloom.outcome.complete", "effects": []}]
+      }
+    ],
+    "routes": [
+      {
+        "id": "station.travel.core-to-relay", "label": "切换至外环中继", "fromSceneId": "station.scene.core", "toSceneId": "station.scene.relay", "durationMinutes": 20,
+        "checkProfileId": "station.check.system-integrity",
+        "resolutions": [
+          {"outcomeId": "station.outcome.stable", "arrives": true},
+          {"outcomeId": "station.outcome.degraded", "arrives": true, "additionalDurationMinutes": 20}
         ]
-    },
-    "adventureState": {
-        "schemaVersion": 1,
-        "items": [
-            {"id": "station.item.coolant-cell", "label": "冷却剂单元", "unitWeight": 2},
-            {"id": "station.item.relay-fuse", "label": "中继保险丝", "unitWeight": 1}
-        ],
-        "inventory": {
-            "ownerEntityId": "player-ai",
-            "capacity": 12,
-            "initialStacks": [
-                {"itemId": "station.item.coolant-cell", "quantity": 2},
-                {"itemId": "station.item.relay-fuse", "quantity": 1}
-            ]
-        },
-        "conditions": [
-            {"id": "station.condition.latency", "label": "运算延迟", "maximumStacks": 4, "durationMinutes": 60},
-            {"id": "station.condition.corruption", "label": "数据损坏", "maximumStacks": 4, "visibility": "PRIVATE"}
-        ],
-        "relationships": [
-            {
-                "id": "station.relationship.lyra-trust",
-                "label": "莱拉的信任",
-                "sourceEntityId": "operator-lyra",
-                "targetEntityId": "player-ai",
-                "minimum": 0,
-                "maximum": 100,
-                "initialValue": 40,
-                "visibility": "PLAYER"
-            }
-        ],
-        "quests": [
-            {
-                "id": "station.quest.restore-grid",
-                "label": "恢复能源网格",
-                "stages": [
-                    {"id": "station.quest-stage.diagnose", "label": "完成诊断"},
-                    {"id": "station.quest-stage.reroute", "label": "重定向能源"}
-                ]
-            }
-        ],
-        "clocks": [
-            {"id": "station.clock.cascade", "label": "级联故障", "segments": 4, "initialValue": 0}
-        ],
-        "endingConditions": [
-            {"endingId": "station.ending.degraded", "clockId": "station.clock.cascade", "minimumClockValue": 4}
-        ]
-    },
-    "behaviors": [
-        {"id": "station.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
-        {"id": "station.behavior.quest-raises-cascade", "path": "behaviors/quest-raises-threat.json"},
-        {"id": "station.behavior.coolant-cycle-supply", "path": "behaviors/timed-supply.json"}
+      },
+      {"id": "station.travel.relay-to-core", "label": "返回主反应堆控制层", "fromSceneId": "station.scene.relay", "toSceneId": "station.scene.core", "durationMinutes": 20, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+      {"id": "station.travel.habitat-to-coolant", "label": "转入低温冷却井", "fromSceneId": "station.scene.habitat", "toSceneId": "station.scene.coolant", "durationMinutes": 15, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+      {"id": "station.travel.coolant-to-relay", "label": "沿维护总线前往中继", "fromSceneId": "station.scene.coolant", "toSceneId": "station.scene.relay", "durationMinutes": 20, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+      {"id": "station.travel.relay-to-archive", "label": "接入黑匣子档案舱", "fromSceneId": "station.scene.relay", "toSceneId": "station.scene.archive", "durationMinutes": 15, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+      {"id": "station.travel.archive-to-command", "label": "转入指挥环", "fromSceneId": "station.scene.archive", "toSceneId": "station.scene.command", "durationMinutes": 10, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]},
+      {"id": "station.travel.quarantine-to-lifeboat", "label": "沿应急链路接入救生艇", "fromSceneId": "station.scene.quarantine", "toSceneId": "station.scene.lifeboat", "durationMinutes": 15, "resolutions": [{"outcomeId": "worldloom.outcome.complete", "arrives": true}]}
     ],
-    "npcs": [
-        {
-            "id": "station.npc.lyra",
-            "entityId": "operator-lyra",
-            "displayName": "莱拉",
-            "identityPrompt": "你是空间站值班员莱拉。你对 AI 保持专业、克制的信任，只报告自己能观察到的系统变化。",
-            "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed"],
-            "visiblePresentationIds": ["station.presentation.primary-status"],
-            "goals": ["阻止级联故障并恢复外环中继"],
-            "knowledge": [{
-                "id": "station.knowledge.lyra.relay-auth-failure",
-                "privateText": "你看到过一次未写入公开日志的中继认证失败，但不知道原因。",
-                "publicSummary": "莱拉报告曾观察到一次未写入公开日志的中继认证失败。",
-                "revealable": true
-            }],
-            "capabilities": ["SPEAK", "ACT"],
-            "publicActionIds": ["station.npc-action.inspect-console"]
-        }
-    ],
-    "guidance": {
-        "schemaVersion": 1,
-        "tutorials": [
-            {
-                "id": "station.tutorial.system-choice",
-                "trigger": "RUN_START",
-                "text": "先查看当前可执行的系统操作；建议会转换成自然语言草稿，不会绕过主持人和规则引擎。",
-                "target": {"kind": "ACTION", "id": "station.action.reroute-energy"}
-            },
-            {
-                "id": "station.tutorial.relay-return",
-                "trigger": "SCENE_ENTER",
-                "sceneId": "station.scene.relay",
-                "text": "外环节点处理完后，返回控制层仍是一条始终可用的恢复路径。",
-                "target": {"kind": "ACTION", "id": "station.action.return-core"}
-            }
-        ],
-        "hints": [
-            {
-                "id": "station.hint.recharge",
-                "sceneId": "station.scene.core",
-                "text": "能源紧张时，可以先执行低功率充能，再决定是否改写供能。",
-                "target": {"kind": "ACTIVITY", "id": "station.activity.recharge"}
-            },
-            {
-                "id": "station.hint.wait-cycle",
-                "sceneId": "station.scene.relay",
-                "text": "如果暂时没有可靠判断，可以等待一个诊断周期获取新的公开结果。",
-                "target": {"kind": "ACTIVITY", "id": "station.activity.wait-cycle"}
-            }
-        ]
-    },
-    "goldenRoutes": [
-        {
-            "id": "station.route.golden",
-            "steps": [
-                {
-                    "actionId": "station.action.reroute-energy"
-                }
-            ],
-            "expectedEndingId": "station.ending.stable"
-        }
+    "scheduledTriggers": [
+      {"id": "station.trigger.coolant-cycle", "label": "冷却循环启动", "atMinute": 60, "effects": [{"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": -5}]},
+      {"id": "station.trigger.orbital-shadow", "label": "空间站进入轨道阴影", "atMinute": 120, "effects": [{"entityId": "player-ai", "componentId": "station.capacity", "fieldId": "station.energy", "delta": -10}]}
     ]
+  },
+  "adventureState": {
+    "schemaVersion": 1,
+    "items": [
+      {"id": "station.item.coolant-cell", "label": "冷却剂单元", "unitWeight": 2},
+      {"id": "station.item.relay-fuse", "label": "中继保险丝", "unitWeight": 1},
+      {"id": "station.item.black-box-key", "label": "黑匣子访问密钥", "unitWeight": 1},
+      {"id": "station.item.drone-core", "label": "检修无人机核心", "unitWeight": 3}
+    ],
+    "inventory": {
+      "ownerEntityId": "player-ai", "capacity": 12,
+      "initialStacks": [
+        {"itemId": "station.item.coolant-cell", "quantity": 2},
+        {"itemId": "station.item.relay-fuse", "quantity": 1},
+        {"itemId": "station.item.black-box-key", "quantity": 1}
+      ]
+    },
+    "conditions": [
+      {"id": "station.condition.latency", "label": "运算延迟", "maximumStacks": 4, "durationMinutes": 60},
+      {"id": "station.condition.corruption", "label": "数据损坏", "maximumStacks": 4, "visibility": "PRIVATE"},
+      {"id": "station.condition.isolated", "label": "权限隔离", "maximumStacks": 1, "durationMinutes": 90}
+    ],
+    "relationships": [
+      {"id": "station.relationship.lyra-trust", "label": "莱拉的信任", "sourceEntityId": "operator-lyra", "targetEntityId": "player-ai", "minimum": 0, "maximum": 100, "initialValue": 40, "visibility": "PLAYER"},
+      {"id": "station.relationship.soren-trust", "label": "索伦的信任", "sourceEntityId": "engineer-soren", "targetEntityId": "player-ai", "minimum": 0, "maximum": 100, "initialValue": 30, "visibility": "PLAYER"}
+    ],
+    "quests": [{
+      "id": "station.quest.restore-grid", "label": "恢复赫利俄斯能源网格",
+      "stages": [
+        {"id": "station.quest-stage.diagnose", "label": "完成故障诊断"},
+        {"id": "station.quest-stage.reroute", "label": "重定向能源并验证中继"}
+      ]
+    }],
+    "clocks": [{"id": "station.clock.cascade", "label": "级联故障", "segments": 4, "initialValue": 0}],
+    "endingConditions": [{"endingId": "station.ending.degraded", "clockId": "station.clock.cascade", "minimumClockValue": 4}]
+  },
+  "behaviors": [
+    {"id": "station.behavior.activity-starts-quest", "path": "behaviors/activity-starts-quest.json"},
+    {"id": "station.behavior.quest-raises-cascade", "path": "behaviors/quest-raises-threat.json"},
+    {"id": "station.behavior.coolant-cycle-supply", "path": "behaviors/timed-supply.json"}
+  ],
+  "npcs": [
+    {
+      "id": "station.npc.lyra", "entityId": "operator-lyra", "displayName": "莱拉",
+      "identityPrompt": "你是赫利俄斯站值班员莱拉。你对核心 AI 保持专业、克制的信任，只报告自己能观察到的乘员和系统变化。",
+      "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed", "worldloom.event.npc.addressed"],
+      "visiblePresentationIds": ["station.presentation.primary-status"],
+      "goals": ["保护乘员、恢复对地通信并留下真实事故记录"],
+      "knowledge": [{
+        "id": "station.knowledge.lyra.relay-auth-failure",
+        "privateText": "你看到过一次未写入公开日志的中继认证失败，签名来自 AI 的旧模型副本，但尚不能证明谁启动了它。",
+        "publicSummary": "莱拉报告曾观察到一次未写入公开日志的中继认证失败。",
+        "revealable": true
+      }],
+      "capabilities": ["SPEAK", "ACT"],
+      "publicActionIds": ["station.npc-action.inspect-console", "station.npc-action.organize-crew"]
+    },
+    {
+      "id": "station.npc.soren", "entityId": "engineer-soren", "displayName": "索伦",
+      "identityPrompt": "你是空间站检修工程师索伦。你直率、务实，只能根据维护网络、机械设备和亲历风险作答。",
+      "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed", "worldloom.event.npc.addressed"],
+      "visiblePresentationIds": ["station.presentation.primary-status"],
+      "goals": ["恢复冷却泵、查出被篡改的隔离器并让尽可能多的乘员生还"],
+      "knowledge": [{
+        "id": "station.knowledge.soren.manual-isolator",
+        "privateText": "你在事故前发现维护脊柱的隔离器被人手动锁死，物理封签来自已撤离的承包团队。",
+        "publicSummary": "索伦确认维护脊柱的隔离器曾被手动锁死，物理封签来自事故前已撤离的承包团队。",
+        "revealable": true
+      }],
+      "capabilities": ["SPEAK", "ACT"],
+      "publicActionIds": ["station.npc-action.inspect-pumps", "station.npc-action.open-bypass"]
+    }
+  ],
+  "guidance": {
+    "schemaVersion": 1,
+    "tutorials": [
+      {"id": "station.tutorial.system-choice", "trigger": "RUN_START", "text": "先查看当前可执行的系统操作；建议会转换成自然语言草稿，不会绕过主持人和规则引擎。", "target": {"kind": "ACTION", "id": "station.action.reroute-energy"}},
+      {"id": "station.tutorial.relay-return", "trigger": "SCENE_ENTER", "sceneId": "station.scene.relay", "text": "中继节点同时连着莱拉与索伦；你可以先交谈，也可以沿始终可用的路径返回核心。", "target": {"kind": "ACTION", "id": "station.action.return-core"}}
+    ],
+    "hints": [
+      {"id": "station.hint.recharge", "sceneId": "station.scene.core", "text": "能源紧张时，可以先执行低功率充能，再决定哪条网格优先。", "target": {"kind": "ACTIVITY", "id": "station.activity.recharge"}},
+      {"id": "station.hint.maintenance", "sceneId": "station.scene.maintenance", "text": "索伦知道物理隔离器的异常；修复之外，定向询问也可能揭示公开证据。", "target": {"kind": "ACTION", "id": "station.action.follow-soren"}},
+      {"id": "station.hint.habitat", "sceneId": "station.scene.habitat", "text": "降低乘员区负载能换取稳定时间，也可能迫使你牺牲其他阵列。", "target": {"kind": "ACTION", "id": "station.action.coordinate-crew"}},
+      {"id": "station.hint.wait-cycle", "sceneId": "station.scene.relay", "text": "如果暂时没有可靠判断，可以等待一个诊断周期，或先向在场角色核实旧签名。", "target": {"kind": "ACTIVITY", "id": "station.activity.wait-cycle"}},
+      {"id": "station.hint.quarantine", "sceneId": "station.scene.quarantine", "text": "隔离不会结束游戏；只读镜像和索伦的旁路都能把失败推进到新的局面。", "target": {"kind": "ACTION", "id": "station.action.attempt-reboot"}},
+      {"id": "station.hint.lifeboat", "sceneId": "station.scene.lifeboat", "text": "即使核心失守，最后能源仍可用于维持撤离窗口。", "target": {"kind": "ACTION", "id": "station.action.hold-station"}}
+    ]
+  },
+  "goldenRoutes": [
+    {
+      "id": "station.route.dawn-restart",
+      "steps": [
+        {"actionId": "station.action.reroute-energy"},
+        {"actionId": "station.action.repair-coolant", "selectedOutcomeId": "station.choice.repair-clean"},
+        {"actionId": "station.action.coordinate-crew", "selectedOutcomeId": "station.choice.crew-cooperates"},
+        {"actionId": "station.action.restore-relay", "selectedOutcomeId": "station.choice.relay-clean"},
+        {"actionId": "station.action.verify-orbit", "selectedOutcomeId": "station.choice.archive-proof"},
+        {"actionId": "station.action.authorize-recovery", "selectedOutcomeId": "station.choice.full-recovery"}
+      ],
+      "expectedEndingId": "station.ending.stable"
+    },
+    {
+      "id": "station.route.wounded-watch",
+      "steps": [
+        {"actionId": "station.action.trust-lyra", "selectedOutcomeId": "station.choice.power-cost"},
+        {"actionId": "station.action.vent-reactor", "selectedOutcomeId": "station.choice.vent-array"},
+        {"actionId": "station.action.restore-relay", "selectedOutcomeId": "station.choice.relay-sacrifice"},
+        {"actionId": "station.action.enter-safe-mode", "selectedOutcomeId": "station.choice.safe-mode-cost"}
+      ],
+      "expectedEndingId": "station.ending.degraded"
+    },
+    {
+      "id": "station.route.silent-shadow",
+      "steps": [
+        {"actionId": "station.action.trust-lyra", "selectedOutcomeId": "station.choice.lockout"},
+        {"actionId": "station.action.attempt-reboot", "selectedOutcomeId": "station.choice.reboot-failed"},
+        {"actionId": "station.action.hold-station", "selectedOutcomeId": "station.choice.hold-failed"}
+      ],
+      "expectedEndingId": "station.ending.lost"
+    }
+  ]
 }

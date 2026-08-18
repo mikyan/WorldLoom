@@ -1,7 +1,7 @@
 {
     "schemaVersion": 2,
     "id": "contract.station-ai",
-    "title": "Station AI Contract",
+    "title": "静默轨道：赫利俄斯危机",
     "components": [
         {
             "id": "station.capacity",
@@ -36,6 +36,10 @@
         },
         {
             "entityId": "operator-lyra",
+            "components": []
+        },
+        {
+            "entityId": "engineer-soren",
             "components": []
         }
     ],

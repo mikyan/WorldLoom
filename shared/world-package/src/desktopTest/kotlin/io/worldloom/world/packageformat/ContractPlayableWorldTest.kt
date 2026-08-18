@@ -19,7 +19,7 @@ class ContractPlayableWorldTest {
     fun warAndStationUseTheSamePlayableContractLoader() {
         val cases = listOf(
             ContractCase("war-survival", 3, 2, DefinitionId("war.ending.hopeful"), CharacterCreationMode.FIXED),
-            ContractCase("station-ai", 1, 1, DefinitionId("station.ending.stable"), CharacterCreationMode.POINT_BUY),
+            ContractCase("station-ai", 3, 2, DefinitionId("station.ending.stable"), CharacterCreationMode.POINT_BUY),
         )
 
         cases.forEach { case ->
@@ -50,6 +50,26 @@ class ContractPlayableWorldTest {
                 assertEquals(3, contract.source.endings.size)
                 assertTrue(contract.source.scenes.all { !it.description.isNullOrBlank() })
                 assertTrue(contract.source.endings.all { !it.summary.isNullOrBlank() })
+            } else {
+                assertEquals(2, contract.source.contentVersion)
+                assertEquals(60, contract.source.estimatedPlayMinutes)
+                assertEquals(90, contract.source.catalogPriority)
+                assertEquals(9, contract.source.scenes.size)
+                assertTrue(contract.source.actions.size >= 12)
+                assertEquals(8, contract.source.objectives.size)
+                assertEquals(3, contract.source.endings.size)
+                assertTrue(contract.source.scenes.all { !it.description.isNullOrBlank() })
+                assertTrue(contract.source.endings.all { !it.summary.isNullOrBlank() })
+                assertEquals(
+                    setOf(
+                        DefinitionId("station.ending.stable"),
+                        DefinitionId("station.ending.degraded"),
+                        DefinitionId("station.ending.lost"),
+                    ),
+                    routes.map { route ->
+                        assertIs<PlayableRouteSimulationResult.Complete>(contract.simulate(route.id)).endingId
+                    }.toSet(),
+                )
             }
         }
     }

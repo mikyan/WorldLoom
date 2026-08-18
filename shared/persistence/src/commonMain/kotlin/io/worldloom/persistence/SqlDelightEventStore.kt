@@ -26,7 +26,16 @@ class SqlDelightEventStore(
     private val mutex = Mutex()
     private val queries = database.worldloomQueries
 
-    override suspend fun initialize(initialState: GameState): DurableStoreWriteResult = mutex.withLock {
+    override suspend fun initialize(
+        initialState: GameState,
+        worldContentVersion: Int,
+    ): DurableStoreWriteResult = mutex.withLock {
+        if (worldContentVersion <= 0) {
+            return@withLock durableFailure(
+                DurableStoreErrorCode.STORAGE_FAILURE,
+                "World content version must be positive",
+            )
+        }
         try {
             val existing = queries.selectRun(initialState.runId.value).executeAsOneOrNull()
             if (existing != null) {
@@ -41,6 +50,7 @@ class SqlDelightEventStore(
                     initialState.worldDefinitionId.value,
                     CURRENT_SAVE_DATA_SCHEMA_VERSION.toLong(),
                 )
+                queries.setRunContentVersion(worldContentVersion.toLong(), initialState.runId.value)
                 queries.upsertSnapshot(
                     run_id = initialState.runId.value,
                     sequence = initialState.lastSequence,
