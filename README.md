@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成十八轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础、`playable-world/v1` 可玩世界契约，以及从建角、正式开局到主持人回合裁决的可游玩链路。
+> 项目已经完成十九轮工程迭代：在可运行的 KMP/Compose 竖切上，继续落地 Provider 配置、持久化 Agent 会话与结构化记忆、异步上下文压缩、NPC Agent、`.worldloom` v1、Behavior AST、角色/规则配置、内容生成基础、`playable-world/v1` 可玩世界契约，以及从建角、正式开局、主持人回合到时间/活动/旅行推进的可游玩链路。
 
 ## 产品方向
 
@@ -25,7 +25,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
-- [十八轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [十九轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -85,6 +85,8 @@ docs/
 选择内置世界后，新 Run 会经过 `CREATED → CHARACTER_CREATION → ACTIVE`：战争契约使用固定角色，空间站契约使用点数分配，同一共享 UI 从 Profile 生成表单。角色确认以一个原子 Event 批次创建玩家 Entity、初始组件和开局场景；未确认草稿独立持久化，可在重启后继续，且不会提前成为世界事实。
 
 进入 `ACTIVE` 后，每个 Run 使用稳定、独立且可恢复的主持人 Session。主持人只接收玩家可见状态、当前场景、公开参与者、行动和事件摘要；自然语言意图通过当前场景动态生成的 Tool Schema 执行，行动结果必须经校验后的 Command/Event 批次推进场景、目标与结局。同一 TurnId 不会重复执行，澄清不写事实，取消、超时、预算或 Provider 故障后也会明确保留已经提交的权威事件。
+
+内置世界现可声明世界时间、等待/休息/搜寻/治疗等活动、有向旅行路线和按世界时间触发的计划事件。主持人只能看到当前场景可用的时间、活动与旅行 Tool；耗时、检定、资源变化、活动中断、旅行抵达及场景切换都以一个可审计事件批次提交，恢复与回放不读取系统时间，也不会重新掷骰。
 
 内容侧已经能够校验并装载安全的 `.worldloom` v1 容器，通过白名单 Behavior AST 提交类型化命令，并把短提示词、TXT 或 EPUB 资料依次转换为大纲、结构化草稿、快速模拟和可重新加载的世界包。生成任务保留阶段检查点、来源定位和人工复核问题。
 

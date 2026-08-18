@@ -35,6 +35,9 @@ data class GamePresentation(
     val scene: PresentedScene? = null,
     val completedObjectiveIds: Set<DefinitionId> = emptySet(),
     val endingId: DefinitionId? = null,
+    val worldTimeMinutes: Long? = null,
+    val activities: List<PresentedActivity> = emptyList(),
+    val travelRoutes: List<PresentedTravelRoute> = emptyList(),
 )
 
 data class PresentedScene(
@@ -45,6 +48,15 @@ data class PresentedScene(
 )
 
 data class PresentedAction(val id: DefinitionId, val label: String)
+
+data class PresentedActivity(val id: DefinitionId, val label: String, val durationMinutes: Long)
+
+data class PresentedTravelRoute(
+    val id: DefinitionId,
+    val label: String,
+    val destinationSceneId: DefinitionId,
+    val durationMinutes: Long,
+)
 
 enum class SessionErrorCode {
     WORLD_NOT_FOUND,
@@ -89,6 +101,12 @@ sealed interface GameSessionAction {
     data class ResolvePresentedCheck(val presentationId: DefinitionId) : GameSessionAction
 
     data class PerformAvailableAction(val actionId: DefinitionId) : GameSessionAction
+
+    data class AdvanceWorldTime(val deltaMinutes: Long) : GameSessionAction
+
+    data class PerformActivity(val activityId: DefinitionId) : GameSessionAction
+
+    data class Travel(val routeId: DefinitionId) : GameSessionAction
 }
 
 /** Typed application boundary used by UI and Agent tools before commands enter the world engine. */
@@ -109,6 +127,22 @@ sealed interface GameSessionCommand {
         val actionId: DefinitionId,
         val selectedOutcomeId: DefinitionId? = null,
     ) : GameSessionCommand
+
+    data class AdvanceWorldTime(
+        val deltaMinutes: Long,
+        val reasonId: DefinitionId = DefinitionId("worldloom.reason.wait"),
+    ) : GameSessionCommand
+
+    data class PerformActivity(
+        val activityId: DefinitionId,
+        val selectedOutcomeId: DefinitionId? = null,
+        val interrupted: Boolean = false,
+    ) : GameSessionCommand
+
+    data class Travel(
+        val routeId: DefinitionId,
+        val selectedOutcomeId: DefinitionId? = null,
+    ) : GameSessionCommand
 }
 
 data class SessionCommandContext(
@@ -119,11 +153,32 @@ data class SessionCommandContext(
     val lastSequence: Long = 0,
     val currentSceneId: DefinitionId? = null,
     val availableActions: List<SessionAvailableAction> = emptyList(),
+    val worldTimeMinutes: Long? = null,
+    val availableActivities: List<SessionAvailableActivity> = emptyList(),
+    val availableTravelRoutes: List<SessionAvailableTravelRoute> = emptyList(),
 )
 
 data class SessionAvailableAction(
     val actionId: DefinitionId,
     val label: String,
+    val outcomeIds: List<DefinitionId>,
+    val requiresCheck: Boolean,
+)
+
+data class SessionAvailableActivity(
+    val activityId: DefinitionId,
+    val label: String,
+    val durationMinutes: Long,
+    val outcomeIds: List<DefinitionId>,
+    val requiresCheck: Boolean,
+    val interruptionOutcomeId: DefinitionId? = null,
+)
+
+data class SessionAvailableTravelRoute(
+    val routeId: DefinitionId,
+    val label: String,
+    val destinationSceneId: DefinitionId,
+    val durationMinutes: Long,
     val outcomeIds: List<DefinitionId>,
     val requiresCheck: Boolean,
 )

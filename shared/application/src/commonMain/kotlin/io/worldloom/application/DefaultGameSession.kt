@@ -46,6 +46,16 @@ import io.worldloom.rules.ResolveCheckCommand
 import io.worldloom.rules.RuleEngine
 import io.worldloom.rules.SeededRandomService
 import io.worldloom.rules.CheckResolvedEvent
+import io.worldloom.rules.ActivityResolutionDefinition
+import io.worldloom.rules.AdvanceWorldTimeCommand
+import io.worldloom.rules.PerformActivityCommand
+import io.worldloom.rules.TemporalCommandValidationResult
+import io.worldloom.rules.TemporalCommandValidator
+import io.worldloom.rules.TemporalEventReducer
+import io.worldloom.rules.TemporalRuleEngine
+import io.worldloom.rules.TemporalState
+import io.worldloom.rules.TravelResolutionDefinition
+import io.worldloom.rules.TravelRouteCommand
 import io.worldloom.rules.RandomRestoreResult
 import io.worldloom.rules.RestorableRandomService
 import io.worldloom.rules.module.api.RegisteredWorldModules
@@ -76,7 +86,7 @@ class DefaultGameSession(
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow<GameSessionUiState>(GameSessionUiState.Idle)
     private var loaded: LoadedSession? = null
-    private val reducer: EventReducer = EventReducerChain(listOf(StateReducer, CheckEventReducer))
+    private val reducer: EventReducer = EventReducerChain(listOf(StateReducer, CheckEventReducer, TemporalEventReducer))
 
     override val availableWorlds: List<WorldCatalogEntry> = catalog.entries
     override val state: StateFlow<GameSessionUiState> = mutableState.asStateFlow()
@@ -105,11 +115,13 @@ class DefaultGameSession(
             val playable = worldPackage.playableContract
             val characterProfile = playable?.characterProfile
             val configuredPlayerId = playable?.source?.character?.playerEntityId
-            val initialState = if (characterProfile != null && configuredPlayerId != null) {
+            val baseInitialState = if (characterProfile != null && configuredPlayerId != null) {
                 InitialGameStateFactory.createForCharacterCreation(definition, runId, EntityId(configuredPlayerId))
             } else {
                 InitialGameStateFactory.create(definition, runId)
             }
+            val initialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
+                ?: baseInitialState
             if (eventStore is DurableEventStore) {
                 when (val initialized = eventStore.initialize(initialState)) {
                     DurableStoreWriteResult.Success -> Unit
@@ -246,12 +258,16 @@ class DefaultGameSession(
             val persistedSnapshot = persisted.snapshot
             val usesLifecycle = (persistedSnapshot != null && persistedSnapshot.lifecycle != RunLifecycle.ACTIVE) ||
                 allEvents.any { it.payload is RunLifecycleChangedEvent }
-            val initialState = if (usesLifecycle && configuredPlayerId != null) {
+            val baseInitialState = if (usesLifecycle && configuredPlayerId != null) {
                 InitialGameStateFactory.createForCharacterCreation(definition, runId, EntityId(configuredPlayerId))
             } else {
                 InitialGameStateFactory.create(definition, runId)
             }
-            val replayBase = persistedSnapshot ?: initialState
+            val initialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
+                ?: baseInitialState
+            val replayBase = (persistedSnapshot ?: initialState).let { state ->
+                playable?.source?.temporal?.let { TemporalState.initialize(state, it) } ?: state
+            }
             var currentState = when (
                 val replay = EventReplayer.replay(
                     replayBase,
@@ -407,6 +423,24 @@ class DefaultGameSession(
                     CommandAuthorization(
                         ActorId("system.player"),
                         setOf(CommandPermission.APPLY_ACTION_OUTCOME, CommandPermission.RESOLVE_CHECK),
+                    ),
+                )
+                is GameSessionAction.AdvanceWorldTime -> executeAuthoritative(
+                    GameSessionCommand.AdvanceWorldTime(action.deltaMinutes),
+                    CommandAuthorization(ActorId("system.player"), setOf(CommandPermission.ADVANCE_WORLD_TIME)),
+                )
+                is GameSessionAction.PerformActivity -> executeAuthoritative(
+                    GameSessionCommand.PerformActivity(action.activityId),
+                    CommandAuthorization(
+                        ActorId("system.player"),
+                        setOf(CommandPermission.PERFORM_ACTIVITY, CommandPermission.RESOLVE_CHECK),
+                    ),
+                )
+                is GameSessionAction.Travel -> executeAuthoritative(
+                    GameSessionCommand.Travel(action.routeId),
+                    CommandAuthorization(
+                        ActorId("system.player"),
+                        setOf(CommandPermission.TRAVEL, CommandPermission.RESOLVE_CHECK),
                     ),
                 )
             }
@@ -590,6 +624,9 @@ class DefaultGameSession(
                 lastSequence = session.currentState.lastSequence,
                 currentSceneId = session.currentState.currentSceneId,
                 availableActions = session.availableActions(),
+                worldTimeMinutes = session.temporalDefinition()?.let { TemporalState.minute(session.currentState, it) },
+                availableActivities = session.availableActivities(),
+                availableTravelRoutes = session.availableTravelRoutes(),
             )
         }
     }
@@ -650,6 +687,10 @@ class DefaultGameSession(
         is GameSessionCommand.AdjustNumericComponent -> executeAdjustment(request, authorization)
         is GameSessionCommand.ResolveCheck -> executeCheck(request, authorization)
         is GameSessionCommand.PerformAvailableAction -> executePlayableAction(request, authorization)
+        is GameSessionCommand.AdvanceWorldTime,
+        is GameSessionCommand.PerformActivity,
+        is GameSessionCommand.Travel,
+        -> executeTemporalCommand(request, authorization)
     }
 
     private suspend fun executeAdjustment(
@@ -787,9 +828,10 @@ class DefaultGameSession(
         }
         when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, listOf(event))) {
             is EventAppendResult.Success -> Unit
-            is EventAppendResult.Failure -> return failAction(
-                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
-            )
+            is EventAppendResult.Failure -> {
+                restoreRandomServiceAfterRejectedAppend(session)
+                return failAction(SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message))
+            }
         }
         session.currentState = candidateState
         val notice = writeSnapshotIfDue(session)
@@ -929,9 +971,10 @@ class DefaultGameSession(
         events += progressionEvents
         when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
             is EventAppendResult.Success -> Unit
-            is EventAppendResult.Failure -> return failAction(
-                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
-            )
+            is EventAppendResult.Failure -> {
+                if (checkProfileId != null) restoreRandomServiceAfterRejectedAppend(session)
+                return failAction(SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message))
+            }
         }
         session.currentState = candidateState
         val notice = writeSnapshotIfDue(session)
@@ -940,6 +983,165 @@ class DefaultGameSession(
         } else {
             publishReady(session, eventStore.read(baseState.runId), notice)
         }
+        return ActionResult.Success
+    }
+
+    private suspend fun executeTemporalCommand(
+        request: GameSessionCommand,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val temporal = session.temporalDefinition()
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "World has no temporal adventure definition"))
+        val baseState = session.currentState
+        var candidateState = baseState
+        val events = mutableListOf<EventEnvelope>()
+        val checkProfileId = when (request) {
+            is GameSessionCommand.PerformActivity -> if (request.interrupted) {
+                null
+            } else {
+                temporal.activities.firstOrNull { it.id == request.activityId }?.checkProfileId
+            }
+            is GameSessionCommand.Travel -> temporal.routes.firstOrNull { it.id == request.routeId }?.checkProfileId
+            is GameSessionCommand.AdvanceWorldTime -> null
+            else -> return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Command is not temporal"))
+        }
+        val checkedOutcomeId = checkProfileId?.let { profileId ->
+            val checkCommand = CommandEnvelope(
+                schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+                commandId = idSource.nextCommandId(),
+                runId = baseState.runId,
+                actorId = authorization.actorId,
+                expectedSequence = baseState.lastSequence,
+                payload = ResolveCheckCommand(profileId),
+            )
+            val validated = when (
+                val validation = CheckCommandValidator.validate(
+                    baseState,
+                    session.definition,
+                    session.modules,
+                    authorization,
+                    checkCommand,
+                )
+            ) {
+                is CheckCommandValidationResult.Valid -> validation.command
+                is CheckCommandValidationResult.Invalid -> return failAction(
+                    SessionError(SessionErrorCode.CHECK_REJECTED, validation.error.message, validation.error.path),
+                )
+            }
+            val event = when (
+                val resolution = RuleEngine.resolve(
+                    command = validated,
+                    eventId = idSource.nextEventId(),
+                    checkId = idSource.nextCheckId(),
+                    randomRecordId = idSource.nextRandomRecordId(),
+                    randomService = session.randomService,
+                )
+            ) {
+                is CheckResolutionResult.Success -> resolution.event
+                is CheckResolutionResult.Failure -> return failAction(
+                    SessionError(SessionErrorCode.CHECK_REJECTED, resolution.error.message),
+                )
+            }
+            candidateState = when (val reduction = reducer.reduce(candidateState, session.definition, event)) {
+                is StateReductionResult.Success -> reduction.state
+                is StateReductionResult.Failure -> return failAction(
+                    SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+                )
+            }
+            events += event
+            (event.payload as CheckResolvedEvent).record.outcomeId
+        }
+        val destinationParticipants: List<EntityId>
+        val payload = when (request) {
+            is GameSessionCommand.AdvanceWorldTime -> {
+                destinationParticipants = emptyList()
+                AdvanceWorldTimeCommand(deltaMinutes = request.deltaMinutes, reasonId = request.reasonId)
+            }
+            is GameSessionCommand.PerformActivity -> {
+                destinationParticipants = emptyList()
+                val activity = temporal.activities.firstOrNull { it.id == request.activityId }
+                    ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Activity is not configured"))
+                val interruptionOutcomeId = activity.interruption?.outcomeId
+                val normalResolutions = activity.resolutions.filterNot { it.outcomeId == interruptionOutcomeId }
+                val outcomeId = if (request.interrupted) {
+                    interruptionOutcomeId
+                        ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Activity cannot be interrupted"))
+                } else {
+                    checkedOutcomeId ?: request.selectedOutcomeId
+                    ?: normalResolutions.singleOrNull()?.outcomeId
+                    ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Activity requires an outcome"))
+                }
+                PerformActivityCommand(
+                    activityId = request.activityId,
+                    outcomeId = outcomeId,
+                    interrupted = request.interrupted,
+                )
+            }
+            is GameSessionCommand.Travel -> {
+                val route = temporal.routes.firstOrNull { it.id == request.routeId }
+                    ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Travel route is not configured"))
+                destinationParticipants = session.playableContract
+                    ?.scene(route.toSceneId)
+                    ?.participantEntityIds
+                    .orEmpty()
+                    .map(::EntityId)
+                val outcomeId = checkedOutcomeId ?: request.selectedOutcomeId
+                    ?: route.resolutions.singleOrNull()?.outcomeId
+                    ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "Travel requires an outcome"))
+                TravelRouteCommand(
+                    routeId = request.routeId,
+                    outcomeId = outcomeId,
+                    destinationParticipantIds = destinationParticipants,
+                )
+            }
+        }
+        val envelope = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = baseState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = candidateState.lastSequence,
+            payload = payload,
+        )
+        val validated = when (
+            val validation = TemporalCommandValidator.validate(
+                candidateState,
+                session.definition,
+                session.modules,
+                authorization,
+                envelope,
+                temporal,
+                expectedDestinationParticipants = destinationParticipants,
+            )
+        ) {
+            is TemporalCommandValidationResult.Valid -> validation.command
+            is TemporalCommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val temporalEvents = TemporalRuleEngine.handle(
+            validated,
+            List(TemporalRuleEngine.requiredEventCount(validated)) { idSource.nextEventId() },
+        )
+        when (val reduction = reduceAll(candidateState, session.definition, temporalEvents)) {
+            is StateReductionResult.Success -> candidateState = reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        events += temporalEvents
+        when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> {
+                if (checkProfileId != null) restoreRandomServiceAfterRejectedAppend(session)
+                return failAction(SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message))
+            }
+        }
+        session.currentState = candidateState
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(baseState.runId), notice)
         return ActionResult.Success
     }
 
@@ -986,6 +1188,23 @@ class DefaultGameSession(
         }
     }
 
+    /** A rejected atomic append must not consume a random draw that never became audited history. */
+    private suspend fun restoreRandomServiceAfterRejectedAppend(session: LoadedSession) {
+        val replacement = randomServiceFactory(session.currentState.runId)
+        val records = try {
+            eventStore.read(session.currentState.runId).mapNotNull { event ->
+                (event.payload as? CheckResolvedEvent)?.record?.randomRecord
+            }
+        } catch (_: Exception) {
+            return
+        }
+        if (records.isNotEmpty()) {
+            val restorable = replacement as? RestorableRandomService ?: return
+            if (restorable.restore(records) !is RandomRestoreResult.Success) return
+        }
+        session.randomService = replacement
+    }
+
     private fun failLoad(error: SessionError): LoadResult.Failure {
         loaded = null
         mutableState.value = GameSessionUiState.Failed(error)
@@ -1030,7 +1249,7 @@ class DefaultGameSession(
         val modules: RegisteredWorldModules,
         val initialState: GameState,
         var currentState: GameState,
-        val randomService: RandomService,
+        var randomService: RandomService,
         val characterCoordinator: CharacterCreationCoordinator? = null,
         var characterDraft: CharacterCreationDraft? = null,
         var confirmedCharacterCommandId: io.worldloom.world.CommandId? = null,
@@ -1048,6 +1267,40 @@ class DefaultGameSession(
                 requiresCheck = action.checkProfileId != null,
             )
         }
+    }
+
+    private fun LoadedSession.temporalDefinition() = playableContract?.source?.temporal
+
+    private fun LoadedSession.availableActivities(): List<SessionAvailableActivity> {
+        val sceneId = currentState.currentSceneId ?: return emptyList()
+        return temporalDefinition()?.activities.orEmpty()
+            .filter { sceneId in it.availableSceneIds }
+            .map { activity ->
+                SessionAvailableActivity(
+                    activity.id,
+                    activity.label,
+                    activity.durationMinutes,
+                    activity.resolutions.map(ActivityResolutionDefinition::outcomeId),
+                    activity.checkProfileId != null,
+                    activity.interruption?.outcomeId,
+                )
+            }
+    }
+
+    private fun LoadedSession.availableTravelRoutes(): List<SessionAvailableTravelRoute> {
+        val sceneId = currentState.currentSceneId ?: return emptyList()
+        return temporalDefinition()?.routes.orEmpty()
+            .filter { it.fromSceneId == sceneId }
+            .map { route ->
+                SessionAvailableTravelRoute(
+                    route.id,
+                    route.label,
+                    route.toSceneId,
+                    route.durationMinutes,
+                    route.resolutions.map(TravelResolutionDefinition::outcomeId),
+                    route.checkProfileId != null,
+                )
+            }
     }
 
     private fun enrichPresentation(
@@ -1071,6 +1324,13 @@ class DefaultGameSession(
             scene = scene,
             completedObjectiveIds = state.completedObjectiveIds,
             endingId = state.endingId,
+            worldTimeMinutes = contract?.source?.temporal?.let { TemporalState.minute(state, it) },
+            activities = contract?.source?.temporal?.activities.orEmpty()
+                .filter { state.currentSceneId in it.availableSceneIds }
+                .map { PresentedActivity(it.id, it.label, it.durationMinutes) },
+            travelRoutes = contract?.source?.temporal?.routes.orEmpty()
+                .filter { it.fromSceneId == state.currentSceneId }
+                .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) },
         )
     }
 }

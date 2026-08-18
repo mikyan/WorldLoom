@@ -7,7 +7,10 @@
     "initialSceneId": "war.scene.ruins",
     "requiredModuleIds": [
         "worldloom.core.numeric-state",
-        "worldloom.rules.random-check"
+        "worldloom.rules.random-check",
+        "worldloom.rules.world-time",
+        "worldloom.rules.activity",
+        "worldloom.rules.travel"
     ],
     "scenes": [
         {
@@ -169,6 +172,128 @@
         "war.presentation.primary-status",
         "war.presentation.survival-check"
     ],
+    "temporal": {
+        "schemaVersion": 1,
+        "initialMinute": 480,
+        "activities": [
+            {
+                "id": "war.activity.rest",
+                "label": "休息",
+                "durationMinutes": 480,
+                "availableSceneIds": ["war.scene.shelter"],
+                "resolutions": [
+                    {
+                        "outcomeId": "worldloom.outcome.complete",
+                        "effects": [
+                            {
+                                "entityId": "player",
+                                "componentId": "war.vitals",
+                                "fieldId": "war.health",
+                                "delta": 1
+                            }
+                        ]
+                    },
+                    {
+                        "outcomeId": "war.outcome.interrupted",
+                        "effects": []
+                    }
+                ],
+                "interruption": {
+                    "outcomeId": "war.outcome.interrupted",
+                    "elapsedMinutes": 60
+                }
+            },
+            {
+                "id": "war.activity.search",
+                "label": "搜寻",
+                "durationMinutes": 120,
+                "availableSceneIds": ["war.scene.ruins", "war.scene.shelter"],
+                "checkProfileId": "war.check.survive",
+                "resolutions": [
+                    {"outcomeId": "war.outcome.success", "effects": []},
+                    {
+                        "outcomeId": "war.outcome.cost",
+                        "effects": [
+                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}
+                        ]
+                    },
+                    {
+                        "outcomeId": "war.outcome.failure",
+                        "effects": [
+                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -2}
+                        ]
+                    },
+                    {
+                        "outcomeId": "war.outcome.interrupted",
+                        "effects": []
+                    }
+                ],
+                "interruption": {
+                    "outcomeId": "war.outcome.interrupted",
+                    "elapsedMinutes": 30
+                }
+            },
+            {
+                "id": "war.activity.treat",
+                "label": "治疗",
+                "durationMinutes": 60,
+                "availableSceneIds": ["war.scene.shelter"],
+                "resolutions": [
+                    {
+                        "outcomeId": "worldloom.outcome.complete",
+                        "effects": [
+                            {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": 1}
+                        ]
+                    }
+                ]
+            }
+        ],
+        "routes": [
+            {
+                "id": "war.travel.ruins-to-shelter",
+                "label": "前往临时避难所",
+                "fromSceneId": "war.scene.ruins",
+                "toSceneId": "war.scene.shelter",
+                "durationMinutes": 90,
+                "checkProfileId": "war.check.survive",
+                "resolutions": [
+                    {"outcomeId": "war.outcome.success", "arrives": true},
+                    {"outcomeId": "war.outcome.cost", "arrives": true, "additionalDurationMinutes": 30},
+                    {"outcomeId": "war.outcome.failure", "arrives": false, "additionalDurationMinutes": 60}
+                ]
+            },
+            {
+                "id": "war.travel.shelter-to-ruins",
+                "label": "返回废墟边缘",
+                "fromSceneId": "war.scene.shelter",
+                "toSceneId": "war.scene.ruins",
+                "durationMinutes": 90,
+                "resolutions": [
+                    {"outcomeId": "worldloom.outcome.complete", "arrives": true}
+                ]
+            },
+            {
+                "id": "war.travel.fire-to-ruins",
+                "label": "撤回废墟边缘",
+                "fromSceneId": "war.scene.under-fire",
+                "toSceneId": "war.scene.ruins",
+                "durationMinutes": 45,
+                "resolutions": [
+                    {"outcomeId": "worldloom.outcome.complete", "arrives": true}
+                ]
+            }
+        ],
+        "scheduledTriggers": [
+            {
+                "id": "war.trigger.nightfall",
+                "label": "夜幕降临",
+                "atMinute": 600,
+                "effects": [
+                    {"entityId": "player", "componentId": "war.vitals", "fieldId": "war.health", "delta": -1}
+                ]
+            }
+        ]
+    },
     "behaviors": [],
     "goldenRoutes": [
         {

@@ -10,6 +10,11 @@ import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.world.RunLifecycleChangedEvent
+import io.worldloom.rules.ActivityCompletedEvent
+import io.worldloom.rules.ScheduledTriggerFiredEvent
+import io.worldloom.rules.TravelCompletedEvent
+import io.worldloom.rules.TravelStartedEvent
+import io.worldloom.rules.WorldTimeAdvancedEvent
 import io.worldloom.rules.CheckResolvedEvent
 
 sealed interface PresentationMappingResult {
@@ -80,6 +85,15 @@ object PresentationMapper {
                 is PlayerEnteredSceneEvent -> "进入场景：${payload.sceneId.value}"
                 is PlayerEnteredInitialSceneEvent -> "进入初始场景：${payload.sceneId.value}"
                 is RunLifecycleChangedEvent -> "游戏阶段：${payload.lifecycle.name}"
+                is WorldTimeAdvancedEvent -> "世界时间推进 ${payload.deltaMinutes} 分钟（${payload.minute}）"
+                is ActivityCompletedEvent -> if (payload.interrupted) {
+                    "活动中断：${payload.activityId.value} · ${payload.outcomeId.value}"
+                } else {
+                    "活动完成：${payload.activityId.value} · ${payload.outcomeId.value}"
+                }
+                is TravelStartedEvent -> "开始旅行：${payload.fromSceneId.value} → ${payload.toSceneId.value}"
+                is TravelCompletedEvent -> if (payload.arrived) "旅行抵达：${payload.routeId.value}" else "旅行受阻：${payload.routeId.value}"
+                is ScheduledTriggerFiredEvent -> "计划事件触发：${payload.triggerId.value}"
 
                 else -> "事件已记录"
             }

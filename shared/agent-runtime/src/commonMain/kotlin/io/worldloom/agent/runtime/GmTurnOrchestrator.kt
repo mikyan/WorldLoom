@@ -138,6 +138,17 @@ object GmContextProjector {
             if (presentation.completedObjectiveIds.isNotEmpty()) appendLine(
                 "已完成目标：${presentation.completedObjectiveIds.sortedBy { it.value }.joinToString { it.value }}",
             )
+            presentation.worldTimeMinutes?.let { appendLine("世界时间：第 $it 分钟") }
+            if (presentation.activities.isNotEmpty()) {
+                appendLine("当前可用活动：")
+                presentation.activities.forEach { appendLine("- ${it.label} (${it.id.value})，耗时 ${it.durationMinutes} 分钟") }
+            }
+            if (presentation.travelRoutes.isNotEmpty()) {
+                appendLine("当前可用旅行：")
+                presentation.travelRoutes.forEach {
+                    appendLine("- ${it.label} (${it.id.value}) → ${it.destinationSceneId.value}，耗时 ${it.durationMinutes} 分钟")
+                }
+            }
             if (presentation.timeline.isNotEmpty()) {
                 appendLine("最近公开事件：")
                 presentation.timeline.takeLast(profile.visibleEventLimit).forEach {
@@ -253,6 +264,15 @@ class GameTurnOrchestrator(
             if (context.availableActions.isNotEmpty()) {
                 add(CommandPermission.APPLY_ACTION_OUTCOME)
                 if (context.availableActions.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
+            }
+            if (context.worldTimeMinutes != null) add(CommandPermission.ADVANCE_WORLD_TIME)
+            if (context.availableActivities.isNotEmpty()) {
+                add(CommandPermission.PERFORM_ACTIVITY)
+                if (context.availableActivities.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
+            }
+            if (context.availableTravelRoutes.isNotEmpty()) {
+                add(CommandPermission.TRAVEL)
+                if (context.availableTravelRoutes.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
             }
         }
         return AgentIdentity(AgentId("worldloom.agent.gm"), ActorId("worldloom.actor.gm"), permissions)

@@ -14,6 +14,7 @@ import io.worldloom.rules.module.api.RuleModuleDescriptor
 private val VERSION_1 = ModuleVersion(1, 0, 0)
 private val VERSION_2 = ModuleVersion(2, 0, 0)
 private val NUMERIC_STATE_ID = DefinitionId("worldloom.core.numeric-state")
+private val WORLD_TIME_ID = DefinitionId("worldloom.rules.world-time")
 
 object StandardRuleModules {
     val numericState: RuleModule = descriptorModule(
@@ -57,7 +58,52 @@ object StandardRuleModules {
         ),
     )
 
-    val all: List<RuleModule> = listOf(numericState, randomCheck, deterministicCheck)
+    val worldTime: RuleModule = descriptorModule(
+        id = WORLD_TIME_ID,
+        capabilities = listOf(
+            capability("worldloom.schema.world-time", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.time.advance", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.time-advanced", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.time.advance", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.world-time", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val activity: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.activity"),
+        dependencies = listOf(
+            ModuleDependency(WORLD_TIME_ID, VERSION_1, VERSION_2),
+            ModuleDependency(NUMERIC_STATE_ID, VERSION_1, VERSION_2),
+        ),
+        capabilities = listOf(
+            capability("worldloom.schema.activity", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.activity.perform", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.activity-completed", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.activity.perform", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.activity", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val travel: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.travel"),
+        dependencies = listOf(ModuleDependency(WORLD_TIME_ID, VERSION_1, VERSION_2)),
+        capabilities = listOf(
+            capability("worldloom.schema.travel-route", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.travel.perform", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.travel-completed", RuleCapabilityKind.EVENT),
+            capability("worldloom.tool.travel.perform", RuleCapabilityKind.TOOL),
+            capability("worldloom.projection.travel-route", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
+    val all: List<RuleModule> = listOf(
+        numericState,
+        randomCheck,
+        deterministicCheck,
+        worldTime,
+        activity,
+        travel,
+    )
 
     fun registry(): RuleModuleRegistry = RuleModuleRegistry(all)
 

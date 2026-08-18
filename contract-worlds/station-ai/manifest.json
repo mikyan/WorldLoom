@@ -26,6 +26,33 @@
                 "patch": 0
             },
             "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.world-time",
+            "version": {
+                "major": 1,
+                "minor": 0,
+                "patch": 0
+            },
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.activity",
+            "version": {
+                "major": 1,
+                "minor": 0,
+                "patch": 0
+            },
+            "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.travel",
+            "version": {
+                "major": 1,
+                "minor": 0,
+                "patch": 0
+            },
+            "parameters": {}
         }
     ],
     "playableContractPath": "playable-world.json"

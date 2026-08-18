@@ -25,6 +25,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.shared.definitionRuntime)
+            api(projects.shared.domainRules)
             api(projects.shared.ruleModuleRegistry)
             api(projects.shared.contentSchema)
             implementation(projects.shared.behaviorRuntime)

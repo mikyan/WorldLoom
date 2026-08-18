@@ -27,6 +27,9 @@ import kotlinx.serialization.json.put
 val NUMERIC_ADJUST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.numeric.adjust")
 val RESOLVE_CHECK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.check.resolve")
 val PERFORM_ACTION_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.action.perform")
+val ADVANCE_TIME_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.time.advance")
+val PERFORM_ACTIVITY_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.activity.perform")
+val TRAVEL_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.travel.perform")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -181,6 +184,21 @@ class DefaultAgentToolGateway(
                 selectedOutcomeId = call.optionalString("outcomeId")?.let(::DefinitionId),
             )
 
+            ADVANCE_TIME_TOOL_ID.value -> GameSessionCommand.AdvanceWorldTime(
+                deltaMinutes = call.requireLong("deltaMinutes"),
+            )
+
+            PERFORM_ACTIVITY_TOOL_ID.value -> GameSessionCommand.PerformActivity(
+                activityId = DefinitionId(call.requireString("activityId")),
+                selectedOutcomeId = call.optionalString("outcomeId")?.let(::DefinitionId),
+                interrupted = call.optionalBoolean("interrupted") ?: false,
+            )
+
+            TRAVEL_TOOL_ID.value -> GameSessionCommand.Travel(
+                routeId = DefinitionId(call.requireString("routeId")),
+                selectedOutcomeId = call.optionalString("outcomeId")?.let(::DefinitionId),
+            )
+
             else -> return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
@@ -244,6 +262,7 @@ class DefaultAgentToolGateway(
                     }
                 })
                 presentation.timeline.lastOrNull()?.let { event -> put("latestEvent", event.summary) }
+                presentation.worldTimeMinutes?.let { minute -> put("worldTimeMinutes", minute) }
             }
             if (publicFollowUps.isNotEmpty()) {
                 put("foregroundResults", buildJsonArray {
@@ -267,6 +286,10 @@ private data class StandardAgentTool(
 ) {
     fun enabled(context: SessionCommandContext): Boolean = if (capabilityId == PERFORM_ACTION_TOOL_ID) {
         context.availableActions.isNotEmpty()
+    } else if (capabilityId == PERFORM_ACTIVITY_TOOL_ID) {
+        context.availableActivities.isNotEmpty()
+    } else if (capabilityId == TRAVEL_TOOL_ID) {
+        context.availableTravelRoutes.isNotEmpty()
     } else {
         enabledByManifest(context.modules)
     }
@@ -305,6 +328,45 @@ private data class StandardAgentTool(
                     )
                     "outcomeId" -> parameter.copy(
                         allowedValues = context.availableActions
+                            .filter { !it.requiresCheck }
+                            .flatMap { it.outcomeIds }
+                            .map { it.value }
+                            .distinct()
+                            .sorted(),
+                    )
+                    else -> parameter
+                }
+            },
+        )
+
+        PERFORM_ACTIVITY_TOOL_ID -> definition.copy(
+            parameters = definition.parameters.map { parameter ->
+                when (parameter.name) {
+                    "activityId" -> parameter.copy(
+                        allowedValues = context.availableActivities.map { it.activityId.value }.distinct().sorted(),
+                    )
+                    "outcomeId" -> parameter.copy(
+                        allowedValues = context.availableActivities
+                            .filter { !it.requiresCheck }
+                            .flatMap { it.outcomeIds }
+                            .plus(context.availableActivities.mapNotNull { it.interruptionOutcomeId })
+                            .map { it.value }
+                            .distinct()
+                            .sorted(),
+                    )
+                    else -> parameter
+                }
+            },
+        )
+
+        TRAVEL_TOOL_ID -> definition.copy(
+            parameters = definition.parameters.map { parameter ->
+                when (parameter.name) {
+                    "routeId" -> parameter.copy(
+                        allowedValues = context.availableTravelRoutes.map { it.routeId.value }.distinct().sorted(),
+                    )
+                    "outcomeId" -> parameter.copy(
+                        allowedValues = context.availableTravelRoutes
                             .filter { !it.requiresCheck }
                             .flatMap { it.outcomeIds }
                             .map { it.value }
@@ -376,6 +438,61 @@ private object StandardAgentTools {
             capabilityId = PERFORM_ACTION_TOOL_ID,
             permission = CommandPermission.APPLY_ACTION_OUTCOME,
         ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = ADVANCE_TIME_TOOL_ID.value,
+                description = "Advance explicit auditable world time for waiting or another narrated reason.",
+                parameters = listOf(
+                    ProviderToolParameter(
+                        name = "deltaMinutes",
+                        description = "Positive number of world minutes to advance (maximum 525600).",
+                        type = ProviderToolValueType.INTEGER,
+                    ),
+                ),
+            ),
+            capabilityId = ADVANCE_TIME_TOOL_ID,
+            permission = CommandPermission.ADVANCE_WORLD_TIME,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = PERFORM_ACTIVITY_TOOL_ID.value,
+                description = "Perform one activity available in the current scene, including time, cost, and outcome.",
+                parameters = listOf(
+                    stringParameter("activityId", "Activity identifier exposed in the current scene."),
+                    ProviderToolParameter(
+                        name = "outcomeId",
+                        description = "Configured outcome for an unchecked activity; omit when a check decides it.",
+                        type = ProviderToolValueType.STRING,
+                        required = false,
+                    ),
+                    ProviderToolParameter(
+                        name = "interrupted",
+                        description = "True to resolve the configured interruption outcome and elapsed time.",
+                        type = ProviderToolValueType.BOOLEAN,
+                        required = false,
+                    ),
+                ),
+            ),
+            capabilityId = PERFORM_ACTIVITY_TOOL_ID,
+            permission = CommandPermission.PERFORM_ACTIVITY,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = TRAVEL_TOOL_ID.value,
+                description = "Travel along one route available from the current scene.",
+                parameters = listOf(
+                    stringParameter("routeId", "Travel route exposed from the current scene."),
+                    ProviderToolParameter(
+                        name = "outcomeId",
+                        description = "Configured outcome for unchecked travel; omit when a check decides it.",
+                        type = ProviderToolValueType.STRING,
+                        required = false,
+                    ),
+                ),
+            ),
+            capabilityId = TRAVEL_TOOL_ID,
+            permission = CommandPermission.TRAVEL,
+        ),
     )
 
     private fun stringParameter(
@@ -421,6 +538,9 @@ private fun ProviderToolCall.optionalLong(name: String): Long? =
 private fun ProviderToolCall.optionalString(name: String): String? =
     (arguments[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 
+private fun ProviderToolCall.optionalBoolean(name: String): Boolean? =
+    (arguments[name] as? JsonPrimitive)?.booleanOrNull
+
 private fun validateIdentifiers(
     call: ProviderToolCall,
     context: SessionCommandContext,
@@ -449,6 +569,43 @@ private fun validateIdentifiers(
                 if (action.requiresCheck && outcomeId != null) return "Checked actions derive their outcome from the audit record"
                 if (!action.requiresCheck && outcomeId != null && outcomeId !in action.outcomeIds) {
                     return "Tool outcome is not configured for the selected action"
+                }
+            }
+
+            ADVANCE_TIME_TOOL_ID.value -> {
+                val delta = call.requireLong("deltaMinutes")
+                if (delta !in 1..525_600) return "World time delta is outside the supported range"
+            }
+
+            PERFORM_ACTIVITY_TOOL_ID.value -> {
+                val activityId = DefinitionId(call.requireString("activityId"))
+                val activity = context.availableActivities.firstOrNull { it.activityId == activityId }
+                    ?: return "Tool activity is not available in the current scene"
+                val outcomeId = call.optionalString("outcomeId")?.let(::DefinitionId)
+                val interrupted = call.optionalBoolean("interrupted") ?: false
+                if (interrupted && activity.interruptionOutcomeId == null) return "Selected activity cannot be interrupted"
+                if (interrupted && outcomeId != null && outcomeId != activity.interruptionOutcomeId) {
+                    return "Interrupted activity must use its configured interruption outcome"
+                }
+                if (!interrupted && activity.requiresCheck && outcomeId != null) {
+                    return "Checked activities derive their outcome from the audit record"
+                }
+                if (!interrupted && outcomeId != null && outcomeId == activity.interruptionOutcomeId) {
+                    return "Interruption outcome requires interrupted=true"
+                }
+                if (!interrupted && !activity.requiresCheck && outcomeId != null && outcomeId !in activity.outcomeIds) {
+                    return "Tool outcome is not configured for the selected activity"
+                }
+            }
+
+            TRAVEL_TOOL_ID.value -> {
+                val routeId = DefinitionId(call.requireString("routeId"))
+                val route = context.availableTravelRoutes.firstOrNull { it.routeId == routeId }
+                    ?: return "Tool route is not available from the current scene"
+                val outcomeId = call.optionalString("outcomeId")?.let(::DefinitionId)
+                if (route.requiresCheck && outcomeId != null) return "Checked travel derives its outcome from the audit record"
+                if (!route.requiresCheck && outcomeId != null && outcomeId !in route.outcomeIds) {
+                    return "Tool outcome is not configured for the selected route"
                 }
             }
         }

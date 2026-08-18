@@ -25,6 +25,9 @@ import io.worldloom.rules.module.api.WorldManifest
 import io.worldloom.rules.module.api.WorldModuleSelection
 import io.worldloom.rules.module.registry.ModuleRegistrationResult
 import io.worldloom.rules.module.registry.StandardRuleModules
+import io.worldloom.rules.ActivityDefinition
+import io.worldloom.rules.ActivityResolutionDefinition
+import io.worldloom.rules.TemporalAdventureDefinition
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,6 +35,31 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PlayableWorldContractTest {
+    @Test
+    fun temporalConfigurationRejectsUnknownScenesAndMissingModuleDeclarations() {
+        val fixture = fixture()
+        val invalid = fixture.contract.copy(
+            temporal = TemporalAdventureDefinition(
+                activities = listOf(
+                    ActivityDefinition(
+                        id = id("test.activity.wait"),
+                        label = "Wait",
+                        durationMinutes = 30,
+                        availableSceneIds = listOf(id("test.scene.missing")),
+                        resolutions = listOf(ActivityResolutionDefinition(id("worldloom.outcome.complete"))),
+                    ),
+                ),
+            ),
+        )
+
+        val problems = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(invalid, fixture.definition, fixture.modules, emptyMap()),
+        ).problems
+
+        assertTrue(problems.any { it.code == PlayableWorldProblemCode.TEMPORAL_INVALID && it.path.contains("availableSceneIds") })
+        assertTrue(problems.any { it.code == PlayableWorldProblemCode.REQUIRED_MODULE_MISSING })
+    }
+
     @Test
     fun validContractSimulatesSuccessAndFailureEndings() {
         val fixture = fixture()

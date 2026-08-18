@@ -8,6 +8,11 @@ import io.worldloom.rules.DiceRandomRequest
 import io.worldloom.rules.RANDOM_ALGORITHM_VERSION
 import io.worldloom.rules.RandomRecord
 import io.worldloom.rules.RandomRecordId
+import io.worldloom.rules.ActivityCompletedEvent
+import io.worldloom.rules.ScheduledTriggerFiredEvent
+import io.worldloom.rules.TravelCompletedEvent
+import io.worldloom.rules.TravelStartedEvent
+import io.worldloom.rules.WorldTimeAdvancedEvent
 import io.worldloom.world.CommandId
 import io.worldloom.world.CURRENT_EVENT_SCHEMA_VERSION
 import io.worldloom.world.EventEnvelope
@@ -19,6 +24,47 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class PersistenceCodecTest {
+    @Test
+    fun roundTripsEveryTemporalAuditEvent() {
+        val payloads = listOf(
+            WorldTimeAdvancedEvent(previousMinute = 10, deltaMinutes = 20, minute = 30, reasonId = DefinitionId("test.reason")),
+            ActivityCompletedEvent(
+                activityId = DefinitionId("test.activity"),
+                outcomeId = DefinitionId("test.outcome"),
+                durationMinutes = 20,
+            ),
+            TravelStartedEvent(
+                routeId = DefinitionId("test.route"),
+                fromSceneId = DefinitionId("test.scene.a"),
+                toSceneId = DefinitionId("test.scene.b"),
+            ),
+            TravelCompletedEvent(
+                routeId = DefinitionId("test.route"),
+                outcomeId = DefinitionId("test.outcome"),
+                arrived = true,
+            ),
+            ScheduledTriggerFiredEvent(triggerId = DefinitionId("test.trigger"), scheduledMinute = 30),
+        )
+
+        payloads.forEachIndexed { index, payload ->
+            val event = EventEnvelope(
+                schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+                eventId = EventId("event.temporal.$index"),
+                runId = RunId("run.temporal"),
+                sequence = index + 1L,
+                causationId = CommandId("command.temporal"),
+                correlationId = "command.temporal",
+                payload = payload,
+            )
+            assertEquals(
+                event,
+                assertIs<PersistenceDecodeResult.Success<EventEnvelope>>(
+                    PersistenceCodec.decodeEvent(PersistenceCodec.encodeEvent(event)),
+                ).value,
+            )
+        }
+    }
+
     @Test
     fun roundTripsPolymorphicCheckEventAndGenericState() {
         val runId = RunId("run.codec")

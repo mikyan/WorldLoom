@@ -29,6 +29,73 @@ import kotlin.test.assertTrue
 
 class ContractAgentToolTest {
     @Test
+    fun gmTemporalToolsExposeOnlyCurrentOptionsAndCommitWorldTime() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(listOf(loadPackage("station-ai"))),
+        ).catalog
+        val session = DefaultGameSession(
+            catalog = catalog,
+            idSource = SequentialSessionIdSource("temporal-tools"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        assertIs<LoadResult.Success>(session.load(DefinitionId("contract.station-ai")))
+        assertIs<io.worldloom.application.ActionResult.Success>(session.confirmCharacter())
+        val identity = AgentIdentity(
+            AgentId("agent.gm.temporal"),
+            ActorId("gm.temporal"),
+            setOf(
+                CommandPermission.ADVANCE_WORLD_TIME,
+                CommandPermission.PERFORM_ACTIVITY,
+                CommandPermission.TRAVEL,
+                CommandPermission.RESOLVE_CHECK,
+            ),
+        )
+        val gateway = DefaultAgentToolGateway(session)
+        val tools = gateway.availableTools(identity).associateBy { it.name }
+
+        assertEquals(
+            setOf(
+                ADVANCE_TIME_TOOL_ID.value,
+                PERFORM_ACTIVITY_TOOL_ID.value,
+                TRAVEL_TOOL_ID.value,
+                RESOLVE_CHECK_TOOL_ID.value,
+            ),
+            tools.keys,
+        )
+        assertEquals(
+            listOf("station.travel.core-to-relay"),
+            tools.getValue(TRAVEL_TOOL_ID.value).parameters
+                .single { it.name == "routeId" }
+                .allowedValues,
+        )
+        val advanced = assertIs<ToolInvocationResult.Success>(
+            gateway.invoke(
+                identity,
+                ProviderToolCall(
+                    "wait-call",
+                    ADVANCE_TIME_TOOL_ID.value,
+                    JsonObject(mapOf("deltaMinutes" to JsonPrimitive(30))),
+                ),
+            ),
+        )
+        assertTrue(advanced.output.contains("\"worldTimeMinutes\":30"))
+
+        assertIs<ToolInvocationResult.Success>(
+            gateway.invoke(
+                identity,
+                ProviderToolCall(
+                    "travel-call",
+                    TRAVEL_TOOL_ID.value,
+                    JsonObject(mapOf("routeId" to JsonPrimitive("station.travel.core-to-relay"))),
+                ),
+            ),
+        )
+        val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
+        assertEquals(50, ready.presentation.worldTimeMinutes)
+        assertEquals("station.scene.relay", ready.presentation.scene?.id?.value)
+    }
+
+    @Test
     fun bothContractWorldsUseTheSameAgentToolRuntime() = runTest {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(

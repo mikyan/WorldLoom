@@ -17,6 +17,39 @@ import kotlin.test.assertTrue
 
 class RuleModuleRegistryTest {
     @Test
+    fun temporalModulesPublishToolsOnlyWhenDependenciesAreSelected() {
+        val selected = manifest(randomModuleSelection()).copy(
+            modules = listOf(
+                WorldModuleSelection(
+                    DefinitionId("worldloom.core.numeric-state"),
+                    ModuleVersion(1, 0, 0),
+                    mapOf(DefinitionId("worldloom.parameter.direct-adjustment") to BooleanValue(true)),
+                ),
+                WorldModuleSelection(DefinitionId("worldloom.rules.world-time"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.activity"), ModuleVersion(1, 0, 0)),
+                WorldModuleSelection(DefinitionId("worldloom.rules.travel"), ModuleVersion(1, 0, 0)),
+            ),
+        )
+        val result = assertIs<ModuleRegistrationResult.Success>(StandardRuleModules.registry().register(selected))
+
+        assertEquals(
+            setOf(
+                "worldloom.tool.numeric.adjust",
+                "worldloom.tool.time.advance",
+                "worldloom.tool.activity.perform",
+                "worldloom.tool.travel.perform",
+            ),
+            result.modules.capabilities(RuleCapabilityKind.TOOL).map { it.id.value }.toSet(),
+        )
+
+        val missingTime = selected.copy(modules = selected.modules.filterNot { it.id.value == "worldloom.rules.world-time" })
+        assertTrue(
+            assertIs<ModuleRegistrationResult.Failure>(StandardRuleModules.registry().register(missingTime))
+                .problems.any { it.code == ModuleRegistrationProblemCode.DEPENDENCY_MISSING },
+        )
+    }
+
+    @Test
     fun registersOnlyCapabilitiesFromExplicitlySelectedModules() {
         val result = assertIs<ModuleRegistrationResult.Success>(
             StandardRuleModules.registry().register(manifest(randomModuleSelection())),

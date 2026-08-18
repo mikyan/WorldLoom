@@ -69,6 +69,9 @@ enum class CommandPermission {
     MANAGE_RUN_LIFECYCLE,
     CREATE_PLAYER_CHARACTER,
     APPLY_ACTION_OUTCOME,
+    ADVANCE_WORLD_TIME,
+    PERFORM_ACTIVITY,
+    TRAVEL,
 }
 
 data class CommandAuthorization(

@@ -1,11 +1,11 @@
-# Worldloom 十八轮迭代执行与验收记录
+# Worldloom 十九轮迭代执行与验收记录
 
 文档状态：Implemented 2.3<br>
 更新日期：2026-08-18
 
 ## 1. 目的与完成标准
 
-本记录把项目初始化后的十八个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
+本记录把项目初始化后的十九个增量收敛为可重复验收的工程基线。每轮必须提供真实端到端行为、防回归测试和与风险相称的平台编译，不能以空模块或未调用接口代替完成。
 
 所有世界事实变化继续遵守：
 
@@ -44,6 +44,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 | 16. 可玩世界契约 | 增加 `worldloom.playable-world/v1`、静态引用/模块/失败推进/可达性校验、确定性黄金路线和 application driver 审计接口；战争与空间站夹具共用加载路径 | 缺失入口、悬空引用、不可达结局、缺少失败、未启用模块、未记录随机事实、跨题材加载和 Tool/Command/Event/replay 回执测试 |
 | 17. Run 与角色创建 | 增加版本化 Run 生命周期、Profile 驱动共享建角 UI、权威创建 Command/Event 批次和独立 SQLDelight 草稿恢复；战争固定角色与空间站点数分配共用 Coordinator | 合法转换、类型/边界/权限、原子创建、回放、重复确认、追加失败、退出恢复、旧 Run 兼容和三端编译 |
 | 18. 主持人与游戏回合 | 增加 Run 隔离的 GM Session/Profile、可见上下文投影、持久化幂等 GameTurn、动态场景行动 Tool、原子检定/场景/目标/结局事件、前台 Behavior/NPC 公开结果聚合，以及由叙事、当前场景、输入和快捷行动组成的游玩页 | Fake GM 覆盖澄清、动态工具、多事件裁决、非法行动、重复 TurnId、Provider 断线后部分事实恢复、公开跟进聚合、数据库重建和跨平台编译 |
+| 19. 时间、活动与旅行 | 增加可选 world-time/activity/travel 模块、显式时间 Command/Event/Reducer、场景前置活动、成本/收益与中断、风险路线、计划触发器、动态主持人工具和共享 UI 投影 | 边界、并发等待、跨日单次触发、活动中断、旅行场景切换、原子追加失败后不重掷、序列化、回放和双契约世界测试 |
 
 ## 3. 安全、确定性与兼容约束
 
@@ -55,6 +56,7 @@ Provider、Agent 记忆和内容生成元数据可以各自持久化，但都不
 - 内容生成先校验 Definition、角色配置、规则配置、Behavior 和来源引用，再创建初始状态做快速模拟，最后重新装载生成包；
 - 声明 `playableContractPath` 的世界必须在创建 Run 前通过角色入口、Scene/Action、目标、结局、表现、Behavior、模块和黄金路线验证；旧包不声明时保持兼容但不能标记为可玩；
 - Command、Event、GameState 和既有世界包只做带默认值或新增类型的兼容扩展；数据库通过 `3.sqm` 新增非权威角色草稿表，并通过 `4.sqm` 新增可恢复 GM 回合表，旧 Run 没有生命周期事件时仍按既有 `ACTIVE` 语义恢复。
+- 世界时间只接受显式正向 Command；活动、旅行、计划触发及其数值效果按稳定顺序组成原子 Event 批次。活动/路线 Definition 与 Event 均带默认兼容字段，旧世界不启用 temporal 配置时行为不变；旧 Snapshot 在恢复时只增量初始化缺失的世界时间模块状态。
 
 OpenAI 协议实现参考：[OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Ktor Client SSE](https://ktor.io/docs/client-server-sent-events.html)。
 
@@ -96,4 +98,4 @@ xcodebuild \
 - iOS Keychain 与 Android Keystore 已完成目标源码编译，但仍需要相应系统/真机集成测试；Windows DPAPI 已有本机往返测试；
 - macOS Desktop Keychain 与 Linux Secret Service 尚未实现，当前安全回退只在会话内保存。
 
-下一条竖切实现可选时间、活动与旅行模块，让主持人能够用显式、可审计的世界时间安排等待、休息、搜寻、治疗和跨地点移动。冒险状态模块、Behavior/NPC 场景参与和完整内置剧本随后按可玩闭环推进；自动世界生成扩展继续延后到内置剧本验收稳定之后。
+下一条竖切实现库存、状态、关系、任务与进度钟等冒险状态模块。Behavior/NPC 场景参与和完整内置剧本随后按可玩闭环推进；自动世界生成扩展继续延后到内置剧本验收稳定之后。

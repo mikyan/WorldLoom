@@ -125,6 +125,15 @@ fun WorldloomApp(
                         onAction = { actionId ->
                             scope.launch { session.perform(GameSessionAction.PerformAvailableAction(actionId)) }
                         },
+                        onWait = { minutes ->
+                            scope.launch { session.perform(GameSessionAction.AdvanceWorldTime(minutes)) }
+                        },
+                        onActivity = { activityId ->
+                            scope.launch { session.perform(GameSessionAction.PerformActivity(activityId)) }
+                        },
+                        onTravel = { routeId ->
+                            scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
+                        },
                         agentController = agentController,
                     )
 
@@ -412,6 +421,9 @@ private fun ReadyState(
     onCheck: (io.worldloom.definition.DefinitionId) -> Unit,
     onReplay: () -> Unit,
     onAction: (io.worldloom.definition.DefinitionId) -> Unit,
+    onWait: (Long) -> Unit,
+    onActivity: (io.worldloom.definition.DefinitionId) -> Unit,
+    onTravel: (io.worldloom.definition.DefinitionId) -> Unit,
     agentController: GameAgentController?,
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -448,6 +460,39 @@ private fun ReadyState(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(scene.actions, key = { it.id.value }) { action ->
                             Button(onClick = { onAction(action.id) }) { Text(action.label) }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (presentation.worldTimeMinutes != null || presentation.activities.isNotEmpty() || presentation.travelRoutes.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        presentation.worldTimeMinutes?.let { Text("世界时间 · 第 $it 分钟", fontWeight = FontWeight.SemiBold) }
+                        Spacer(Modifier.weight(1f))
+                        if (presentation.worldTimeMinutes != null) Button(onClick = { onWait(60) }) { Text("等待 1 小时") }
+                    }
+                    if (presentation.activities.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(presentation.activities, key = { it.id.value }) { activity ->
+                                Button(onClick = { onActivity(activity.id) }) {
+                                    Text("${activity.label} · ${activity.durationMinutes} 分钟")
+                                }
+                            }
+                        }
+                    }
+                    if (presentation.travelRoutes.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(presentation.travelRoutes, key = { it.id.value }) { route ->
+                                Button(onClick = { onTravel(route.id) }) {
+                                    Text("${route.label} · ${route.durationMinutes} 分钟")
+                                }
+                            }
                         }
                     }
                 }

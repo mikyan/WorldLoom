@@ -13,6 +13,12 @@ import io.worldloom.definition.CheckResolutionMode
 import io.worldloom.definition.DefinitionId
 import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.rules.module.api.RegisteredWorldModules
+import io.worldloom.rules.ACTIVITY_MODULE_ID
+import io.worldloom.rules.TemporalAdventureDefinition
+import io.worldloom.rules.TemporalAdventureDefinitionValidator
+import io.worldloom.rules.TemporalDefinitionValidationResult
+import io.worldloom.rules.TRAVEL_MODULE_ID
+import io.worldloom.rules.WORLD_TIME_MODULE_ID
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -111,6 +117,7 @@ data class PlayableWorldContract(
     val objectives: List<PlayableObjective>,
     val endings: List<PlayableEnding>,
     val presentationIds: List<DefinitionId>,
+    val temporal: TemporalAdventureDefinition? = null,
     val behaviors: List<PlayableBehaviorReference> = emptyList(),
     val goldenRoutes: List<PlayableRouteFixture>,
 )
@@ -177,6 +184,7 @@ enum class PlayableWorldProblemCode {
     ROUTE_OUTCOME_UNKNOWN,
     ROUTE_RANDOM_RECORD_INVALID,
     ROUTE_ENDING_MISMATCH,
+    TEMPORAL_INVALID,
 }
 
 data class PlayableWorldProblem(
@@ -280,6 +288,7 @@ object PlayableWorldValidator {
             )
         }
         validateScenes(contract, definition, scenes, actions, problems)
+        validateTemporal(contract, definition, scenes.keys, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
         validateBehaviors(contract, definition, entries, problems)
@@ -413,6 +422,39 @@ object PlayableWorldValidator {
             }
         }
         duplicateIds(contract.requiredModuleIds, "requiredModuleIds", problems)
+        contract.temporal?.let { temporal ->
+            val required = buildList {
+                add(WORLD_TIME_MODULE_ID)
+                if (temporal.activities.isNotEmpty()) add(ACTIVITY_MODULE_ID)
+                if (temporal.routes.isNotEmpty()) add(TRAVEL_MODULE_ID)
+            }
+            required.filterNot(contract.requiredModuleIds::contains).forEach { moduleId ->
+                problems += problem(
+                    PlayableWorldProblemCode.REQUIRED_MODULE_MISSING,
+                    "requiredModuleIds",
+                    "Temporal configuration must declare module: $moduleId",
+                )
+            }
+        }
+    }
+
+    private fun validateTemporal(
+        contract: PlayableWorldContract,
+        definition: ValidatedWorldDefinition,
+        sceneIds: Set<DefinitionId>,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        val temporal = contract.temporal ?: return
+        when (val validation = TemporalAdventureDefinitionValidator.validate(temporal, definition, sceneIds)) {
+            TemporalDefinitionValidationResult.Valid -> Unit
+            is TemporalDefinitionValidationResult.Invalid -> validation.problems.forEach { temporalProblem ->
+                problems += problem(
+                    PlayableWorldProblemCode.TEMPORAL_INVALID,
+                    "temporal.${temporalProblem.path}",
+                    temporalProblem.message,
+                )
+            }
+        }
     }
 
     private fun validateLabels(

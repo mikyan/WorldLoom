@@ -14,6 +14,11 @@ import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.application.CharacterCreationDraft
 import io.worldloom.agent.runtime.GameTurn
+import io.worldloom.rules.ActivityCompletedEvent
+import io.worldloom.rules.ScheduledTriggerFiredEvent
+import io.worldloom.rules.TravelCompletedEvent
+import io.worldloom.rules.TravelStartedEvent
+import io.worldloom.rules.WorldTimeAdvancedEvent
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -46,6 +51,11 @@ object PersistenceCodec {
                 subclass(ActionOutcomeAppliedEvent::class)
                 subclass(PlayerExitedSceneEvent::class)
                 subclass(PlayerEnteredSceneEvent::class)
+                subclass(WorldTimeAdvancedEvent::class)
+                subclass(ActivityCompletedEvent::class)
+                subclass(TravelStartedEvent::class)
+                subclass(TravelCompletedEvent::class)
+                subclass(ScheduledTriggerFiredEvent::class)
             }
         }
         classDiscriminator = "kind"

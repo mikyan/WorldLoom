@@ -706,7 +706,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成十八轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成十九轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -714,11 +714,15 @@ platform/
 
 `ACTIVE` Run 由 `GameTurnOrchestrator` 编排主持人回合。版本化 `GameTurn` 以 `RunId + TurnId` 幂等持久化，主持人身份与 Session 均按 Run 稳定隔离；`GmContextProjector` 只投影玩家可见 Presentation、当前 Scene、公开参与者、可用行动、公开事件和预算。行动 Tool Schema 随场景收窄，客观结果统一进入 `ApplyActionOutcomeCommand`，由 WorldEngine 原子产生判定、行动结果、场景退出/进入、参与者投影、目标和结局事件。缺失选择使用显式澄清协议且不写事实；中断重试不会重复调用模型或工具，已提交事实通过 EventLog 保留并在回合记录中标记。
 
+世界可以显式启用 `world-time`、`activity` 与 `travel` 模块。世界时间以分钟整数保存在模块状态中，只能由类型化 Command 推进；等待、活动耗时、旅行耗时和到期计划全部生成版本化 Event，不读取系统时钟裁决游戏事实。活动通过场景列表表达前置条件，通过结果 Effect 表达成本与收益，并可配置独立的中断结果和已消耗时间；旅行通过有向路线表达起点、终点、风险结果、额外耗时、受阻或抵达后的场景切换。跨越计划时刻时，触发事件与效果和本次行动作为一个原子批次提交，已触发 ID 随世界时间投影保存，因此恢复和重放不会重复触发。
+
+主持人可用的 `time.advance`、`activity.perform` 与 `travel.perform` Tool Schema 只列出当前场景有效选项。需要检定的活动或旅行仍先写入 `CheckResolvedEvent` 与 `RandomRecord`，再与时间和效果事件原子追加；如果追加失败，Runtime 根据已提交随机记录恢复随机服务位置，重试不会因为未落盘的抽取而换一个结果。共享 UI 与 Presentation 只显示世界时间、可用活动、路线和事件摘要，不读取世界私有字段。
+
 平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。共享 Runtime 已支持安全路径、CRC、大小限制和重复项检查的 `.worldloom` v1 STORED ZIP 容器、版本化 Behavior AST/Command 白名单、四种角色创建模式、RuleProfile，以及 Brief/TXT/EPUB 到可加载世界包的分阶段生成。Desktop 与 Android 的 EPUB 平台读取支持压缩条目和 GB18030；iOS 公共生成逻辑已编译，平台文件选择与压缩 EPUB/GB18030 桥接仍待接入。包签名、Anthropic Adapter、持久化生成任务实现和语音仍属于后续增量。
 
-工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，十八轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，十九轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
 
-从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七轮补齐正式建角入口，第十八轮由主持人回合接管 `ACTIVE` Run；下一阶段继续补充时间、活动、旅行和冒险状态模块。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
+从第十六轮开始，产品验收顺序调整为“先证明人工编写的内置世界可从开局玩到结局，再扩展识别和自动生成”。第十七轮补齐正式建角入口，第十八轮由主持人回合接管 `ACTIVE` Run，第十九轮加入时间、活动、旅行和计划触发；下一阶段继续补充库存、状态、关系、任务与进度钟。`playable-world/v1` 是后续生成器必须满足的可玩性目标，而不是由生成流程反向决定 Runtime 结构。
 
 ## 8. 世界包格式
 
