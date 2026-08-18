@@ -1,7 +1,7 @@
 # Worldloom 项目初始化设计
 
-文档状态：In Progress 0.2<br>
-更新日期：2026-08-17
+文档状态：Completed 1.0<br>
+更新日期：2026-08-18
 
 ## 1. 文档目的
 
@@ -15,7 +15,7 @@
 
 如果初始化实现与上述文档冲突，以 Accepted ADR 为最高优先级。本文不改变既有架构决策，只把下一阶段收敛为可验收的工程范围。
 
-当前实现已建立本文定义的 Gradle/KMP 基座、权威世界竖切、双题材契约夹具、application session、共享 Compose UI 与三个平台入口。Desktop 和 Android 已在 Windows 完成编译验证；iOS 宿主需要由 macOS CI 或开发机完成最终验证。
+当前实现已完成本文定义的 Gradle/KMP 基座、权威世界竖切、双题材契约夹具、application session、共享 Compose UI 与三个平台入口。在该初始化增量之后，仓库又按[五轮迭代执行记录](ITERATION_EXECUTION.md)加入规则模块、可审计判定、SQLDelight、Agent、Provider 与安全凭据能力。Windows 已验证 Desktop、Android 和 iOS Simulator Kotlin 编译；Xcode 宿主仍由 macOS CI 或开发机验证。
 
 ## 2. 初始化目标
 
@@ -34,7 +34,7 @@
 
 ## 3. 非目标
 
-以下内容不属于初始化增量：
+以下内容不属于“首个初始化增量”。其中规则模块、Agent、SQLDelight、OpenAI Provider 与平台凭据保险箱已经由后续五轮迭代实现；其余条目仍是当前非目标：
 
 - 接入真实模型 Provider、Agent Loop、Tool Gateway 或上下文压缩；
 - 实现 SQLDelight 数据库、正式存档、迁移和崩溃恢复；
@@ -87,8 +87,17 @@ WorldLoom/
 ├── shared/
 │   ├── definition-runtime/         # DefinitionId、TypedValue 与定义校验
 │   ├── domain-world/               # Command、Event、State、Engine、Reducer
+│   ├── domain-rules/               # Check 与可审计 RandomRecord
+│   ├── rule-module-api/             # 稳定规则模块契约
+│   ├── rule-module-registry/        # manifest 驱动能力解析
+│   ├── persistence/                 # SQLDelight EventLog 与 Snapshot
+│   ├── provider-api/                # 供应商中立模型边界
+│   ├── provider-openai/             # Chat Completions Adapter
+│   ├── agent-runtime/               # Agent Loop、Session 与 Tool Gateway
 │   ├── application/                # 用例、状态流与运行会话编排
 │   └── ui-game/                    # 共享 Compose 壳与只读投影 UI
+├── platform/
+│   └── secure-vault/                # Keystore、Keychain、Windows DPAPI
 ├── contract-worlds/
 │   ├── war-survival/               # 测试用最小世界配置
 │   └── station-ai/                 # 跨题材测试用最小世界配置
@@ -105,7 +114,7 @@ WorldLoom/
 
 `contract-worlds/` 是测试夹具和开发演示数据，不发布为独立 Gradle 模块。其文件通过测试资源或应用开发资源加载，不允许被 `domain-world` 的生产代码反向依赖。
 
-首期暂不创建 `rule-module-api`、`rule-module-registry`、`provider-api`、`persistence` 和 `platform/*`。当下一条竖切首次需要对应能力时再引入，并同时增加依赖边界测试。完整目标结构仍以 `DESIGN.md` 第 7 节为准。
+初始化增量当时没有创建无使用者模块；后续迭代在真实竖切首次需要时依次加入了 `rule-module-api`、`rule-module-registry`、`persistence`、`provider-api`、`provider-openai`、`agent-runtime` 与 `platform:secure-vault`。完整目标结构仍以 `DESIGN.md` 第 7 节为准。
 
 ### 5.1 Gradle 模块标识
 
@@ -115,6 +124,14 @@ WorldLoom/
 |---|---|---|
 | `:shared:definition-runtime` | Kotlin Multiplatform Library | 纯 Kotlin 定义模型 |
 | `:shared:domain-world` | Kotlin Multiplatform Library | 纯 Kotlin 领域与 Runtime 核心 |
+| `:shared:domain-rules` | Kotlin Multiplatform Library | 判定与随机审计 |
+| `:shared:rule-module-api` | Kotlin Multiplatform Library | 规则模块公共契约 |
+| `:shared:rule-module-registry` | Kotlin Multiplatform Library | manifest 解析与能力注册 |
+| `:shared:persistence` | Kotlin Multiplatform Library | SQLDelight 持久化 |
+| `:shared:provider-api` | Kotlin Multiplatform Library | 供应商中立模型 API |
+| `:shared:provider-openai` | Kotlin Multiplatform Library | OpenAI 协议适配器 |
+| `:shared:agent-runtime` | Kotlin Multiplatform Library | Agent Loop 与 Tool Gateway |
+| `:platform:secure-vault` | Kotlin Multiplatform Library | 平台凭据保险箱 |
 | `:shared:application` | Kotlin Multiplatform Library | 跨端用例与 `StateFlow` |
 | `:shared:ui-game` | Compose Multiplatform Library | 共享游戏 UI |
 | `:apps:androidApp` | Android Application | Android 应用 |
@@ -139,7 +156,19 @@ flowchart TD
     Desktop["apps:desktopApp"] --> UI
     iOS["apps/iosApp"] --> UI
     UI --> App["shared:application"]
+    UI --> Agent["shared:agent-runtime"]
+    Android --> OpenAI["shared:provider-openai"]
+    Desktop --> OpenAI
+    iOS --> OpenAI
+    OpenAI --> Provider["shared:provider-api"]
+    OpenAI --> Vault["platform:secure-vault"]
+    Agent --> Provider
+    Agent --> App
     App --> World["shared:domain-world"]
+    App --> Registry["shared:rule-module-registry"]
+    App --> Persistence["shared:persistence"]
+    Registry --> ModuleAPI["shared:rule-module-api"]
+    Persistence --> World
     World --> Def["shared:definition-runtime"]
 ```
 
@@ -338,7 +367,7 @@ PresentationMapper 接收 `PresentationDefinition` 与只读领域投影，输�
 - Compose Multiplatform UI 所需组件；
 - AndroidX 中平台壳实际需要的最小依赖。
 
-测试依赖使用 `kotlin.test` 与协程测试库。Ktor、SQLDelight、DI 框架、日志框架和 Schema 框架在首期没有使用者，因此不加入。
+测试依赖使用 `kotlin.test` 与协程测试库。后续真实使用者已引入 Ktor 3.5.2、SQLDelight 2.3.2 与 JNA 5.19.1；DI、日志和独立 Schema 框架仍未加入。
 
 依赖仓库只在 `settings.gradle.kts` 统一声明，并拒绝子项目私自增加仓库。Wrapper distribution 校验和、依赖验证或等价的供应链校验应与首次可重复构建一起提交。
 
@@ -374,7 +403,7 @@ src/
 
 ### 11.2 Android
 
-Android app 只负责 Application/Activity、窗口边到边配置、生命周期收集和根 Compose 内容。首期不申请网络、存储、麦克风或通知权限。
+Android app 只负责 Application/Activity、生命周期、Provider/Vault 组装和根 Compose 内容。当前自然语言 Provider 使用网络权限；不申请外部存储、麦克风或通知权限。
 
 ### 11.3 iOS
 
@@ -382,7 +411,7 @@ iOS app 由薄 SwiftUI/UIKit 宿主调用共享 Compose `UIViewController`。Xco
 
 ### 11.4 Desktop
 
-Desktop app 提供 JVM 主函数、窗口和开发用退出行为。首期不读取用户目录、不保存密钥，也不生成安装包。Desktop 是本地最快的演示入口，但不能拥有 Android/iOS 不共享的领域逻辑。
+Desktop app 提供 JVM 主函数、窗口、SQLDelight 数据文件和平台凭据组装。Windows 密钥只保存为用户级 DPAPI 密文；其他 Desktop 平台暂用非持久会话回退。Desktop 不能拥有 Android/iOS 不共享的领域逻辑。
 
 ## 12. 测试设计
 
@@ -513,9 +542,11 @@ macOS CI 或开发机额外执行 iOS 模拟器编译与测试。本文不把尚
 - README、`AGENTS.md` 和本设计中的结构与命令已按实际工程同步；
 - 交付记录列明 Android、iOS、Desktop 实际验证结果和未验证项。
 
+以上初始化条件已由当前工程和自动测试满足；唯一平台限制是 Windows 无法执行 Xcode/iOS App 最终链接，CI 中的 macOS `ios-build` 继续承担该门槛。
+
 ## 16. 后续增量入口
 
-初始化完成后，优先选择一条新的最小竖切继续扩展，而不是同时铺开全部模块。建议顺序为：
+初始化完成后的五个建议增量已经按顺序执行：
 
 1. 引入 `rule-module-api` 与 Registry，用两个契约世界验证 manifest 驱动的能力注册；
 2. 引入 RandomService 和可审计 Random Record，完成可重放的通用检定；
@@ -523,7 +554,7 @@ macOS CI 或开发机额外执行 iOS 模拟器编译与测试。本文不把尚
 4. 引入 Provider API、Fake Agent 和最小 Tool Gateway，贯通 Tool→Command→Event；
 5. 最后接入真实 Provider、完整世界包、创作管线和平台安全存储。
 
-每一步都必须继续保留两个契约世界，并在出现新的公共 Schema 或重要不可逆决策时同步更新 `DESIGN.md` 或新增 ADR。
+每一步都继续保留两个契约世界，并同步更新了公共 Schema 与设计基线。具体实现和验收见[五轮迭代执行记录](ITERATION_EXECUTION.md)。下一增量不再由本初始化文档定义。
 
 ## 17. 待实现阶段确认的事项
 

@@ -15,6 +15,7 @@ enum class StateReductionErrorCode {
     PREVIOUS_VALUE_MISMATCH,
     INVALID_EVENT_ARITHMETIC,
     INTEGER_OUT_OF_RANGE,
+    UNSUPPORTED_EVENT_PAYLOAD,
 }
 
 data class StateReductionError(
@@ -29,8 +30,40 @@ sealed interface StateReductionResult {
     data class Failure(val error: StateReductionError) : StateReductionResult
 }
 
-object StateReducer {
+interface EventReducer {
+    fun supports(payload: GameEventPayload): Boolean
+
     fun reduce(
+        state: GameState,
+        definition: ValidatedWorldDefinition,
+        event: EventEnvelope,
+    ): StateReductionResult
+}
+
+class EventReducerChain(
+    private val reducers: List<EventReducer>,
+) : EventReducer {
+    override fun supports(payload: GameEventPayload): Boolean = reducers.any { it.supports(payload) }
+
+    override fun reduce(
+        state: GameState,
+        definition: ValidatedWorldDefinition,
+        event: EventEnvelope,
+    ): StateReductionResult = reducers.firstOrNull { it.supports(event.payload) }
+        ?.reduce(state, definition, event)
+        ?: StateReductionResult.Failure(
+            StateReductionError(
+                StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
+                "payload",
+                "No reducer is registered for the event payload",
+            ),
+        )
+}
+
+object StateReducer : EventReducer {
+    override fun supports(payload: GameEventPayload): Boolean = payload is NumericComponentAdjustedEvent
+
+    override fun reduce(
         state: GameState,
         definition: ValidatedWorldDefinition,
         event: EventEnvelope,
@@ -38,6 +71,11 @@ object StateReducer {
         validateEnvelope(state, event)?.let { return StateReductionResult.Failure(it) }
         return when (val payload = event.payload) {
             is NumericComponentAdjustedEvent -> reduceNumericAdjustment(state, definition, event, payload)
+            else -> failure(
+                StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
+                "payload",
+                "Event payload is not handled by the core world reducer",
+            )
         }
     }
 

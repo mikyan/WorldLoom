@@ -2,7 +2,7 @@ package io.worldloom.definition
 
 import kotlinx.serialization.Serializable
 
-const val CURRENT_WORLD_DEFINITION_SCHEMA_VERSION: Int = 1
+const val CURRENT_WORLD_DEFINITION_SCHEMA_VERSION: Int = 2
 
 @Serializable
 data class FieldDefinition(
@@ -49,11 +49,20 @@ data class PresentationFieldDefinition(
 )
 
 @Serializable
+data class PresentationCheckDefinition(
+    val id: DefinitionId,
+    val checkProfileId: DefinitionId,
+    val label: String,
+)
+
+@Serializable
 data class WorldDefinition(
     val schemaVersion: Int,
     val id: DefinitionId,
     val title: String,
     val components: List<ComponentDefinition>,
     val initialEntities: List<EntitySeed>,
+    val checkProfiles: List<CheckProfileDefinition> = emptyList(),
     val presentation: List<PresentationFieldDefinition>,
+    val presentationChecks: List<PresentationCheckDefinition> = emptyList(),
 )

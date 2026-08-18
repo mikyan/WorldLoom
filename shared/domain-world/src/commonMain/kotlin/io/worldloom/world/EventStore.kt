@@ -8,6 +8,7 @@ enum class EventStoreErrorCode {
     SEQUENCE_CONFLICT,
     INVALID_EVENT_SEQUENCE,
     RUN_MISMATCH,
+    STORAGE_FAILURE,
 }
 
 data class EventStoreError(
@@ -32,6 +33,50 @@ interface EventStore {
         runId: RunId,
         afterSequence: Long = 0,
     ): List<EventEnvelope>
+}
+
+const val CURRENT_SAVE_DATA_SCHEMA_VERSION: Int = 1
+
+data class PersistedRun(
+    val runId: RunId,
+    val worldDefinitionId: io.worldloom.definition.DefinitionId,
+    val snapshot: GameState?,
+    val eventsAfterSnapshot: List<EventEnvelope>,
+)
+
+enum class DurableStoreErrorCode {
+    RUN_NOT_FOUND,
+    RUN_ALREADY_EXISTS,
+    WORLD_MISMATCH,
+    SEQUENCE_CONFLICT,
+    CORRUPT_DATA,
+    STORAGE_FAILURE,
+}
+
+data class DurableStoreError(
+    val code: DurableStoreErrorCode,
+    val message: String,
+)
+
+sealed interface DurableStoreWriteResult {
+    data object Success : DurableStoreWriteResult
+
+    data class Failure(val error: DurableStoreError) : DurableStoreWriteResult
+}
+
+sealed interface DurableStoreLoadResult {
+    data class Success(val run: PersistedRun) : DurableStoreLoadResult
+
+    data class Failure(val error: DurableStoreError) : DurableStoreLoadResult
+}
+
+/** Optional durable capabilities implemented by persistent EventStore adapters. */
+interface DurableEventStore : EventStore {
+    suspend fun initialize(initialState: GameState): DurableStoreWriteResult
+
+    suspend fun writeSnapshot(state: GameState): DurableStoreWriteResult
+
+    suspend fun loadRun(runId: RunId): DurableStoreLoadResult
 }
 
 class InMemoryEventStore : EventStore {

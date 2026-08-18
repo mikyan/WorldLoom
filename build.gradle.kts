@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.kotlin.multiplatform) apply false
     alias(libs.plugins.kotlinx.serialization) apply false
+    alias(libs.plugins.sqldelight) apply false
 }
 
 allprojects {
@@ -18,6 +19,14 @@ tasks.named("check") {
     dependsOn(
         ":shared:definition-runtime:check",
         ":shared:domain-world:check",
+        ":shared:domain-rules:check",
+        ":shared:rule-module-api:check",
+        ":shared:rule-module-registry:check",
+        ":shared:persistence:check",
+        ":shared:provider-api:check",
+        ":shared:provider-openai:check",
+        ":shared:agent-runtime:check",
+        ":platform:secure-vault:check",
         ":shared:application:check",
         ":shared:ui-game:check",
         ":apps:androidApp:check",

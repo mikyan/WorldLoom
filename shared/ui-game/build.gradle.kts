@@ -30,6 +30,7 @@ kotlin {
             isStatic = true
         }
     }
+    applyDefaultHierarchyTemplate()
 
     compilerOptions {
         allWarningsAsErrors = true
@@ -38,6 +39,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.shared.application)
+            implementation(projects.shared.agentRuntime)
+            implementation(projects.platform.secureVault)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material)
             implementation(libs.compose.runtime)
@@ -46,6 +49,13 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+        }
+        named("iosMain") {
+            dependencies {
+                implementation(projects.shared.persistence)
+                implementation(projects.shared.providerOpenai)
+                implementation(libs.ktor.client.core)
+            }
         }
     }
 

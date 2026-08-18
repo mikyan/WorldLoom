@@ -7,6 +7,11 @@ plugins {
 
 dependencies {
     implementation(projects.shared.uiGame)
+    implementation(projects.shared.persistence)
+    implementation(projects.shared.agentRuntime)
+    implementation(projects.shared.providerOpenai)
+    implementation(projects.platform.secureVault)
+    implementation(libs.ktor.client.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material)

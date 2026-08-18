@@ -24,6 +24,6 @@ desktop.ini
 *.keystore
 *.p12
 *.mobileprovision
+*.credential
 *.env
 .env.*
-

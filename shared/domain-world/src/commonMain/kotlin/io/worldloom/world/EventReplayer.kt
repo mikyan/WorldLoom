@@ -16,10 +16,11 @@ object EventReplayer {
         initialState: GameState,
         definition: ValidatedWorldDefinition,
         events: List<EventEnvelope>,
+        reducer: EventReducer = StateReducer,
     ): ReplayResult {
         var state = initialState
         for (event in events.sortedBy { it.sequence }) {
-            when (val result = StateReducer.reduce(state, definition, event)) {
+            when (val result = reducer.reduce(state, definition, event)) {
                 is StateReductionResult.Success -> state = result.state
                 is StateReductionResult.Failure -> return ReplayResult.Failure(event.eventId, result.error)
             }

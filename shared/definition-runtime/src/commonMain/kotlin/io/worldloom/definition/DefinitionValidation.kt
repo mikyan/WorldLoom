@@ -20,6 +20,11 @@ enum class DefinitionProblemCode {
     INVALID_PRESENTATION_BINDING,
     INVALID_PRESENTATION_LABEL,
     INVALID_ADJUSTMENT_STEP,
+    DUPLICATE_CHECK_PROFILE,
+    INVALID_CHECK_PROFILE,
+    DUPLICATE_CHECK_OUTCOME,
+    INVALID_CHECK_OUTCOME,
+    INVALID_CHECK_PRESENTATION,
 }
 
 data class DefinitionProblem(
@@ -38,6 +43,7 @@ sealed interface DefinitionValidationResult {
 class ValidatedWorldDefinition internal constructor(
     val source: WorldDefinition,
     private val componentsById: Map<DefinitionId, ComponentDefinition>,
+    private val checkProfilesById: Map<DefinitionId, CheckProfileDefinition>,
 ) {
     fun component(id: DefinitionId): ComponentDefinition? = componentsById[id]
 
@@ -45,6 +51,8 @@ class ValidatedWorldDefinition internal constructor(
         componentId: DefinitionId,
         fieldId: DefinitionId,
     ): FieldDefinition? = componentsById[componentId]?.fields?.firstOrNull { it.id == fieldId }
+
+    fun checkProfile(id: DefinitionId): CheckProfileDefinition? = checkProfilesById[id]
 }
 
 object WorldDefinitionValidator {
@@ -64,10 +72,11 @@ object WorldDefinitionValidator {
 
         val componentsById = indexComponents(definition, problems)
         val entitiesById = indexEntities(definition, componentsById, problems)
-        validatePresentation(definition, componentsById, entitiesById, problems)
+        val checkProfilesById = indexCheckProfiles(definition, problems)
+        validatePresentation(definition, componentsById, entitiesById, checkProfilesById, problems)
 
         return if (problems.isEmpty()) {
-            DefinitionValidationResult.Valid(ValidatedWorldDefinition(definition, componentsById))
+            DefinitionValidationResult.Valid(ValidatedWorldDefinition(definition, componentsById, checkProfilesById))
         } else {
             DefinitionValidationResult.Invalid(problems.toList())
         }
@@ -253,6 +262,7 @@ object WorldDefinitionValidator {
         definition: WorldDefinition,
         componentsById: Map<DefinitionId, ComponentDefinition>,
         entitiesById: Map<String, EntitySeed>,
+        checkProfilesById: Map<DefinitionId, CheckProfileDefinition>,
         problems: MutableList<DefinitionProblem>,
     ) {
         val presentationIds = mutableSetOf<DefinitionId>()
@@ -303,6 +313,109 @@ object WorldDefinitionValidator {
                 )
             }
         }
+
+        definition.presentationChecks.forEachIndexed { index, presentation ->
+            val path = "presentationChecks[$index]"
+            if (!presentationIds.add(presentation.id)) {
+                problems += problem(
+                    DefinitionProblemCode.DUPLICATE_DEFINITION,
+                    "$path.id",
+                    "Duplicate presentation definition: ${presentation.id}",
+                )
+            }
+            if (presentation.label.isBlank()) {
+                problems += problem(
+                    DefinitionProblemCode.INVALID_PRESENTATION_LABEL,
+                    "$path.label",
+                    "Presentation label must not be blank",
+                )
+            }
+            if (presentation.checkProfileId !in checkProfilesById) {
+                problems += problem(
+                    DefinitionProblemCode.INVALID_CHECK_PRESENTATION,
+                    "$path.checkProfileId",
+                    "Presentation check must reference a declared CheckProfile",
+                )
+            }
+        }
+    }
+
+    private fun indexCheckProfiles(
+        definition: WorldDefinition,
+        problems: MutableList<DefinitionProblem>,
+    ): Map<DefinitionId, CheckProfileDefinition> {
+        val profiles = linkedMapOf<DefinitionId, CheckProfileDefinition>()
+        definition.checkProfiles.forEachIndexed { profileIndex, profile ->
+            val path = "checkProfiles[$profileIndex]"
+            if (profiles.put(profile.id, profile) != null) {
+                problems += problem(
+                    DefinitionProblemCode.DUPLICATE_CHECK_PROFILE,
+                    "$path.id",
+                    "Duplicate check profile: ${profile.id}",
+                )
+            }
+            if (profile.label.isBlank()) {
+                problems += problem(
+                    DefinitionProblemCode.INVALID_CHECK_PROFILE,
+                    "$path.label",
+                    "Check profile label must not be blank",
+                )
+            }
+            when (profile.mode) {
+                CheckResolutionMode.RANDOM -> {
+                    val dice = profile.dice
+                    if (dice == null || dice.count !in 1..100 || dice.sides !in 2..1000) {
+                        problems += problem(
+                            DefinitionProblemCode.INVALID_CHECK_PROFILE,
+                            "$path.dice",
+                            "Random checks require 1..100 dice with 2..1000 sides",
+                        )
+                    }
+                }
+
+                CheckResolutionMode.DETERMINISTIC -> if (profile.dice != null) {
+                    problems += problem(
+                        DefinitionProblemCode.INVALID_CHECK_PROFILE,
+                        "$path.dice",
+                        "Deterministic checks must not declare dice",
+                    )
+                }
+            }
+            if (profile.outcomes.isEmpty()) {
+                problems += problem(
+                    DefinitionProblemCode.INVALID_CHECK_PROFILE,
+                    "$path.outcomes",
+                    "Check profile must declare at least one outcome",
+                )
+            }
+            val outcomeIds = mutableSetOf<DefinitionId>()
+            val thresholds = mutableSetOf<Long>()
+            profile.outcomes.forEachIndexed { outcomeIndex, outcome ->
+                val outcomePath = "$path.outcomes[$outcomeIndex]"
+                if (!outcomeIds.add(outcome.id)) {
+                    problems += problem(
+                        DefinitionProblemCode.DUPLICATE_CHECK_OUTCOME,
+                        "$outcomePath.id",
+                        "Duplicate check outcome: ${outcome.id}",
+                    )
+                }
+                if (!thresholds.add(outcome.minimumTotal)) {
+                    problems += problem(
+                        DefinitionProblemCode.DUPLICATE_CHECK_OUTCOME,
+                        "$outcomePath.minimumTotal",
+                        "Check outcome thresholds must be unique",
+                    )
+                }
+                if (outcome.label.isBlank()) {
+                    problems += problem(
+                        DefinitionProblemCode.INVALID_CHECK_OUTCOME,
+                        "$outcomePath.label",
+                        "Check outcome label must not be blank",
+                    )
+                }
+            }
+        }
+        return profiles
     }
 
     private fun problem(

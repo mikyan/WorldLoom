@@ -85,4 +85,38 @@ class WorldDefinitionValidatorTest {
 
         assertEquals(ValueType.INTEGER, valid.definition.field(componentId, fieldId)?.valueType)
     }
+
+    @Test
+    fun rejectsRandomCheckWithoutValidDiceAndUnknownPresentationBinding() {
+        val profileId = DefinitionId("test.check.invalid")
+        val definition = WorldDefinition(
+            schemaVersion = CURRENT_WORLD_DEFINITION_SCHEMA_VERSION,
+            id = DefinitionId("test.world"),
+            title = "Test World",
+            components = emptyList(),
+            initialEntities = emptyList(),
+            checkProfiles = listOf(
+                CheckProfileDefinition(
+                    id = profileId,
+                    label = "Invalid",
+                    mode = CheckResolutionMode.RANDOM,
+                    dice = DiceExpression(0, 1),
+                    outcomes = emptyList(),
+                ),
+            ),
+            presentation = emptyList(),
+            presentationChecks = listOf(
+                PresentationCheckDefinition(
+                    DefinitionId("test.presentation.check"),
+                    DefinitionId("test.check.missing"),
+                    "Check",
+                ),
+            ),
+        )
+
+        val invalid = assertIs<DefinitionValidationResult.Invalid>(WorldDefinitionValidator.validate(definition))
+
+        assertTrue(invalid.problems.any { it.code == DefinitionProblemCode.INVALID_CHECK_PROFILE })
+        assertTrue(invalid.problems.any { it.code == DefinitionProblemCode.INVALID_CHECK_PRESENTATION })
+    }
 }

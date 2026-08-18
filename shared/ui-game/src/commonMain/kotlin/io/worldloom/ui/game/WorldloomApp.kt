@@ -18,25 +18,37 @@ import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Card
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.darkColors
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.worldloom.agent.runtime.GameAgentController
+import io.worldloom.agent.runtime.GameAgentState
 import io.worldloom.application.GamePresentation
 import io.worldloom.application.GameSession
 import io.worldloom.application.GameSessionAction
 import io.worldloom.application.GameSessionUiState
+import io.worldloom.application.LoadResult
 import io.worldloom.application.SessionError
 import io.worldloom.application.WorldCatalogEntry
+import io.worldloom.platform.credentials.CredentialConfiguration
+import io.worldloom.platform.credentials.CredentialConfigurationState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private val WorldloomColors = darkColors(
@@ -54,7 +66,11 @@ private val WorldloomColors = darkColors(
 )
 
 @Composable
-fun WorldloomApp(session: GameSession) {
+fun WorldloomApp(
+    session: GameSession,
+    agentController: GameAgentController? = null,
+    credentialConfiguration: CredentialConfiguration? = null,
+) {
     val state by session.state.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -67,8 +83,13 @@ fun WorldloomApp(session: GameSession) {
                 AppHeader()
                 WorldSelector(
                     worlds = session.availableWorlds,
-                    onSelected = { world -> scope.launch { session.load(world.id) } },
+                    onSelected = { world ->
+                        scope.launch {
+                            if (session.load(world.id) is LoadResult.Success) agentController?.reset()
+                        }
+                    },
                 )
+                credentialConfiguration?.let { CredentialPanel(it) }
                 when (val current = state) {
                     GameSessionUiState.Idle -> EmptyState("选择一个契约世界，开始验证权威运行管线。")
                     is GameSessionUiState.Loading -> LoadingState()
@@ -80,7 +101,13 @@ fun WorldloomApp(session: GameSession) {
                                 session.perform(GameSessionAction.AdjustPresentedField(presentationId))
                             }
                         },
+                        onCheck = { presentationId ->
+                            scope.launch {
+                                session.perform(GameSessionAction.ResolvePresentedCheck(presentationId))
+                            }
+                        },
                         onReplay = { scope.launch { session.replay() } },
+                        agentController = agentController,
                     )
 
                     is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
@@ -141,7 +168,9 @@ private fun ReadyState(
     presentation: GamePresentation,
     notice: SessionError?,
     onAdjust: (io.worldloom.definition.DefinitionId) -> Unit,
+    onCheck: (io.worldloom.definition.DefinitionId) -> Unit,
     onReplay: () -> Unit,
+    agentController: GameAgentController?,
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -162,6 +191,8 @@ private fun ReadyState(
 
         notice?.let { EmptyState(it.message, isError = true) }
 
+        agentController?.let { AgentPanel(it) }
+
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -177,6 +208,19 @@ private fun ReadyState(
                         Button(onClick = { onAdjust(field.presentationId) }) {
                             Text("推进 ${signed(field.adjustmentStep)}")
                         }
+                    }
+                }
+            }
+        }
+
+        if (presentation.checks.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(presentation.checks, key = { it.presentationId.value }) { check ->
+                    Button(onClick = { onCheck(check.presentationId) }) {
+                        Text(check.label)
                     }
                 }
             }
@@ -203,6 +247,155 @@ private fun ReadyState(
             }
         }
     }
+}
+
+@Composable
+private fun CredentialPanel(configuration: CredentialConfiguration) {
+    val state by configuration.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var credential by remember { mutableStateOf("") }
+
+    LaunchedEffect(configuration) {
+        configuration.refresh()
+    }
+
+    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("模型凭据", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    credentialStatus(state),
+                    color = if (state is CredentialConfigurationState.Failed) {
+                        MaterialTheme.colors.error
+                    } else {
+                        MaterialTheme.colors.onSurface.copy(alpha = 0.62f)
+                    },
+                    fontSize = 12.sp,
+                )
+            }
+            OutlinedTextField(
+                value = credential,
+                onValueChange = { credential = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("OpenAI API Key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                enabled = state !is CredentialConfigurationState.Loading,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Button(
+                    onClick = {
+                        val submitted = credential
+                        credential = ""
+                        scope.launch { configuration.configure(submitted) }
+                    },
+                    enabled = credential.isNotBlank() && state !is CredentialConfigurationState.Loading,
+                ) {
+                    Text("保存")
+                }
+                if (state is CredentialConfigurationState.Configured) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { scope.launch { configuration.clear() } },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                    ) {
+                        Text("删除")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentPanel(controller: GameAgentController) {
+    val state by controller.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var input by remember { mutableStateOf("") }
+    var runningJob by remember { mutableStateOf<Job?>(null) }
+    val running = state is GameAgentState.Running
+
+    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("自然语言行动", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text("描述你要做的事") },
+                    enabled = !running,
+                    singleLine = true,
+                )
+                if (running) {
+                    Button(
+                        onClick = { runningJob?.cancel() },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                    ) {
+                        Text("停止")
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            val submitted = input
+                            input = ""
+                            runningJob = scope.launch { controller.send(submitted) }
+                        },
+                        enabled = input.isNotBlank(),
+                    ) {
+                        Text("发送")
+                    }
+                }
+            }
+            when (val current = state) {
+                GameAgentState.Idle -> Text(
+                    "Agent 的写操作同样必须经过 Tool → Command → Event。",
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
+                )
+
+                is GameAgentState.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(18.dp).height(18.dp),
+                        color = MaterialTheme.colors.primary,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(current.partialText.ifBlank { "正在思考…" })
+                }
+
+                is GameAgentState.Completed -> Text(current.text)
+                is GameAgentState.Failed -> Text(
+                    if (current.worldChanged) "${current.message}（部分工具操作已写入事件）" else current.message,
+                    color = MaterialTheme.colors.error,
+                )
+            }
+        }
+    }
+}
+
+private fun credentialStatus(state: CredentialConfigurationState): String = when (state) {
+    CredentialConfigurationState.Unknown -> "尚未检查"
+    CredentialConfigurationState.Loading -> "正在更新…"
+    CredentialConfigurationState.Configured -> "已安全配置"
+    CredentialConfigurationState.NotConfigured -> "未配置"
+    is CredentialConfigurationState.Failed -> state.message
 }
 
 private fun signed(value: Long): String = if (value > 0) "+$value" else value.toString()

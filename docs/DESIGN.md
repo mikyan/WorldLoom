@@ -1,7 +1,7 @@
 # Worldloom 项目设计文档
 
-文档状态：Draft 0.6<br>
-更新日期：2026-08-17
+文档状态：Draft 0.7<br>
+更新日期：2026-08-18
 
 ## 1. 产品定义
 
@@ -706,11 +706,13 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已经进入工程初始化阶段，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、内存 EventStore、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成首个五轮工程基线，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
-`war-survival` 与 `station-ai` 两个最小 JSON 契约世界通过同一参数化测试和 Runtime 竖切，作为配置边界的首个可执行保护。SQLDelight、规则模块 Registry、Agent、正式世界包和平台安全能力仍属于后续增量。
+已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Tool 注册、状态更新、持久化、回放和 UI 投影，不在生产 Runtime 中引入题材分支。
 
-工程初始化的范围、最小模块、权威竖切、验证门槛与实施顺序见[项目初始化设计](PROJECT_INITIALIZATION.md)。
+平台凭据边界已落地 Android Keystore、iOS Keychain 与 Windows 用户级 DPAPI；非 Windows 的 Desktop 目前使用仅会话内存回退。完整 `.worldloom` ZIP/签名、Behavior AST、持久化 Agent 记忆、Anthropic Adapter、内容生成和语音仍属于后续增量。
+
+工程初始化的范围见[项目初始化设计](PROJECT_INITIALIZATION.md)，五轮实现与验收证据见[迭代执行记录](ITERATION_EXECUTION.md)。
 
 ## 8. 世界包格式
 
@@ -847,19 +849,19 @@ Behavior Runtime ────┘
 
 ## 9. 模型供应商与安全
 
-系统采用 BYOK。当前 Provider 配置聚焦 Agent 文本模型，包括 Provider、Base URL、Model ID、输出限制、上下文策略、连接测试和模型发现。
+系统采用 BYOK。当前 OpenAI Adapter 通过构造配置提供 Base URL、Model ID、输出限制和计费参数；应用基线使用一个组装层默认 Model ID。运行时 Provider/模型选择、连接测试和模型发现 UI 尚未实现。
 
-首批 Agent Provider 支持 OpenAI Chat Completions 兼容协议和 Anthropic Messages 协议，具体转换由 5.7 节的 Adapter 完成。Agent Loop、工具调度、重试、预算、上下文构建和记忆压缩属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。
+当前已实现 OpenAI Chat Completions 兼容协议，包括 SSE 文本增量、分片 `tool_calls`、工具结果和最终用量；Anthropic Messages 仍是下一 Adapter。Agent Loop、工具调度、预算、上下文构建和会话隔离属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。适配实现依据 [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling) 与 [Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)，并始终在 Tool Gateway 本地重新校验模型参数。
 
 语音属于后续特性。`provider-api` 保留 `SpeechToTextProvider` 与 `TextToSpeechProvider` 扩展边界，具体服务、模型、音色和交互在文本游戏闭环稳定后确定。
 
-API Key 必须保存到平台凭据保险箱：
+API Key 必须保存到平台凭据保险箱。目标与当前基线如下：
 
-- Android Keystore；
-- iOS Keychain；
-- Windows Credential Manager；
-- macOS Keychain；
-- Linux Secret Service。
+- Android：Keystore 非导出 AES-GCM 密钥与应用私有密文，已实现；
+- iOS：Keychain generic password，已实现并完成 Kotlin/Native 编译；
+- Windows：用户级 DPAPI 保护的原子写入密文，已实现；
+- macOS：Keychain，待实现；
+- Linux：Secret Service，待实现。
 
 密钥不得进入：
 
@@ -872,6 +874,8 @@ API Key 必须保存到平台凭据保险箱：
 - Git 仓库。
 
 Agent Runtime 必须有最大步骤数、工具权限、超时、费用预算、参数 Schema 校验和循环检测。
+
+当前 UI 只保存、删除并显示“已配置/未配置”状态，不读取或回显已保存密钥。Provider 每次请求在凭据边界内短暂访问密钥，只把它放入 Authorization Header；HTTP 错误不会包含上游响应正文。
 
 ## 10. 性能预算
 

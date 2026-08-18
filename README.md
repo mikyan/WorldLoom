@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目当前处于工程初始化阶段，已经加入 KMP/Compose 骨架、确定性世界引擎最小竖切和跨题材契约测试。
+> 项目已经完成五轮工程迭代：KMP/Compose 骨架、manifest 驱动规则模块、可审计判定、SQLDelight 存档、受限 Agent Loop，以及 OpenAI Chat Completions 自然语言竖切。
 
 ## 产品方向
 
@@ -25,6 +25,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
+- [五轮迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
 - [ADR-0001：选择 Kotlin 与 Compose Multiplatform](docs/decisions/0001-compose-multiplatform.md)
 - [ADR-0002：世界配置与程序代码边界](docs/decisions/0002-world-configuration-boundary.md)
 
@@ -52,8 +53,18 @@ apps/
 shared/
 ├── definition-runtime
 ├── domain-world
+├── domain-rules
+├── rule-module-api
+├── rule-module-registry
+├── persistence
+├── provider-api
+├── provider-openai
+├── agent-runtime
 ├── application
 └── ui-game
+
+platform/
+└── secure-vault
 
 contract-worlds/
 ├── war-survival
@@ -65,7 +76,9 @@ docs/
 └── decisions/
 ```
 
-当前竖切从两个 JSON 契约世界加载动态 Definition，经类型和引用验证后，执行 `Command → Event → EventStore/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Android 和 Desktop 可以运行该演示；iOS 使用薄 SwiftUI 宿主链接共享 Framework。
+当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI 适配器支持流式文本与工具调用，但供应商 DTO 不进入领域层。
+
+BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用 Keychain，Windows 使用用户级 DPAPI 加密。已保存密钥不会回显，也不会写入模型正文、世界包、存档或 EventLog。
 
 ## 开发与验证
 
@@ -75,6 +88,7 @@ docs/
 ./gradlew.bat check
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
+./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
 ```
 
 Unix 与 macOS 使用 `./gradlew`。iOS 应用需要在安装 Xcode 的 macOS 上构建：

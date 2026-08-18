@@ -4,16 +4,18 @@ import WorldloomShared
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController(worldSources: loadContractWorldSources())
+        MainViewControllerKt.MainViewController(
+            manifestSources: loadContractSources(fileName: "manifest.json"),
+            worldSources: loadContractSources(fileName: "world.json")
+        )
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
-    private func loadContractWorldSources() -> [String] {
-        let resourcePaths = [
-            "contract-worlds/war-survival/world.json",
-            "contract-worlds/station-ai/world.json",
-        ]
+    private func loadContractSources(fileName: String) -> [String] {
+        let resourcePaths = ["war-survival", "station-ai"].map {
+            "contract-worlds/\($0)/\(fileName)"
+        }
         return resourcePaths.map { path in
             guard let url = Bundle.main.resourceURL?.appendingPathComponent(path) else {
                 preconditionFailure("Bundle resource URL is unavailable")

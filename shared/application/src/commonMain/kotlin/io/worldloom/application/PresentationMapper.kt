@@ -5,6 +5,7 @@ import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.world.EventEnvelope
 import io.worldloom.world.GameState
 import io.worldloom.world.NumericComponentAdjustedEvent
+import io.worldloom.rules.CheckResolvedEvent
 
 sealed interface PresentationMappingResult {
     data class Success(val presentation: GamePresentation) : PresentationMappingResult
@@ -58,6 +59,18 @@ object PresentationMapper {
                         "${binding.label}: ${payload.previousValue} → ${payload.newValue}"
                     }
                 }
+
+                is CheckResolvedEvent -> {
+                    val profile = definition.checkProfile(payload.record.profileId)
+                    val outcome = profile?.outcomes?.firstOrNull { it.id == payload.record.outcomeId }
+                    if (profile == null || outcome == null) {
+                        "检定已结算"
+                    } else {
+                        "${profile.label}: ${payload.record.total} · ${outcome.label}"
+                    }
+                }
+
+                else -> "事件已记录"
             }
             PresentedEvent(event.sequence, summary)
         }
@@ -68,6 +81,9 @@ object PresentationMapper {
                 title = definition.source.title,
                 lastSequence = state.lastSequence,
                 fields = fields,
+                checks = definition.source.presentationChecks
+                    .sortedBy { it.id.value }
+                    .map { PresentedCheck(it.id, it.label) },
                 timeline = timeline,
             ),
         )

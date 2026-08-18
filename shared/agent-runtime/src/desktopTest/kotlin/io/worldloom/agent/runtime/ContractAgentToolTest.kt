@@ -1,0 +1,118 @@
+package io.worldloom.agent.runtime
+
+import io.worldloom.application.DefaultGameSession
+import io.worldloom.application.GameSessionUiState
+import io.worldloom.application.LoadResult
+import io.worldloom.application.SequentialSessionIdSource
+import io.worldloom.application.StaticWorldCatalog
+import io.worldloom.application.StaticWorldCatalogResult
+import io.worldloom.application.WorldPackageSource
+import io.worldloom.definition.DefinitionId
+import io.worldloom.provider.api.LanguageModelProvider
+import io.worldloom.provider.api.ProviderCapabilities
+import io.worldloom.provider.api.ProviderFailureCode
+import io.worldloom.provider.api.ProviderRequest
+import io.worldloom.provider.api.ProviderResult
+import io.worldloom.provider.api.ProviderToolCall
+import io.worldloom.provider.api.ProviderTurn
+import io.worldloom.provider.api.ProviderUsage
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandPermission
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+class ContractAgentToolTest {
+    @Test
+    fun bothContractWorldsUseTheSameAgentToolRuntime() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(
+                listOf("war-survival", "station-ai").map(::loadPackage),
+            ),
+        ).catalog
+        val cases = listOf(
+            ContractCase("contract.war-survival", "war.check.survive"),
+            ContractCase("contract.station-ai", "station.check.system-integrity"),
+        )
+
+        cases.forEach { case ->
+            val session = DefaultGameSession(
+                catalog = catalog,
+                idSource = SequentialSessionIdSource(case.worldId),
+                workerDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            assertIs<LoadResult.Success>(session.load(DefinitionId(case.worldId)))
+            val provider = ContractProvider(case.profileId)
+            val result = AgentRuntime(provider, DefaultAgentToolGateway(session)).run(
+                AgentRunRequest(
+                    sessionId = AgentSessionId("session.${case.worldId}"),
+                    identity = AgentIdentity(
+                        AgentId("agent.${case.worldId}"),
+                        ActorId("npc.${case.worldId}"),
+                        setOf(CommandPermission.RESOLVE_CHECK),
+                    ),
+                    input = "执行世界配置的检定",
+                    systemPrompt = "使用清单允许的工具。",
+                ),
+            )
+
+            assertIs<AgentRunResult.Completed>(result)
+            assertTrue(provider.requests.first().tools.any { it.name == RESOLVE_CHECK_TOOL_ID.value })
+            val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
+            assertEquals(1, ready.presentation.lastSequence)
+            assertEquals(1, ready.presentation.timeline.size)
+        }
+    }
+
+    private fun loadPackage(directory: String): WorldPackageSource = WorldPackageSource(
+        manifestJson = resourceText("$directory/manifest.json"),
+        files = mapOf("world.json" to resourceText("$directory/world.json")),
+    )
+
+    private fun resourceText(path: String): String =
+        checkNotNull(javaClass.classLoader.getResourceAsStream(path)) { "Missing test resource: $path" }
+            .bufferedReader()
+            .use { it.readText() }
+
+    private data class ContractCase(
+        val worldId: String,
+        val profileId: String,
+    )
+
+    private class ContractProvider(
+        private val profileId: String,
+    ) : LanguageModelProvider {
+        override val capabilities: ProviderCapabilities = ProviderCapabilities(true, false, false)
+        val requests = mutableListOf<ProviderRequest>()
+
+        override suspend fun complete(request: ProviderRequest): ProviderResult {
+            requests += request
+            return when (requests.size) {
+                1 -> ProviderResult.Success(
+                    ProviderTurn(
+                        toolCalls = listOf(
+                            ProviderToolCall(
+                                id = "check-call",
+                                name = RESOLVE_CHECK_TOOL_ID.value,
+                                arguments = JsonObject(mapOf("profileId" to JsonPrimitive(profileId))),
+                            ),
+                        ),
+                        usage = ProviderUsage(4, 2),
+                    ),
+                )
+
+                2 -> ProviderResult.Success(ProviderTurn("完成。", usage = ProviderUsage(3, 1)))
+                else -> ProviderResult.Failure(
+                    ProviderFailureCode.INVALID_RESPONSE,
+                    "Unexpected provider call",
+                    retryable = false,
+                )
+            }
+        }
+    }
+}

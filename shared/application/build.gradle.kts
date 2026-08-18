@@ -32,11 +32,20 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.shared.domainWorld)
+            api(projects.shared.domainRules)
+            api(projects.shared.ruleModuleRegistry)
             implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+        }
+        named("desktopTest") {
+            resources.srcDir(rootProject.layout.projectDirectory.dir("contract-worlds"))
+            dependencies {
+                implementation(projects.shared.persistence)
+                implementation(libs.sqldelight.sqlite.driver)
+            }
         }
     }
 

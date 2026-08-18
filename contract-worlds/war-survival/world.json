@@ -1,5 +1,5 @@
 {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "id": "contract.war-survival",
     "title": "War Survival Contract",
     "components": [
@@ -35,6 +35,35 @@
             ]
         }
     ],
+    "checkProfiles": [
+        {
+            "id": "war.check.survive",
+            "label": "求生检定",
+            "mode": "RANDOM",
+            "dice": {
+                "count": 2,
+                "sides": 6
+            },
+            "baseValue": 0,
+            "outcomes": [
+                {
+                    "id": "war.outcome.success",
+                    "label": "完整成功",
+                    "minimumTotal": 10
+                },
+                {
+                    "id": "war.outcome.cost",
+                    "label": "成功但付出代价",
+                    "minimumTotal": 7
+                },
+                {
+                    "id": "war.outcome.failure",
+                    "label": "失败并产生新局面",
+                    "minimumTotal": -1000
+                }
+            ]
+        }
+    ],
     "presentation": [
         {
             "id": "war.presentation.primary-status",
@@ -43,6 +72,13 @@
             "fieldId": "war.health",
             "label": "身体状况",
             "adjustmentStep": -1
+        }
+    ],
+    "presentationChecks": [
+        {
+            "id": "war.presentation.survival-check",
+            "checkProfileId": "war.check.survive",
+            "label": "进行求生检定"
         }
     ]
 }

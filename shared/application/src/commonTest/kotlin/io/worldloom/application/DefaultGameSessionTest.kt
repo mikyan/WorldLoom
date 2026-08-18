@@ -12,6 +12,12 @@ import io.worldloom.definition.PresentationFieldDefinition
 import io.worldloom.definition.ValueType
 import io.worldloom.definition.WorldDefinition
 import io.worldloom.definition.WorldDefinitionCodec
+import io.worldloom.rules.module.api.CURRENT_RULE_MODULE_API_VERSION
+import io.worldloom.rules.module.api.CURRENT_WORLD_MANIFEST_SCHEMA_VERSION
+import io.worldloom.rules.module.api.ModuleVersion
+import io.worldloom.rules.module.api.WorldManifest
+import io.worldloom.rules.module.api.WorldManifestCodec
+import io.worldloom.rules.module.api.WorldModuleSelection
 import io.worldloom.world.EventAppendResult
 import io.worldloom.world.EventEnvelope
 import io.worldloom.world.EventStore
@@ -94,18 +100,43 @@ class DefaultGameSessionTest {
 
     private fun catalog(vararg definitions: WorldDefinition): StaticWorldCatalog =
         assertIs<StaticWorldCatalogResult.Success>(
-            StaticWorldCatalog.fromJsonSources(definitions.map(WorldDefinitionCodec::encode)),
+            StaticWorldCatalog.fromPackageSources(
+                definitions.map { definition ->
+                    WorldPackageSource(
+                        manifestJson = WorldManifestCodec.encode(
+                            WorldManifest(
+                                schemaVersion = CURRENT_WORLD_MANIFEST_SCHEMA_VERSION,
+                                runtimeApiVersion = CURRENT_RULE_MODULE_API_VERSION,
+                                worldId = definition.id,
+                                worldDefinitionPath = "world.json",
+                                modules = listOf(
+                                    WorldModuleSelection(
+                                        DefinitionId("worldloom.core.numeric-state"),
+                                        ModuleVersion(1, 0, 0),
+                                        mapOf(
+                                            DefinitionId("worldloom.parameter.direct-adjustment") to
+                                                io.worldloom.definition.BooleanValue(true),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        files = mapOf("world.json" to WorldDefinitionCodec.encode(definition)),
+                    )
+                },
+            ),
         ).catalog
 
-    private fun worldSource(
+    companion object {
+        fun worldSource(
         namespace: String = "war",
         initialValue: Long = 7,
         maximum: Long = 10,
         step: Long = -1,
-    ): WorldDefinition {
+        ): WorldDefinition {
         val componentId = DefinitionId("$namespace.status")
         val fieldId = DefinitionId("$namespace.energy")
-        return WorldDefinition(
+            return WorldDefinition(
             schemaVersion = CURRENT_WORLD_DEFINITION_SCHEMA_VERSION,
             id = DefinitionId("contract.$namespace"),
             title = "$namespace world",
@@ -138,7 +169,8 @@ class DefaultGameSessionTest {
                     adjustmentStep = step,
                 ),
             ),
-        )
+            )
+        }
     }
 
     private data object RejectingEventStore : EventStore {

@@ -1,0 +1,61 @@
+CREATE TABLE save_run (
+    run_id TEXT NOT NULL PRIMARY KEY,
+    world_definition_id TEXT NOT NULL,
+    data_schema_version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE event_log (
+    run_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    event_json TEXT NOT NULL,
+    event_schema_version INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (run_id, sequence),
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE state_snapshot (
+    run_id TEXT NOT NULL PRIMARY KEY,
+    sequence INTEGER NOT NULL,
+    state_schema_version INTEGER NOT NULL,
+    state_json TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES save_run(run_id) ON DELETE CASCADE
+);
+
+insertRun:
+INSERT INTO save_run(run_id, world_definition_id, data_schema_version)
+VALUES (?, ?, ?);
+
+selectRun:
+SELECT run_id, world_definition_id, data_schema_version
+FROM save_run
+WHERE run_id = ?;
+
+selectAllRuns:
+SELECT run_id, world_definition_id, data_schema_version
+FROM save_run
+ORDER BY run_id;
+
+currentSequence:
+SELECT COALESCE(MAX(sequence), 0)
+FROM event_log
+WHERE run_id = ?;
+
+insertEvent:
+INSERT INTO event_log(run_id, sequence, event_id, event_schema_version, event_json)
+VALUES (?, ?, ?, ?, ?);
+
+selectEventsAfter:
+SELECT event_json
+FROM event_log
+WHERE run_id = ? AND sequence > ?
+ORDER BY sequence;
+
+upsertSnapshot:
+INSERT OR REPLACE INTO state_snapshot(run_id, sequence, state_schema_version, state_json)
+VALUES (?, ?, ?, ?);
+
+selectSnapshot:
+SELECT run_id, sequence, state_schema_version, state_json
+FROM state_snapshot
+WHERE run_id = ?;

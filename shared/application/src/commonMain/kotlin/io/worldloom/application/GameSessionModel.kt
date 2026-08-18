@@ -1,6 +1,10 @@
 package io.worldloom.application
 
 import io.worldloom.definition.DefinitionId
+import io.worldloom.rules.module.api.RegisteredWorldModules
+import io.worldloom.world.CommandAuthorization
+import io.worldloom.world.EntityId
+import io.worldloom.world.RunId
 import kotlinx.coroutines.flow.StateFlow
 
 data class PresentedField(
@@ -15,11 +19,17 @@ data class PresentedEvent(
     val summary: String,
 )
 
+data class PresentedCheck(
+    val presentationId: DefinitionId,
+    val label: String,
+)
+
 data class GamePresentation(
     val worldId: DefinitionId,
     val title: String,
     val lastSequence: Long,
     val fields: List<PresentedField>,
+    val checks: List<PresentedCheck>,
     val timeline: List<PresentedEvent>,
 )
 
@@ -32,6 +42,8 @@ enum class SessionErrorCode {
     EVENT_REJECTED,
     EVENT_STORE_REJECTED,
     REPLAY_REJECTED,
+    CHECK_REJECTED,
+    PERSISTENCE_REJECTED,
 }
 
 data class SessionError(
@@ -55,7 +67,37 @@ sealed interface GameSessionUiState {
 
 sealed interface GameSessionAction {
     data class AdjustPresentedField(val presentationId: DefinitionId) : GameSessionAction
+
+    data class ResolvePresentedCheck(val presentationId: DefinitionId) : GameSessionAction
 }
+
+/** Typed application boundary used by UI and Agent tools before commands enter the world engine. */
+sealed interface GameSessionCommand {
+    data class AdjustNumericComponent(
+        val entityId: EntityId,
+        val componentId: DefinitionId,
+        val fieldId: DefinitionId,
+        val delta: Long,
+    ) : GameSessionCommand
+
+    data class ResolveCheck(
+        val profileId: DefinitionId,
+        val modifier: Long = 0,
+    ) : GameSessionCommand
+}
+
+data class SessionCommandContext(
+    val runId: RunId,
+    val modules: RegisteredWorldModules,
+    val adjustmentTargets: List<SessionAdjustmentTarget>,
+    val checkProfileIds: List<DefinitionId>,
+)
+
+data class SessionAdjustmentTarget(
+    val entityId: EntityId,
+    val componentId: DefinitionId,
+    val fieldId: DefinitionId,
+)
 
 sealed interface LoadResult {
     data object Success : LoadResult
@@ -81,7 +123,16 @@ interface GameSession {
 
     suspend fun load(worldId: DefinitionId): LoadResult
 
+    suspend fun resume(worldId: DefinitionId, runId: RunId): LoadResult
+
     suspend fun perform(action: GameSessionAction): ActionResult
+
+    suspend fun execute(
+        command: GameSessionCommand,
+        authorization: CommandAuthorization,
+    ): ActionResult
+
+    suspend fun commandContext(): SessionCommandContext?
 
     suspend fun replay(): SessionReplayResult
 }

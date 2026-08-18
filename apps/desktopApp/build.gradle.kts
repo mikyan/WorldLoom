@@ -17,6 +17,11 @@ kotlin {
 
 dependencies {
     implementation(projects.shared.uiGame)
+    implementation(projects.shared.persistence)
+    implementation(projects.shared.agentRuntime)
+    implementation(projects.shared.providerOpenai)
+    implementation(projects.platform.secureVault)
+    implementation(libs.ktor.client.core)
     implementation(compose.desktop.currentOs)
 }
 

@@ -1,6 +1,5 @@
 package io.worldloom.world
 
-import io.worldloom.definition.DefinitionId
 import io.worldloom.definition.IntegerValue
 import io.worldloom.definition.ValidatedWorldDefinition
 import io.worldloom.definition.ValueType
@@ -17,6 +16,7 @@ enum class CommandValidationErrorCode {
     VALUE_TYPE_MISMATCH,
     INTEGER_OVERFLOW,
     INTEGER_OUT_OF_RANGE,
+    UNSUPPORTED_COMMAND_PAYLOAD,
 }
 
 data class CommandValidationError(
@@ -42,23 +42,9 @@ sealed interface ValidatedCommand {
     ) : ValidatedCommand
 }
 
-object CommandValidator {
+/** Shared envelope checks used before dispatching a payload to its owning module validator. */
+object CommandEnvelopeValidator {
     fun validate(
-        state: GameState,
-        definition: ValidatedWorldDefinition,
-        authorization: CommandAuthorization,
-        envelope: CommandEnvelope,
-    ): CommandValidationResult {
-        validateEnvelope(state, authorization, envelope)?.let {
-            return CommandValidationResult.Invalid(it)
-        }
-
-        return when (val payload = envelope.payload) {
-            is AdjustNumericComponentCommand -> validateAdjustment(state, definition, authorization, envelope, payload)
-        }
-    }
-
-    private fun validateEnvelope(
         state: GameState,
         authorization: CommandAuthorization,
         envelope: CommandEnvelope,
@@ -90,6 +76,34 @@ object CommandValidator {
 
             else -> null
         }
+
+    private fun error(
+        code: CommandValidationErrorCode,
+        path: String,
+        message: String,
+    ): CommandValidationError = CommandValidationError(code, path, message)
+}
+
+object CommandValidator {
+    fun validate(
+        state: GameState,
+        definition: ValidatedWorldDefinition,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+    ): CommandValidationResult {
+        CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
+            return CommandValidationResult.Invalid(it)
+        }
+
+        return when (val payload = envelope.payload) {
+            is AdjustNumericComponentCommand -> validateAdjustment(state, definition, authorization, envelope, payload)
+            else -> invalid(
+                CommandValidationErrorCode.UNSUPPORTED_COMMAND_PAYLOAD,
+                "payload",
+                "Command payload is not handled by the core world validator",
+            )
+        }
+    }
 
     private fun validateAdjustment(
         state: GameState,
@@ -153,31 +167,19 @@ object CommandValidator {
         )
     }
 
-    internal fun wouldOverflow(
-        current: Long,
-        delta: Long,
-    ): Boolean =
+    internal fun wouldOverflow(current: Long, delta: Long): Boolean =
         when {
             delta > 0 -> current > Long.MAX_VALUE - delta
             delta < 0 -> current < Long.MIN_VALUE - delta
             else -> false
         }
 
-    internal fun isOutOfRange(
-        value: Long,
-        minimum: Long?,
-        maximum: Long?,
-    ): Boolean = (minimum != null && value < minimum) || (maximum != null && value > maximum)
+    internal fun isOutOfRange(value: Long, minimum: Long?, maximum: Long?): Boolean =
+        (minimum != null && value < minimum) || (maximum != null && value > maximum)
 
     private fun invalid(
         code: CommandValidationErrorCode,
         path: String,
         message: String,
-    ): CommandValidationResult.Invalid = CommandValidationResult.Invalid(error(code, path, message))
-
-    private fun error(
-        code: CommandValidationErrorCode,
-        path: String,
-        message: String,
-    ): CommandValidationError = CommandValidationError(code, path, message)
+    ): CommandValidationResult.Invalid = CommandValidationResult.Invalid(CommandValidationError(code, path, message))
 }

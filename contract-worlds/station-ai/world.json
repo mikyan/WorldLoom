@@ -1,5 +1,5 @@
 {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "id": "contract.station-ai",
     "title": "Station AI Contract",
     "components": [
@@ -35,6 +35,26 @@
             ]
         }
     ],
+    "checkProfiles": [
+        {
+            "id": "station.check.system-integrity",
+            "label": "系统完整性检定",
+            "mode": "DETERMINISTIC",
+            "baseValue": 8,
+            "outcomes": [
+                {
+                    "id": "station.outcome.stable",
+                    "label": "系统稳定",
+                    "minimumTotal": 8
+                },
+                {
+                    "id": "station.outcome.degraded",
+                    "label": "系统降级",
+                    "minimumTotal": -1000
+                }
+            ]
+        }
+    ],
     "presentation": [
         {
             "id": "station.presentation.primary-status",
@@ -43,6 +63,13 @@
             "fieldId": "station.energy",
             "label": "能源储备",
             "adjustmentStep": -10
+        }
+    ],
+    "presentationChecks": [
+        {
+            "id": "station.presentation.integrity-check",
+            "checkProfileId": "station.check.system-integrity",
+            "label": "运行完整性检定"
         }
     ]
 }
