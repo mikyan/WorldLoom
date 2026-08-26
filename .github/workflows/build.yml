@@ -74,24 +74,35 @@ jobs:
             throw "Bundled Java runtime does not contain java.sql"
           }
 
-          $app = Start-Process $executable -PassThru
-          $started = $false
-          for ($attempt = 0; $attempt -lt 20; $attempt++) {
-            Start-Sleep -Seconds 1
-            $app.Refresh()
-            if ($app.HasExited) {
-              throw "Installed application exited during startup with code $($app.ExitCode)"
-            }
-            if ($app.MainWindowTitle -eq "Worldloom / 织境") {
-              $started = $true
-              break
-            }
+          # jpackage removes the generic java launcher from the runtime image. Copy the
+          # launcher from the same JDK build so the installed modules and libraries can
+          # execute the main class directly and expose startup exceptions to CI.
+          $runtimeJava = Join-Path $installDirectory "runtime/bin/java.exe"
+          Copy-Item "$env:JAVA_HOME/bin/java.exe" $runtimeJava
+          $jars = @(Get-ChildItem (Join-Path $installDirectory "app") -Filter "*.jar")
+          if ($jars.Count -eq 0) {
+            throw "No application JARs were installed"
           }
 
-          if (-not $started) {
-            $windowTitle = $app.MainWindowTitle
-            Stop-Process -Id $app.Id -Force
-            throw "Application did not create its main window; current title: '$windowTitle'"
+          $env:CLASSPATH = ($jars.FullName -join ";")
+          $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
+          $mainClass = Start-Process $runtimeJava `
+            -ArgumentList "io.worldloom.app.desktop.MainKt" `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
+          Start-Sleep -Seconds 10
+          if ($mainClass.HasExited) {
+            $output = (Get-Content $stdout, $stderr -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            throw "Installed runtime exited during startup with code $($mainClass.ExitCode):`n$output"
+          }
+          Stop-Process -Id $mainClass.Id -Force
+
+          $app = Start-Process $executable -PassThru
+          Start-Sleep -Seconds 10
+          if ($app.HasExited) {
+            throw "Installed native launcher exited during startup with code $($app.ExitCode)"
           }
           Stop-Process -Id $app.Id -Force
       - name: Upload Windows installer
