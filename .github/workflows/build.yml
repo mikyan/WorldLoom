@@ -85,10 +85,11 @@ jobs:
           }
 
           $env:CLASSPATH = ($jars.FullName -join ";")
-          $resources = Join-Path $installDirectory "app/resources"
-          if (-not (Test-Path (Join-Path $resources "skiko-windows-x64.dll.sha256"))) {
-            throw "Packaged Skiko resources were not installed at $resources"
+          $skikoHashes = @(Get-ChildItem $installDirectory -Filter "skiko-windows-x64.dll.sha256" -Recurse)
+          if ($skikoHashes.Count -ne 1) {
+            throw "Expected one packaged Skiko resource, found $($skikoHashes.Count)"
           }
+          $resources = $skikoHashes[0].Directory.FullName
           $env:JDK_JAVA_OPTIONS = "-Dcompose.application.resources.dir=`"$resources`""
           $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
