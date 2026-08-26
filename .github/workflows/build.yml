@@ -41,7 +41,14 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew.bat :apps:desktopApp:classes
+      - name: Build Windows MSI
+        run: ./gradlew.bat :apps:desktopApp:packageReleaseMsi
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Worldloom-Windows-0.1.0-alpha.1
+          path: apps/desktopApp/build/compose/binaries/main-release/msi/*.msi
+          if-no-files-found: error
 
   ios-build:
     runs-on: macos-latest
@@ -61,4 +68,6 @@ jobs:
           -sdk iphonesimulator
           -derivedDataPath build/ios-derived
           CODE_SIGNING_ALLOWED=NO
+          ARCHS=arm64
+          ONLY_ACTIVE_ARCH=YES
           build
