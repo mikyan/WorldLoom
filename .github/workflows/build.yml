@@ -85,6 +85,11 @@ jobs:
           }
 
           $env:CLASSPATH = ($jars.FullName -join ";")
+          $resources = Join-Path $installDirectory "app/resources"
+          if (-not (Test-Path (Join-Path $resources "skiko-windows-x64.dll.sha256"))) {
+            throw "Packaged Skiko resources were not installed at $resources"
+          }
+          $env:JDK_JAVA_OPTIONS = "-Dcompose.application.resources.dir=`"$resources`""
           $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
           $mainClass = Start-Process $runtimeJava `
@@ -98,6 +103,7 @@ jobs:
             throw "Installed runtime exited during startup with code $($mainClass.ExitCode):`n$output"
           }
           Stop-Process -Id $mainClass.Id -Force
+          Remove-Item Env:JDK_JAVA_OPTIONS
 
           $app = Start-Process $executable -PassThru
           Start-Sleep -Seconds 10
