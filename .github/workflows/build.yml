@@ -60,34 +60,38 @@ jobs:
           }
 
           $installDirectory = Join-Path $env:ProgramFiles "Worldloom"
-          $java = Join-Path $installDirectory "runtime/bin/java.exe"
-          $appDirectory = Join-Path $installDirectory "app"
-          if (-not (Test-Path $java)) {
-            throw "Bundled Java runtime was not installed at $java"
+          $runtimeImage = Join-Path $installDirectory "runtime/lib/modules"
+          $executable = Join-Path $installDirectory "Worldloom.exe"
+          if (-not (Test-Path $runtimeImage)) {
+            throw "Bundled runtime image was not installed at $runtimeImage"
+          }
+          if (-not (Test-Path $executable)) {
+            throw "Application launcher was not installed at $executable"
           }
 
-          $modules = @(& $java --list-modules)
-          if ($LASTEXITCODE -ne 0 -or -not ($modules | Where-Object { $_ -like "java.sql@*" })) {
+          $imageEntries = @(& "$env:JAVA_HOME/bin/jimage.exe" list $runtimeImage)
+          if ($LASTEXITCODE -ne 0 -or -not ($imageEntries | Where-Object { $_.Trim() -eq "Module: java.sql" })) {
             throw "Bundled Java runtime does not contain java.sql"
           }
 
-          $jars = @(Get-ChildItem $appDirectory -Filter "*.jar")
-          if ($jars.Count -eq 0) {
-            throw "No application JARs were installed at $appDirectory"
+          $app = Start-Process $executable -PassThru
+          $started = $false
+          for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            Start-Sleep -Seconds 1
+            $app.Refresh()
+            if ($app.HasExited) {
+              throw "Installed application exited during startup with code $($app.ExitCode)"
+            }
+            if ($app.MainWindowTitle -eq "Worldloom / 织境") {
+              $started = $true
+              break
+            }
           }
 
-          $env:CLASSPATH = ($jars.FullName -join ";")
-          $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
-          $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
-          $app = Start-Process $java `
-            -ArgumentList "io.worldloom.app.desktop.MainKt" `
-            -RedirectStandardOutput $stdout `
-            -RedirectStandardError $stderr `
-            -PassThru
-          Start-Sleep -Seconds 10
-          if ($app.HasExited) {
-            $output = (Get-Content $stdout, $stderr -ErrorAction SilentlyContinue) -join [Environment]::NewLine
-            throw "Installed application exited during startup with code $($app.ExitCode):`n$output"
+          if (-not $started) {
+            $windowTitle = $app.MainWindowTitle
+            Stop-Process -Id $app.Id -Force
+            throw "Application did not create its main window; current title: '$windowTitle'"
           }
           Stop-Process -Id $app.Id -Force
       - name: Upload Windows installer
