@@ -19,11 +19,11 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Generate dependency verification metadata
-        run: ./gradlew --write-verification-metadata sha256 help
+      - name: Run checks and generate verification metadata
+        run: ./gradlew --write-verification-metadata sha256 check
       - name: Show dependency verification metadata changes
+        if: always()
         run: git diff -- gradle/verification-metadata.xml
-      - run: ./gradlew check
 
   android-build:
     runs-on: ubuntu-latest
@@ -34,8 +34,11 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --write-verification-metadata sha256 help
-      - run: ./gradlew :apps:androidApp:assembleDebug
+      - name: Build Android and generate verification metadata
+        run: ./gradlew --write-verification-metadata sha256 :apps:androidApp:assembleDebug
+      - name: Show dependency verification metadata changes
+        if: always()
+        run: git diff -- gradle/verification-metadata.xml
 
   desktop-build:
     runs-on: windows-latest
@@ -46,8 +49,18 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew.bat --write-verification-metadata sha256 help
-      - run: ./gradlew.bat :apps:desktopApp:classes
+      - name: Build Windows MSI and generate verification metadata
+        run: ./gradlew.bat --write-verification-metadata sha256 :apps:desktopApp:packageReleaseMsi
+      - name: Show dependency verification metadata changes
+        if: always()
+        run: git diff -- gradle/verification-metadata.xml
+      - name: Upload Windows installer
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Worldloom-Windows-0.1.0-alpha.1
+          path: apps/desktopApp/build/compose/binaries/main-release/msi/*.msi
+          if-no-files-found: error
 
   ios-build:
     runs-on: macos-latest
@@ -58,7 +71,11 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --write-verification-metadata sha256 help
+      - name: Generate iOS dependency verification metadata
+        run: ./gradlew --write-verification-metadata sha256 :shared:ui-game:compileKotlinIosSimulatorArm64
+      - name: Show dependency verification metadata changes
+        if: always()
+        run: git diff -- gradle/verification-metadata.xml
       - name: Build iOS simulator app
         run: >-
           xcodebuild
