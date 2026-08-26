@@ -39,8 +39,11 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
+            // SQLDelight's desktop driver uses java.sql at application startup. jpackage's
+            // module detection does not discover that transitive runtime requirement.
+            modules("java.sql")
             packageName = "Worldloom"
-            packageVersion = "0.1.0"
+            packageVersion = "0.1.1"
         }
     }
 }
