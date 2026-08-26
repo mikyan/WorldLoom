@@ -19,6 +19,10 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - name: Generate dependency verification metadata
+        run: ./gradlew --write-verification-metadata sha256 help
+      - name: Show dependency verification metadata changes
+        run: git diff -- gradle/verification-metadata.xml
       - run: ./gradlew check
 
   android-build:
@@ -30,6 +34,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --write-verification-metadata sha256 help
       - run: ./gradlew :apps:androidApp:assembleDebug
 
   desktop-build:
@@ -41,6 +46,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew.bat --write-verification-metadata sha256 help
       - run: ./gradlew.bat :apps:desktopApp:classes
 
   ios-build:
@@ -52,6 +58,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --write-verification-metadata sha256 help
       - name: Build iOS simulator app
         run: >-
           xcodebuild
