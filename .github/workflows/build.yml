@@ -90,7 +90,7 @@ jobs:
             throw "Expected one packaged Skiko resource, found $($skikoHashes.Count)"
           }
           $resources = $skikoHashes[0].Directory.FullName
-          $env:JDK_JAVA_OPTIONS = "-Dcompose.application.resources.dir=`"$resources`""
+          $env:JDK_JAVA_OPTIONS = "-Dcompose.application.resources.dir=`"$resources`" -Dskiko.library.path=`"$resources`""
           $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
           $mainClass = Start-Process $runtimeJava `
