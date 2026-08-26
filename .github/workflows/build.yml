@@ -43,10 +43,57 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Windows MSI
         run: ./gradlew.bat :apps:desktopApp:packageReleaseMsi
+      - name: Smoke-test installed Windows runtime
+        shell: pwsh
+        run: |
+          $msiFiles = @(Get-ChildItem "apps/desktopApp/build/compose/binaries/main-release/msi" -Filter "*.msi")
+          if ($msiFiles.Count -ne 1) {
+            throw "Expected one MSI, found $($msiFiles.Count)"
+          }
+
+          $installer = Start-Process msiexec.exe `
+            -ArgumentList @("/i", "`"$($msiFiles[0].FullName)`"", "/qn", "/norestart") `
+            -Wait `
+            -PassThru
+          if ($installer.ExitCode -ne 0) {
+            throw "MSI installation failed with exit code $($installer.ExitCode)"
+          }
+
+          $installDirectory = Join-Path $env:ProgramFiles "Worldloom"
+          $java = Join-Path $installDirectory "runtime/bin/java.exe"
+          $appDirectory = Join-Path $installDirectory "app"
+          if (-not (Test-Path $java)) {
+            throw "Bundled Java runtime was not installed at $java"
+          }
+
+          $modules = @(& $java --list-modules)
+          if ($LASTEXITCODE -ne 0 -or -not ($modules | Where-Object { $_ -like "java.sql@*" })) {
+            throw "Bundled Java runtime does not contain java.sql"
+          }
+
+          $jars = @(Get-ChildItem $appDirectory -Filter "*.jar")
+          if ($jars.Count -eq 0) {
+            throw "No application JARs were installed at $appDirectory"
+          }
+
+          $env:CLASSPATH = ($jars.FullName -join ";")
+          $stdout = Join-Path $env:RUNNER_TEMP "worldloom-stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "worldloom-stderr.log"
+          $app = Start-Process $java `
+            -ArgumentList "io.worldloom.app.desktop.MainKt" `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
+          Start-Sleep -Seconds 10
+          if ($app.HasExited) {
+            $output = (Get-Content $stdout, $stderr -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            throw "Installed application exited during startup with code $($app.ExitCode):`n$output"
+          }
+          Stop-Process -Id $app.Id -Force
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Worldloom-Windows-0.1.0-alpha.1
+          name: Worldloom-Windows-0.1.1-alpha.1
           path: apps/desktopApp/build/compose/binaries/main-release/msi/*.msi
           if-no-files-found: error
 
