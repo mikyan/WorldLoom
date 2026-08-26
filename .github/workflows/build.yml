@@ -19,11 +19,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Run checks and generate verification metadata
-        run: ./gradlew --write-verification-metadata sha256 check
-      - name: Show dependency verification metadata changes
-        if: always()
-        run: git diff -- gradle/verification-metadata.xml
+      - run: ./gradlew check
 
   android-build:
     runs-on: ubuntu-latest
@@ -34,11 +30,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build Android and generate verification metadata
-        run: ./gradlew --write-verification-metadata sha256 :apps:androidApp:assembleDebug
-      - name: Show dependency verification metadata changes
-        if: always()
-        run: git diff -- gradle/verification-metadata.xml
+      - run: ./gradlew :apps:androidApp:assembleDebug
 
   desktop-build:
     runs-on: windows-latest
@@ -49,13 +41,9 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build Windows MSI and generate verification metadata
-        run: ./gradlew.bat --write-verification-metadata sha256 :apps:desktopApp:packageReleaseMsi
-      - name: Show dependency verification metadata changes
-        if: always()
-        run: git diff -- gradle/verification-metadata.xml
+      - name: Build Windows MSI
+        run: ./gradlew.bat :apps:desktopApp:packageReleaseMsi
       - name: Upload Windows installer
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Worldloom-Windows-0.1.0-alpha.1
@@ -71,11 +59,6 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Generate iOS dependency verification metadata
-        run: ./gradlew --write-verification-metadata sha256 :shared:ui-game:compileKotlinIosSimulatorArm64
-      - name: Show dependency verification metadata changes
-        if: always()
-        run: git diff -- gradle/verification-metadata.xml
       - name: Build iOS simulator app
         run: >-
           xcodebuild
@@ -85,4 +68,6 @@ jobs:
           -sdk iphonesimulator
           -derivedDataPath build/ios-derived
           CODE_SIGNING_ALLOWED=NO
+          ARCHS=arm64
+          ONLY_ACTIVE_ARCH=YES
           build
