@@ -23,6 +23,8 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 ## 文档
 
+- [代码架构与 Agent 主循环学习指南](docs/CODE_ARCHITECTURE_AND_AGENT_LOOP.md)：面向 Agent 初学者的当前代码导览、主循环拆解、工具安全、回合恢复、NPC 隔离与记忆压缩分析。
+
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
 - [迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
