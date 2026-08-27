@@ -39,10 +39,9 @@ data class ProviderConfiguration(
         require(inputCostMicrounitsPerMillionTokens >= 0) { "Input price must not be negative" }
         require(outputCostMicrounitsPerMillionTokens >= 0) { "Output price must not be negative" }
         require(!baseUrl.contains('@')) { "Provider base URL must not contain user information" }
-        require(
-            baseUrl.startsWith("https://") ||
-                (allowInsecureLocalTransport && baseUrl.isLocalHttpEndpoint()),
-        ) { "Provider base URL must use HTTPS unless an explicit local endpoint is configured" }
+        require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) {
+            "Provider base URL must use HTTP or HTTPS"
+        }
     }
 }
 
@@ -264,6 +263,3 @@ class SelectedProviderLanguageModelProvider(
         retryable = false,
     )
 }
-
-private fun String.isLocalHttpEndpoint(): Boolean =
-    startsWith("http://localhost") || startsWith("http://127.0.0.1") || startsWith("http://[::1]")

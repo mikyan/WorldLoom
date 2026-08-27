@@ -918,6 +918,8 @@ Behavior Runtime ────┘
 
 系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前 UI 提供 OpenAI 兼容配置的保存、切换、测试和模型发现，动态 Provider 路由在每次请求前读取选中配置。
 
+Base URL 可以显式使用 HTTP 或 HTTPS，以支持只监听明文 HTTP 的本地兼容代理；移动端入口相应允许明文传输。HTTP 不提供传输加密，用户应只为自己信任的本机或局域网代理配置该协议，公网服务仍应使用 HTTPS。连接测试直接向用户填写的 Model ID 发起最小 Chat Completions 请求，模型发现是独立的可选操作，不能作为连接测试或使用模型的前置能力。
+
 当前已实现 OpenAI Chat Completions 兼容协议，包括 SSE 文本增量、分片 `tool_calls`、工具结果和最终用量；Anthropic Messages 仍是下一 Adapter。Agent Loop、工具调度、预算、上下文构建和会话隔离属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。适配实现依据 [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling) 与 [Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)，并始终在 Tool Gateway 本地重新校验模型参数。
 
 语音属于后续特性。`provider-api` 保留 `SpeechToTextProvider` 与 `TextToSpeechProvider` 扩展边界，具体服务、模型、音色和交互在文本游戏闭环稳定后确定。
