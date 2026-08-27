@@ -148,3 +148,9 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+## 许可证
+
+WorldLoom 的程序源代码（明确另行标注的第三方代码除外）按照 [Apache License 2.0](LICENSE) 发布，可用于学习、修改和商业发行。
+
+`contract-worlds/` 中的内置世界、剧本及叙事文本，以及项目的美术、音频、Logo、商标、截图和宣传素材不适用 Apache License 2.0，除非文件中另有明确说明。上述内容保留全部权利，具体范围见 [LICENSE-ASSETS.md](LICENSE-ASSETS.md)。第三方内容继续适用其各自的许可证。
