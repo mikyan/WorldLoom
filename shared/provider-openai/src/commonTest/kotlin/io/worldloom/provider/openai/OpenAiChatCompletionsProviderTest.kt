@@ -85,10 +85,11 @@ class OpenAiChatCompletionsProviderTest {
         val body = assertIs<TextContent>(sent.body).text
         assertFalse("test-secret-key" in body)
         val root = Json.parseToJsonElement(body).jsonObject
-        assertEquals("developer", root["messages"]!!.jsonArray.first().jsonObject["role"]!!.jsonPrimitive.content)
+        assertEquals("system", root["messages"]!!.jsonArray.first().jsonObject["role"]!!.jsonPrimitive.content)
         assertEquals(256, root["max_completion_tokens"]!!.jsonPrimitive.content.toInt())
-        assertEquals(false, root["parallel_tool_calls"]!!.jsonPrimitive.content.toBoolean())
+        assertFalse("parallel_tool_calls" in root)
         val function = root["tools"]!!.jsonArray.single().jsonObject["function"]!!.jsonObject
+        assertFalse("strict" in function)
         val parameter = function["parameters"]!!.jsonObject["properties"]!!.jsonObject["profileId"]!!.jsonObject
         assertEquals("test.check", parameter["enum"]!!.jsonArray.single().jsonPrimitive.content)
         val arrayParameter = function["parameters"]!!.jsonObject["properties"]!!.jsonObject["knowledgeIds"]!!.jsonObject
@@ -152,6 +153,88 @@ class OpenAiChatCompletionsProviderTest {
         assertEquals("call-stream", call.id)
         assertEquals("worldloom.tool.check.resolve", call.name)
         assertEquals(JsonPrimitive("test.check"), call.arguments["profileId"])
+    }
+
+    @Test
+    fun acceptsCompatibleStreamThatEndsWithFinishReasonWithoutDoneMarker() = runTest {
+        var captured: HttpRequestData? = null
+        val provider = provider { request ->
+            captured = request
+            sseResponse(
+                """
+                data: {"choices":[{"index":0,"delta":{"content":"兼容"},"finish_reason":null}]}
+
+                data: {"choices":[{"index":0,"delta":{"content":"成功"},"finish_reason":"stop"}]}
+
+                """.trimIndent(),
+            )
+        }
+
+        val success = assertIs<ProviderResult.Success>(provider.completeStreaming(textRequest()) {})
+
+        assertEquals("兼容成功", success.turn.text)
+        val root = Json.parseToJsonElement(assertIs<TextContent>(checkNotNull(captured).body).text).jsonObject
+        assertFalse("stream_options" in root)
+    }
+
+    @Test
+    fun acceptsJsonWhenCompatibleEndpointIgnoresStreaming() = runTest {
+        val deltas = mutableListOf<String>()
+        val provider = provider { _ ->
+            jsonResponse(
+                """
+                {
+                  "choices": [{"message": {"role": "assistant", "content": "非流式兼容"}}],
+                  "usage": {"prompt_tokens": 4, "completion_tokens": 2}
+                }
+                """.trimIndent(),
+            )
+        }
+
+        val success = assertIs<ProviderResult.Success>(
+            provider.completeStreaming(textRequest()) { event ->
+                if (event is ProviderStreamEvent.TextDelta) deltas += event.text
+            },
+        )
+
+        assertEquals("非流式兼容", success.turn.text)
+        assertEquals(listOf("非流式兼容"), deltas)
+    }
+
+    @Test
+    fun retriesWithoutStreamingWhenCompatibleEndpointRejectsStreaming() = runTest {
+        var calls = 0
+        val deltas = mutableListOf<String>()
+        val provider = provider { request ->
+            calls += 1
+            val root = Json.parseToJsonElement(assertIs<TextContent>(request.body).text).jsonObject
+            if (root["stream"]!!.jsonPrimitive.content.toBoolean()) {
+                respond(
+                    content = ByteReadChannel("""{"error":{"message":"streaming is unsupported"}}"""),
+                    status = HttpStatusCode.BadRequest,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            } else {
+                jsonResponse(
+                    """
+                    {
+                      "choices": [{"message": {"role": "assistant", "content": "回退成功"}}],
+                      "usage": {"prompt_tokens": 4, "completion_tokens": 2}
+                    }
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val success = assertIs<ProviderResult.Success>(
+            provider.completeStreaming(textRequest()) { event ->
+                if (event is ProviderStreamEvent.TextDelta) deltas += event.text
+            },
+        )
+
+        assertEquals(2, calls)
+        assertEquals("回退成功", success.turn.text)
+        assertEquals(listOf("回退成功"), deltas)
     }
 
     @Test

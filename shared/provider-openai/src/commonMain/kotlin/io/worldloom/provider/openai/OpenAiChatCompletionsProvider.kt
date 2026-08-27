@@ -9,6 +9,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -59,7 +60,7 @@ enum class OpenAiInstructionRole {
 data class OpenAiChatCompletionsConfig(
     val model: String,
     val baseUrl: String = "https://api.openai.com/v1",
-    val instructionRole: OpenAiInstructionRole = OpenAiInstructionRole.DEVELOPER,
+    val instructionRole: OpenAiInstructionRole = OpenAiInstructionRole.SYSTEM,
     val inputCostMicrounitsPerMillionTokens: Long = 0,
     val outputCostMicrounitsPerMillionTokens: Long = 0,
     val allowInsecureTransport: Boolean = false,
@@ -96,18 +97,7 @@ class OpenAiChatCompletionsProvider(
     }
 
     override suspend fun complete(request: ProviderRequest): ProviderResult = withCredential { credential ->
-        try {
-            val response = httpClient.post(endpoint) {
-                contentType(ContentType.Application.Json)
-                bearerAuth(credential)
-                setBody(requestBody(request, stream = false).toString())
-            }
-            parseHttpResponse(response)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            failure(ProviderFailureCode.NETWORK, "Provider request failed", retryable = true)
-        }
+        completeWithCredential(request, credential)
     }
 
     override suspend fun completeStreaming(
@@ -115,19 +105,65 @@ class OpenAiChatCompletionsProvider(
         onEvent: suspend (ProviderStreamEvent) -> Unit,
     ): ProviderResult = withCredential { credential ->
         try {
-            httpClient.preparePost(endpoint) {
+            var emittedText = false
+            val streamed = httpClient.preparePost(endpoint) {
                 contentType(ContentType.Application.Json)
                 bearerAuth(credential)
                 setBody(requestBody(request, stream = true).toString())
             }.execute { response ->
                 if (!response.status.isSuccess()) return@execute httpFailure(response.status)
-                parseStream(response, onEvent)
+                if (response.headers[HttpHeaders.ContentType].orEmpty().contains("application/json", ignoreCase = true)) {
+                    parseHttpResponse(response).also { result ->
+                        if (result is ProviderResult.Success) {
+                            result.turn.text?.takeIf(String::isNotEmpty)?.let {
+                                emittedText = true
+                                onEvent(ProviderStreamEvent.TextDelta(it))
+                            }
+                        }
+                    }
+                } else {
+                    parseStream(response) { event ->
+                        if (event is ProviderStreamEvent.TextDelta) emittedText = true
+                        onEvent(event)
+                    }
+                }
+            }
+            if (
+                streamed is ProviderResult.Failure &&
+                !emittedText &&
+                streamed.code in setOf(ProviderFailureCode.INVALID_REQUEST, ProviderFailureCode.INVALID_RESPONSE)
+            ) {
+                completeWithCredential(request, credential).also { result ->
+                    if (result is ProviderResult.Success) {
+                        result.turn.text?.takeIf(String::isNotEmpty)?.let {
+                            onEvent(ProviderStreamEvent.TextDelta(it))
+                        }
+                    }
+                }
+            } else {
+                streamed
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             failure(ProviderFailureCode.NETWORK, "Provider stream failed", retryable = true)
         }
+    }
+
+    private suspend fun completeWithCredential(
+        request: ProviderRequest,
+        credential: String,
+    ): ProviderResult = try {
+        val response = httpClient.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            bearerAuth(credential)
+            setBody(requestBody(request, stream = false).toString())
+        }
+        parseHttpResponse(response)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        failure(ProviderFailureCode.NETWORK, "Provider request failed", retryable = true)
     }
 
     private suspend fun parseHttpResponse(response: HttpResponse): ProviderResult {
@@ -174,6 +210,7 @@ class OpenAiChatCompletionsProvider(
                     ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider returned invalid usage", false)
             }
             val choice = root["choices"]?.asArrayOrNull()?.firstOrNull()?.asObjectOrNull() ?: return null
+            if (choice["finish_reason"]?.asStringOrNull() != null) completed = true
             val delta = choice["delta"]?.asObjectOrNull() ?: return null
             delta["content"]?.asStringOrNull()?.takeIf(String::isNotEmpty)?.let { fragment ->
                 text.append(fragment)
@@ -266,11 +303,7 @@ class OpenAiChatCompletionsProvider(
         put("messages", buildJsonArray { request.messages.forEach { add(messageJson(it)) } })
         put("max_completion_tokens", request.maxOutputTokens)
         put("stream", stream)
-        if (stream) {
-            put("stream_options", buildJsonObject { put("include_usage", true) })
-        }
         if (request.tools.isNotEmpty()) {
-            put("parallel_tool_calls", false)
             put("tools", buildJsonArray { request.tools.forEach { add(toolJson(it)) } })
             put("tool_choice", "auto")
         }
@@ -313,7 +346,6 @@ class OpenAiChatCompletionsProvider(
         put("function", buildJsonObject {
             put("name", tool.name)
             put("description", tool.description)
-            put("strict", false)
             put("parameters", buildJsonObject {
                 put("type", "object")
                 put("properties", buildJsonObject {
