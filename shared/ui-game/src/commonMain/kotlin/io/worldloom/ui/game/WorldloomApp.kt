@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -107,9 +108,12 @@ fun WorldloomApp(
     onSelectRecognitionCandidate: (RecognitionCandidatePresentation) -> Unit = {},
 ) {
     val state by session.state.collectAsState()
+    val agentState = agentController?.state?.collectAsState()
     val scope = rememberCoroutineScope()
     val gameContentAvailable = state !is GameSessionUiState.Idle && state !is GameSessionUiState.Failed
     var showSetup by remember(gameContentAvailable) { mutableStateOf(!gameContentAvailable) }
+    var npcDialogueBusy by remember(agentController) { mutableStateOf(false) }
+    val gameplayInteractionBusy = agentState?.value is GameAgentState.Running || npcDialogueBusy
     LaunchedEffect(saveCoordinator, state) { saveCoordinator?.refresh() }
 
     MaterialTheme(colors = WorldloomColors) {
@@ -128,6 +132,7 @@ fun WorldloomApp(
                     if (gameContentAvailable) {
                         Button(
                             onClick = { showSetup = !showSetup },
+                            enabled = !gameplayInteractionBusy,
                             colors = ButtonDefaults.buttonColors(
                                 backgroundColor = if (showSetup) {
                                     MaterialTheme.colors.primary
@@ -136,73 +141,73 @@ fun WorldloomApp(
                                 },
                             ),
                         ) {
-                            Text(if (showSetup) "返回冒险" else "世界、存档与服务")
+                            Text(
+                                when {
+                                    gameplayInteractionBusy -> "主持处理中…"
+                                    showSetup -> "返回冒险"
+                                    else -> "世界、存档与服务"
+                                },
+                            )
                         }
                     }
                 }
 
                 if (showSetup) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                    Column(
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        item {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                backgroundColor = MaterialTheme.colors.surface,
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            backgroundColor = MaterialTheme.colors.surface,
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Text("世界与服务", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        "选择世界、管理存档并配置主持模型。进入游戏后这里会收起，为冒险内容留出完整空间。",
-                                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
-                                    )
-                                }
-                            }
-                        }
-                        item {
-                            WorldSelector(
-                                worlds = session.availableWorlds,
-                                onSelected = { world ->
-                                    scope.launch {
-                                        val loaded = if (saveCoordinator == null) {
-                                            session.load(world.id) is LoadResult.Success
-                                        } else {
-                                            saveCoordinator.create(world.id) is
-                                                io.worldloom.application.SaveOperationResult.Success
-                                        }
-                                        if (loaded) agentController?.reset()
-                                    }
-                                },
-                            )
-                        }
-                        saveCoordinator?.let { coordinator ->
-                            item { SaveLibraryPanel(coordinator) { agentController?.reset() } }
-                        }
-                        credentialConfiguration?.let { configuration ->
-                            item { CredentialPanel(configuration) }
-                        }
-                        if (providerConfigurationCenter != null && providerConfigurationId != null) {
-                            item { ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId) }
-                        }
-                        recognitionWorkspace?.let { workspace ->
-                            item {
-                                RecognitionWorkspacePanel(
-                                    workspace = workspace,
-                                    onCancel = onCancelRecognition,
-                                    onResume = onResumeRecognition,
-                                    onSelectCandidate = onSelectRecognitionCandidate,
+                                Text("世界与服务", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "选择世界、管理存档并配置主持模型。进入游戏后这里会收起，为冒险内容留出完整空间。",
+                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
                                 )
                             }
                         }
+                        WorldSelector(
+                            worlds = session.availableWorlds,
+                            onSelected = { world ->
+                                scope.launch {
+                                    val loaded = if (saveCoordinator == null) {
+                                        session.load(world.id) is LoadResult.Success
+                                    } else {
+                                        saveCoordinator.create(world.id) is
+                                            io.worldloom.application.SaveOperationResult.Success
+                                    }
+                                    if (loaded) agentController?.reset()
+                                }
+                            },
+                        )
+                        saveCoordinator?.let { coordinator ->
+                            SaveLibraryPanel(coordinator) { agentController?.reset() }
+                        }
+                        credentialConfiguration?.let { configuration ->
+                            CredentialPanel(configuration)
+                        }
+                        if (providerConfigurationCenter != null && providerConfigurationId != null) {
+                            ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId)
+                        }
+                        recognitionWorkspace?.let { workspace ->
+                            RecognitionWorkspacePanel(
+                                workspace = workspace,
+                                onCancel = onCancelRecognition,
+                                onResume = onResumeRecognition,
+                                onSelectCandidate = onSelectRecognitionCandidate,
+                            )
+                        }
                         if (state is GameSessionUiState.Idle) {
-                            item { EmptyState("选择一个契约世界，开始你的冒险。") }
+                            EmptyState("选择一个契约世界，开始你的冒险。")
                         }
                         if (state is GameSessionUiState.Failed) {
-                            item { EmptyState((state as GameSessionUiState.Failed).error.message, isError = true) }
+                            EmptyState((state as GameSessionUiState.Failed).error.message, isError = true)
                         }
                     }
                 } else {
@@ -241,6 +246,7 @@ fun WorldloomApp(
                             guidanceRunKey = session.currentRunId?.value.orEmpty(),
                             replayInspector = session as? ReplayInspector,
                             reduceMotion = reduceMotion,
+                            onNpcBusyChanged = { npcDialogueBusy = it },
                         )
 
                         is GameSessionUiState.CharacterCreation -> CharacterCreationState(
@@ -647,6 +653,7 @@ private fun ReadyState(
     interactive: Boolean = true,
     replayInspector: ReplayInspector? = null,
     reduceMotion: Boolean = false,
+    onNpcBusyChanged: (Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var displayedTimeline by remember(presentation.worldId, presentation.lastSequence) {
@@ -726,6 +733,7 @@ private fun ReadyState(
                             npcs = scene.addressableNpcs,
                             controller = agentController,
                             idempotencyPrefix = agentHistoryKey,
+                            onBusyChanged = onNpcBusyChanged,
                         )
                     }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -850,47 +858,56 @@ private fun ReadyState(
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
                     )
                 } else {
-                    if (hasEarlier && replayInspector != null) {
-                        Button(onClick = {
-                            scope.launch {
-                                val before = displayedTimeline.firstOrNull()?.sequence
-                                when (val result = replayInspector.timelinePage(before, 100)) {
-                                    is TimelinePageResult.Success -> {
-                                        displayedTimeline = (result.page.events + displayedTimeline)
-                                            .distinctBy { it.sequence }
-                                            .sortedBy { it.sequence }
-                                        hasEarlier = result.page.hasEarlier
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 640.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (hasEarlier && replayInspector != null) {
+                            item(key = "load-earlier") {
+                                Button(onClick = {
+                                    scope.launch {
+                                        val before = displayedTimeline.firstOrNull()?.sequence
+                                        when (val result = replayInspector.timelinePage(before, 100)) {
+                                            is TimelinePageResult.Success -> {
+                                                displayedTimeline = (result.page.events + displayedTimeline)
+                                                    .distinctBy { it.sequence }
+                                                    .sortedBy { it.sequence }
+                                                hasEarlier = result.page.hasEarlier
+                                            }
+                                            is TimelinePageResult.Failure -> {
+                                                replayVerification = "时间线读取失败：${result.message}"
+                                            }
+                                        }
                                     }
-                                    is TimelinePageResult.Failure -> replayVerification = "时间线读取失败：${result.message}"
-                                }
+                                }) { Text("加载更早事件") }
                             }
-                        }) { Text("加载更早事件") }
-                    }
-                    displayedTimeline.forEach { event ->
-                        Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                        }
+                        items(displayedTimeline, key = { it.sequence }) { event ->
+                            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "#${event.sequence}",
+                                            color = MaterialTheme.colors.primary,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Spacer(Modifier.width(16.dp))
+                                        Text(event.summary)
+                                    }
                                     Text(
-                                        "#${event.sequence}",
-                                        color = MaterialTheme.colors.primary,
-                                        fontWeight = FontWeight.Bold,
+                                        "${event.eventType} · cause ${event.causationId ?: "-"}",
+                                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.48f),
+                                        fontSize = 11.sp,
                                     )
-                                    Spacer(Modifier.width(16.dp))
-                                    Text(event.summary)
-                                }
-                                Text(
-                                    "${event.eventType} · cause ${event.causationId ?: "-"}",
-                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.48f),
-                                    fontSize = 11.sp,
-                                )
-                                event.randomRecord?.let { random ->
-                                    Text(
-                                        "Random ${random.recordId}: " +
-                                            "${random.results.joinToString(" + ")} = ${random.total} → " +
-                                            random.outcomeId.value,
-                                        color = MaterialTheme.colors.secondary,
-                                        fontSize = 12.sp,
-                                    )
+                                    event.randomRecord?.let { random ->
+                                        Text(
+                                            "Random ${random.recordId}: " +
+                                                "${random.results.joinToString(" + ")} = ${random.total} → " +
+                                                random.outcomeId.value,
+                                            color = MaterialTheme.colors.secondary,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -906,6 +923,7 @@ private fun NpcDialoguePanel(
     npcs: List<io.worldloom.application.PresentedNpc>,
     controller: GameAgentController,
     idempotencyPrefix: String,
+    onBusyChanged: (Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var selectedId by remember(npcs) { mutableStateOf(npcs.first().id) }
@@ -944,20 +962,25 @@ private fun NpcDialoguePanel(
                     val message = input.trim()
                     val idempotencyKey = "ui:$idempotencyPrefix:${selected.id.value}"
                     sending = true
+                    onBusyChanged(true)
                     status = null
                     scope.launch {
-                        when (val result = controller.addressNpc(selected.id, message, idempotencyKey)) {
-                            is NpcDialogueResult.Committed -> {
-                                status = if (result.worldChanged) "发言已记录。" else "该发言已处理，没有重复写入。"
-                                input = ""
+                        try {
+                            when (val result = controller.addressNpc(selected.id, message, idempotencyKey)) {
+                                is NpcDialogueResult.Committed -> {
+                                    status = if (result.worldChanged) "发言已记录。" else "该发言已处理，没有重复写入。"
+                                    input = ""
+                                }
+                                is NpcDialogueResult.Failed -> status = if (result.worldChanged) {
+                                    "发言已记录，但角色回应暂时不可用。"
+                                } else {
+                                    result.message
+                                }
                             }
-                            is NpcDialogueResult.Failed -> status = if (result.worldChanged) {
-                                "发言已记录，但角色回应暂时不可用。"
-                            } else {
-                                result.message
-                            }
+                        } finally {
+                            sending = false
+                            onBusyChanged(false)
                         }
-                        sending = false
                     }
                 },
             ) { Text(if (sending) "发送中" else "发送") }

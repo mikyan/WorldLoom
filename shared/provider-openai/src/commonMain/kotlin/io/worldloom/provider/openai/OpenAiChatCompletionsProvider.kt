@@ -91,6 +91,10 @@ class OpenAiChatCompletionsProvider(
     )
 
     private val endpoint = "${config.baseUrl.trimEnd('/')}/chat/completions"
+    private val officialOpenAiEndpoint = config.baseUrl.trimEnd('/').equals(
+        "https://api.openai.com/v1",
+        ignoreCase = true,
+    )
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -105,33 +109,19 @@ class OpenAiChatCompletionsProvider(
         onEvent: suspend (ProviderStreamEvent) -> Unit,
     ): ProviderResult = withCredential { credential ->
         try {
-            var emittedText = false
-            val streamed = httpClient.preparePost(endpoint) {
-                contentType(ContentType.Application.Json)
-                bearerAuth(credential)
-                setBody(requestBody(request, stream = true).toString())
-            }.execute { response ->
-                if (!response.status.isSuccess()) return@execute httpFailure(response.status)
-                if (response.headers[HttpHeaders.ContentType].orEmpty().contains("application/json", ignoreCase = true)) {
-                    parseHttpResponse(response).also { result ->
-                        if (result is ProviderResult.Success) {
-                            result.turn.text?.takeIf(String::isNotEmpty)?.let {
-                                emittedText = true
-                                onEvent(ProviderStreamEvent.TextDelta(it))
-                            }
-                        }
-                    }
-                } else {
-                    parseStream(response) { event ->
-                        if (event is ProviderStreamEvent.TextDelta) emittedText = true
-                        onEvent(event)
-                    }
-                }
+            var streamed = streamWithCredential(request, credential, includeUsage = true, onEvent)
+            if (
+                streamed.result is ProviderResult.Failure &&
+                !streamed.emittedEvent &&
+                !officialOpenAiEndpoint &&
+                streamed.result.code == ProviderFailureCode.INVALID_REQUEST
+            ) {
+                streamed = streamWithCredential(request, credential, includeUsage = false, onEvent)
             }
             if (
-                streamed is ProviderResult.Failure &&
-                !emittedText &&
-                streamed.code in setOf(ProviderFailureCode.INVALID_REQUEST, ProviderFailureCode.INVALID_RESPONSE)
+                streamed.result is ProviderResult.Failure &&
+                !streamed.emittedEvent &&
+                streamed.result.code in setOf(ProviderFailureCode.INVALID_REQUEST, ProviderFailureCode.INVALID_RESPONSE)
             ) {
                 completeWithCredential(request, credential).also { result ->
                     if (result is ProviderResult.Success) {
@@ -141,13 +131,45 @@ class OpenAiChatCompletionsProvider(
                     }
                 }
             } else {
-                streamed
+                streamed.result
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             failure(ProviderFailureCode.NETWORK, "Provider stream failed", retryable = true)
         }
+    }
+
+    private suspend fun streamWithCredential(
+        request: ProviderRequest,
+        credential: String,
+        includeUsage: Boolean,
+        onEvent: suspend (ProviderStreamEvent) -> Unit,
+    ): StreamingAttempt {
+        var emittedEvent = false
+        val result = httpClient.preparePost(endpoint) {
+            contentType(ContentType.Application.Json)
+            bearerAuth(credential)
+            setBody(requestBody(request, stream = true, includeStreamUsage = includeUsage).toString())
+        }.execute { response ->
+            if (!response.status.isSuccess()) return@execute httpFailure(response.status)
+            if (response.headers[HttpHeaders.ContentType].orEmpty().contains("application/json", ignoreCase = true)) {
+                parseHttpResponse(response).also { parsed ->
+                    if (parsed is ProviderResult.Success) {
+                        parsed.turn.text?.takeIf(String::isNotEmpty)?.let {
+                            emittedEvent = true
+                            onEvent(ProviderStreamEvent.TextDelta(it))
+                        }
+                    }
+                }
+            } else {
+                parseStream(response) { event ->
+                    emittedEvent = true
+                    onEvent(event)
+                }
+            }
+        }
+        return StreamingAttempt(result, emittedEvent)
     }
 
     private suspend fun completeWithCredential(
@@ -298,11 +320,15 @@ class OpenAiChatCompletionsProvider(
     private fun requestBody(
         request: ProviderRequest,
         stream: Boolean,
+        includeStreamUsage: Boolean = false,
     ): JsonObject = buildJsonObject {
         put("model", config.model)
         put("messages", buildJsonArray { request.messages.forEach { add(messageJson(it)) } })
         put("max_completion_tokens", request.maxOutputTokens)
         put("stream", stream)
+        if (stream && includeStreamUsage) {
+            put("stream_options", buildJsonObject { put("include_usage", true) })
+        }
         if (request.tools.isNotEmpty()) {
             put("tools", buildJsonArray { request.tools.forEach { add(toolJson(it)) } })
             put("tool_choice", "auto")
@@ -453,6 +479,11 @@ class OpenAiChatCompletionsProvider(
         val id: StringBuilder = StringBuilder(),
         val name: StringBuilder = StringBuilder(),
         val arguments: StringBuilder = StringBuilder(),
+    )
+
+    private data class StreamingAttempt(
+        val result: ProviderResult,
+        val emittedEvent: Boolean,
     )
 
     private companion object {

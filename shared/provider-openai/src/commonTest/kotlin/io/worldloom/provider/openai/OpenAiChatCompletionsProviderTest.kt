@@ -174,7 +174,40 @@ class OpenAiChatCompletionsProviderTest {
 
         assertEquals("兼容成功", success.turn.text)
         val root = Json.parseToJsonElement(assertIs<TextContent>(checkNotNull(captured).body).text).jsonObject
-        assertFalse("stream_options" in root)
+        assertTrue(root["stream_options"]!!.jsonObject["include_usage"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun retriesCompatibleStreamWithoutUsageExtensionWhenRejected() = runTest {
+        val bodies = mutableListOf<JsonObject>()
+        val provider = provider { request ->
+            val root = Json.parseToJsonElement(assertIs<TextContent>(request.body).text).jsonObject
+            bodies += root
+            if ("stream_options" in root) {
+                respond(
+                    content = ByteReadChannel("""{"error":{"message":"stream_options is unsupported"}}"""),
+                    status = HttpStatusCode.BadRequest,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            } else {
+                sseResponse(
+                    """
+                    data: {"choices":[{"index":0,"delta":{"content":"兼容回退"},"finish_reason":"stop"}]}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val success = assertIs<ProviderResult.Success>(provider.completeStreaming(textRequest()) {})
+
+        assertEquals("兼容回退", success.turn.text)
+        assertEquals(2, bodies.size)
+        assertTrue("stream_options" in bodies.first())
+        assertFalse("stream_options" in bodies.last())
+        assertTrue(bodies.all { it["stream"]!!.jsonPrimitive.content.toBoolean() })
     }
 
     @Test
@@ -232,7 +265,7 @@ class OpenAiChatCompletionsProviderTest {
             },
         )
 
-        assertEquals(2, calls)
+        assertEquals(3, calls)
         assertEquals("回退成功", success.turn.text)
         assertEquals(listOf("回退成功"), deltas)
     }
