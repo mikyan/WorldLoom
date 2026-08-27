@@ -41,19 +41,15 @@ class ProviderConfigurationTest {
     }
 
     @Test
-    fun rejectsUnknownAdaptersAndUnsafeRemoteTransport() = runTest {
+    fun rejectsUnknownAdaptersAndUnsupportedTransport() = runTest {
         val center = ProviderConfigurationCenter(listOf(FakeConfigurableAdapter()), InMemoryProviderConfigurationStore())
         assertFailsWith<IllegalArgumentException> {
             configuration().copy(adapterId = "missing")
                 .let { center.upsert(it) }
         }
-        assertFailsWith<IllegalArgumentException> {
-            configuration().copy(baseUrl = "http://remote.example/v1")
-        }
-        configuration().copy(
-            baseUrl = "http://localhost:11434/v1",
-            allowInsecureLocalTransport = true,
-        )
+        configuration().copy(baseUrl = "http://remote.example/v1")
+        configuration().copy(baseUrl = "http://localhost:11434/v1")
+        assertFailsWith<IllegalArgumentException> { configuration().copy(baseUrl = "ftp://provider.example/v1") }
     }
 
     private fun configuration(): ProviderConfiguration = ProviderConfiguration(

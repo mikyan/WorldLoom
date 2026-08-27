@@ -69,8 +69,8 @@ data class OpenAiChatCompletionsConfig(
         require(baseUrl.isNotBlank()) { "OpenAI base URL must not be blank" }
         require(inputCostMicrounitsPerMillionTokens >= 0) { "Input price must not be negative" }
         require(outputCostMicrounitsPerMillionTokens >= 0) { "Output price must not be negative" }
-        require(allowInsecureTransport || baseUrl.startsWith("https://")) {
-            "OpenAI base URL must use HTTPS"
+        require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) {
+            "OpenAI base URL must use HTTP or HTTPS"
         }
         require(!baseUrl.contains('@')) { "OpenAI base URL must not contain user information" }
     }

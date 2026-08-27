@@ -14,8 +14,12 @@ import io.worldloom.provider.api.ProviderCapabilities
 import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConnectionTestResult
 import io.worldloom.provider.api.ProviderFailureCode
+import io.worldloom.provider.api.ProviderMessage
+import io.worldloom.provider.api.ProviderMessageRole
 import io.worldloom.provider.api.ProviderModelDescriptor
 import io.worldloom.provider.api.ProviderModelDiscoveryResult
+import io.worldloom.provider.api.ProviderRequest
+import io.worldloom.provider.api.ProviderResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -33,12 +37,19 @@ class OpenAiConfigurableAdapter(
     override val capabilities: ProviderCapabilities = CAPABILITIES
 
     override suspend fun test(configuration: ProviderConfiguration): ProviderConnectionTestResult =
-        when (val result = discoverModels(configuration)) {
-            is ProviderModelDiscoveryResult.Success -> ProviderConnectionTestResult.Connected(
-                capabilities = CAPABILITIES,
-                model = result.models.firstOrNull { it.id == configuration.modelId },
+        when (
+            val result = create(configuration).complete(
+                ProviderRequest(
+                    messages = listOf(ProviderMessage(ProviderMessageRole.USER, "Reply with OK.")),
+                    maxOutputTokens = 8,
+                ),
             )
-            is ProviderModelDiscoveryResult.Failure -> ProviderConnectionTestResult.Failed(
+        ) {
+            is ProviderResult.Success -> ProviderConnectionTestResult.Connected(
+                capabilities = CAPABILITIES,
+                model = ProviderModelDescriptor(configuration.modelId),
+            )
+            is ProviderResult.Failure -> ProviderConnectionTestResult.Failed(
                 code = result.code,
                 message = result.message,
                 retryable = result.retryable,
@@ -90,7 +101,8 @@ class OpenAiConfigurableAdapter(
                 baseUrl = configuration.baseUrl,
                 inputCostMicrounitsPerMillionTokens = configuration.inputCostMicrounitsPerMillionTokens,
                 outputCostMicrounitsPerMillionTokens = configuration.outputCostMicrounitsPerMillionTokens,
-                allowInsecureTransport = configuration.allowInsecureLocalTransport,
+                allowInsecureTransport = configuration.allowInsecureLocalTransport ||
+                    configuration.baseUrl.startsWith("http://"),
             ),
             credentialKey = CredentialKey(configuration.credentialKey),
         )

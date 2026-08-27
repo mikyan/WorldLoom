@@ -4,7 +4,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.worldloom.platform.credentials.CredentialKey
 import io.worldloom.platform.credentials.SecretValue
@@ -18,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class OpenAiConfigurableAdapterTest {
     @Test
@@ -25,6 +28,7 @@ class OpenAiConfigurableAdapterTest {
         val vault = SessionCredentialVault()
         vault.write(CredentialKey("openai.test"), SecretValue.create("test-secret"))
         val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Get, request.method)
             assertEquals("Bearer test-secret", request.headers[HttpHeaders.Authorization])
             respond(
                 content = """{"data":[{"id":"gpt-b"},{"id":"gpt-a"},{"id":"gpt-a"}]}""",
@@ -37,7 +41,30 @@ class OpenAiConfigurableAdapterTest {
 
         val discovery = assertIs<ProviderModelDiscoveryResult.Success>(adapter.discoverModels(configuration()))
         assertEquals(listOf("gpt-a", "gpt-b"), discovery.models.map { it.id })
-        assertIs<ProviderConnectionTestResult.Connected>(adapter.test(configuration()))
+        client.close()
+    }
+
+    @Test
+    fun testsConfiguredModelWithoutUsingDiscoveryEndpoint() = runTest {
+        val vault = SessionCredentialVault()
+        vault.write(CredentialKey("openai.test"), SecretValue.create("test-secret"))
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("http://proxy.example/v1/chat/completions", request.url.toString())
+            assertTrue((request.body as TextContent).text.contains("\"model\":\"gpt-a\""))
+            respond(
+                content = """{"choices":[{"message":{"role":"assistant","content":"OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = HttpClient(engine)
+        val adapter = OpenAiConfigurableAdapter(client, vault)
+
+        val result = assertIs<ProviderConnectionTestResult.Connected>(
+            adapter.test(configuration().copy(baseUrl = "http://proxy.example/v1")),
+        )
+        assertEquals("gpt-a", result.model?.id)
         client.close()
     }
 
