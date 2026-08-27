@@ -43,7 +43,15 @@ compose.desktop {
             // module detection does not discover that transitive runtime requirement.
             modules("java.sql")
             packageName = "Worldloom"
-            packageVersion = "0.1.1"
+            packageVersion = "0.1.2"
+            description = "AI-hosted single-player digital tabletop RPG"
+            vendor = "Worldloom"
+            windows {
+                shortcut = true
+                menu = true
+                menuGroup = "Worldloom"
+                upgradeUuid = "276d1f09-b6e7-4409-983b-63ad63a810dd"
+            }
         }
     }
 }

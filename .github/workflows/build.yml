@@ -69,6 +69,30 @@ jobs:
             throw "Application launcher was not installed at $executable"
           }
 
+          $desktopShortcut = @(
+            (Join-Path $env:PUBLIC "Desktop/Worldloom.lnk"),
+            (Join-Path $env:USERPROFILE "Desktop/Worldloom.lnk")
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $desktopShortcut) {
+            throw "Worldloom desktop shortcut was not installed"
+          }
+
+          $startMenuShortcut = @(
+            (Join-Path $env:ProgramData "Microsoft/Windows/Start Menu/Programs/Worldloom/Worldloom.lnk"),
+            (Join-Path $env:APPDATA "Microsoft/Windows/Start Menu/Programs/Worldloom/Worldloom.lnk")
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $startMenuShortcut) {
+            throw "Worldloom Start menu shortcut was not installed"
+          }
+
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($shortcutPath in @($desktopShortcut, $startMenuShortcut)) {
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            if ($shortcut.TargetPath -ne $executable) {
+              throw "Shortcut $shortcutPath targets '$($shortcut.TargetPath)' instead of $executable"
+            }
+          }
+
           $imageEntries = @(& "$env:JAVA_HOME/bin/jimage.exe" list $runtimeImage)
           if ($LASTEXITCODE -ne 0 -or -not ($imageEntries | Where-Object { $_.Trim() -eq "Module: java.sql" })) {
             throw "Bundled Java runtime does not contain java.sql"
@@ -106,7 +130,7 @@ jobs:
           Stop-Process -Id $mainClass.Id -Force
           Remove-Item Env:JDK_JAVA_OPTIONS
 
-          $app = Start-Process $executable -PassThru
+          $app = Start-Process $startMenuShortcut -PassThru
           Start-Sleep -Seconds 10
           if ($app.HasExited) {
             throw "Installed native launcher exited during startup with code $($app.ExitCode)"
@@ -115,7 +139,7 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Worldloom-Windows-0.1.1-alpha.1
+          name: Worldloom-Windows-0.1.2-alpha.1
           path: apps/desktopApp/build/compose/binaries/main-release/msi/*.msi
           if-no-files-found: error
 
