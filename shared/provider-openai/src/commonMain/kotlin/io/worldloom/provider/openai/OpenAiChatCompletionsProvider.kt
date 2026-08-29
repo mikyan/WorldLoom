@@ -95,6 +95,7 @@ class OpenAiChatCompletionsProvider(
         "https://api.openai.com/v1",
         ignoreCase = true,
     )
+    private val miMoCompatibilityMode = config.model.startsWith("mimo-", ignoreCase = true)
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -146,15 +147,23 @@ class OpenAiChatCompletionsProvider(
         includeUsage: Boolean,
         onEvent: suspend (ProviderStreamEvent) -> Unit,
     ): StreamingAttempt {
+        val toolNames = OpenAiToolNameCodec.from(request)
         var emittedEvent = false
         val result = httpClient.preparePost(endpoint) {
             contentType(ContentType.Application.Json)
             bearerAuth(credential)
-            setBody(requestBody(request, stream = true, includeStreamUsage = includeUsage).toString())
+            setBody(
+                requestBody(
+                    request = request,
+                    stream = true,
+                    includeStreamUsage = includeUsage,
+                    toolNames = toolNames,
+                ).toString(),
+            )
         }.execute { response ->
             if (!response.status.isSuccess()) return@execute httpFailure(response.status)
             if (response.headers[HttpHeaders.ContentType].orEmpty().contains("application/json", ignoreCase = true)) {
-                parseHttpResponse(response).also { parsed ->
+                parseHttpResponse(response, toolNames).also { parsed ->
                     if (parsed is ProviderResult.Success) {
                         parsed.turn.text?.takeIf(String::isNotEmpty)?.let {
                             emittedEvent = true
@@ -163,7 +172,7 @@ class OpenAiChatCompletionsProvider(
                     }
                 }
             } else {
-                parseStream(response) { event ->
+                parseStream(response, toolNames) { event ->
                     emittedEvent = true
                     onEvent(event)
                 }
@@ -176,19 +185,29 @@ class OpenAiChatCompletionsProvider(
         request: ProviderRequest,
         credential: String,
     ): ProviderResult = try {
+        val toolNames = OpenAiToolNameCodec.from(request)
         val response = httpClient.post(endpoint) {
             contentType(ContentType.Application.Json)
             bearerAuth(credential)
-            setBody(requestBody(request, stream = false).toString())
+            setBody(
+                requestBody(
+                    request = request,
+                    stream = false,
+                    toolNames = toolNames,
+                ).toString(),
+            )
         }
-        parseHttpResponse(response)
+        parseHttpResponse(response, toolNames)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
         failure(ProviderFailureCode.NETWORK, "Provider request failed", retryable = true)
     }
 
-    private suspend fun parseHttpResponse(response: HttpResponse): ProviderResult {
+    private suspend fun parseHttpResponse(
+        response: HttpResponse,
+        toolNames: OpenAiToolNameCodec,
+    ): ProviderResult {
         if (!response.status.isSuccess()) return httpFailure(response.status)
         val root = try {
             json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -201,11 +220,12 @@ class OpenAiChatCompletionsProvider(
             ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider response has no message", retryable = false)
         val usage = parseUsage(root["usage"]?.asObjectOrNull())
             ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider returned invalid usage", retryable = false)
-        return parseTurn(message, usage)
+        return parseTurn(message, usage, toolNames)
     }
 
     private suspend fun parseStream(
         response: HttpResponse,
+        toolNames: OpenAiToolNameCodec,
         onEvent: suspend (ProviderStreamEvent) -> Unit,
     ): ProviderResult {
         val text = StringBuilder()
@@ -273,11 +293,11 @@ class OpenAiChatCompletionsProvider(
                 return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider returned invalid tool arguments", false)
             }
             val id = streamed.id.toString()
-            val name = streamed.name.toString()
-            if (id.isBlank() || name.isBlank()) {
+            val wireName = streamed.name.toString()
+            if (id.isBlank() || wireName.isBlank()) {
                 return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider returned an incomplete tool call", false)
             }
-            calls += ProviderToolCall(id, name, arguments)
+            calls += ProviderToolCall(id, toolNames.decode(wireName), arguments)
         }
         return turnResult(text.toString().takeIf(String::isNotEmpty), calls, usage)
     }
@@ -285,6 +305,7 @@ class OpenAiChatCompletionsProvider(
     private fun parseTurn(
         message: JsonObject,
         usage: ProviderUsage,
+        toolNames: OpenAiToolNameCodec,
     ): ProviderResult {
         val text = message["content"]?.asStringOrNull()
         val calls = mutableListOf<ProviderToolCall>()
@@ -295,14 +316,14 @@ class OpenAiChatCompletionsProvider(
                 ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider tool call has no id", false)
             val function = call["function"]?.asObjectOrNull()
                 ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider tool call has no function", false)
-            val name = function["name"]?.asStringOrNull()
+            val wireName = function["name"]?.asStringOrNull()
                 ?: return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider tool call has no name", false)
             val arguments = try {
                 json.parseToJsonElement(function["arguments"]?.asStringOrNull() ?: "").jsonObject
             } catch (_: Exception) {
                 return failure(ProviderFailureCode.INVALID_RESPONSE, "Provider returned invalid tool arguments", false)
             }
-            calls += ProviderToolCall(id, name, arguments)
+            calls += ProviderToolCall(id, toolNames.decode(wireName), arguments)
         }
         return turnResult(text, calls, usage)
     }
@@ -321,21 +342,32 @@ class OpenAiChatCompletionsProvider(
         request: ProviderRequest,
         stream: Boolean,
         includeStreamUsage: Boolean = false,
+        toolNames: OpenAiToolNameCodec,
     ): JsonObject = buildJsonObject {
         put("model", config.model)
-        put("messages", buildJsonArray { request.messages.forEach { add(messageJson(it)) } })
+        put("messages", buildJsonArray {
+            request.messages.forEach { add(messageJson(it, toolNames)) }
+        })
         put("max_completion_tokens", request.maxOutputTokens)
         put("stream", stream)
+        if (miMoCompatibilityMode) {
+            // Worldloom deliberately does not persist private model reasoning. Disabling MiMo's
+            // default thinking mode also keeps multi-turn tool calls compatible without replaying it.
+            put("thinking", buildJsonObject { put("type", "disabled") })
+        }
         if (stream && includeStreamUsage) {
             put("stream_options", buildJsonObject { put("include_usage", true) })
         }
         if (request.tools.isNotEmpty()) {
-            put("tools", buildJsonArray { request.tools.forEach { add(toolJson(it)) } })
+            put("tools", buildJsonArray { request.tools.forEach { add(toolJson(it, toolNames)) } })
             put("tool_choice", "auto")
         }
     }
 
-    private fun messageJson(message: ProviderMessage): JsonObject = buildJsonObject {
+    private fun messageJson(
+        message: ProviderMessage,
+        toolNames: OpenAiToolNameCodec,
+    ): JsonObject = buildJsonObject {
         val role = when (message.role) {
             ProviderMessageRole.SYSTEM -> when (config.instructionRole) {
                 OpenAiInstructionRole.DEVELOPER -> "developer"
@@ -356,7 +388,7 @@ class OpenAiChatCompletionsProvider(
                             put("id", call.id)
                             put("type", "function")
                             put("function", buildJsonObject {
-                                put("name", call.name)
+                                put("name", toolNames.encode(call.name))
                                 put("arguments", call.arguments.toString())
                             })
                         },
@@ -367,10 +399,13 @@ class OpenAiChatCompletionsProvider(
         message.toolCallId?.let { put("tool_call_id", it) }
     }
 
-    private fun toolJson(tool: ProviderToolDefinition): JsonObject = buildJsonObject {
+    private fun toolJson(
+        tool: ProviderToolDefinition,
+        toolNames: OpenAiToolNameCodec,
+    ): JsonObject = buildJsonObject {
         put("type", "function")
         put("function", buildJsonObject {
-            put("name", tool.name)
+            put("name", toolNames.encode(tool.name))
             put("description", tool.description)
             put("parameters", buildJsonObject {
                 put("type", "object")

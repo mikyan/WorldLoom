@@ -40,8 +40,8 @@ class OpenAiConfigurableAdapter(
         when (
             val result = create(configuration).complete(
                 ProviderRequest(
-                    messages = listOf(ProviderMessage(ProviderMessageRole.USER, "Reply with OK.")),
-                    maxOutputTokens = 8,
+                    messages = listOf(ProviderMessage(ProviderMessageRole.USER, "Reply with exactly OK.")),
+                    maxOutputTokens = CONNECTION_TEST_MAX_OUTPUT_TOKENS,
                 ),
             )
         ) {
@@ -142,6 +142,7 @@ class OpenAiConfigurableAdapter(
     }
 
     private companion object {
+        const val CONNECTION_TEST_MAX_OUTPUT_TOKENS = 64
         val CAPABILITIES = ProviderCapabilities(
             toolCalling = true,
             streaming = true,
