@@ -916,7 +916,9 @@ Behavior Runtime ────┘
 
 ## 9. 模型供应商与安全
 
-系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前 UI 提供 OpenAI 兼容配置的保存、切换、测试和模型发现，动态 Provider 路由在每次请求前读取选中配置。
+系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前共享 UI 将订阅与模型拆成独立配置页，并同时保存多个订阅源：内置 `OpenCode Go` 与 `MiMo Token Plan CN` 固定经过实测的 Base URL 和默认模型，用户选择后只需填写各自独立的 API Key；`自定义 OpenAI-compatible` 允许填写 Base URL、Model ID 和 API Key，并可选发现模型。动态 Provider 路由在每次请求前读取当前选中配置。
+
+三个初始来源使用稳定且互不相同的 Provider Configuration ID 与 Vault Key。平台启动时只补充缺失的预设，不覆盖用户已经修改的自定义配置或当前选择；旧版 `openai.primary` 与 `openai.api-key` 继续映射到自定义来源，因此升级不需要迁移或重新输入原密钥。预设只属于 Provider/UI 组装层，不进入 Runtime、世界包、存档或 EventLog。
 
 Base URL 可以显式使用 HTTP 或 HTTPS，以支持只监听明文 HTTP 的本地兼容代理；移动端入口相应允许明文传输。HTTP 不提供传输加密，用户应只为自己信任的本机或局域网代理配置该协议，公网服务仍应使用 HTTPS。连接测试直接向用户填写的 Model ID 发起最小 Chat Completions 请求，模型发现是独立的可选操作，不能作为连接测试或使用模型的前置能力。
 
@@ -944,7 +946,7 @@ API Key 必须保存到平台凭据保险箱。目标与当前基线如下：
 
 Agent Runtime 必须有最大步骤数、工具权限、超时、费用预算、参数 Schema 校验和循环检测。
 
-当前 UI 只保存、删除并显示密钥的“已配置/未配置”状态，不读取或回显已保存密钥。非秘密 Provider 配置与密钥引用单独持久化。Provider 每次请求在凭据边界内短暂访问密钥，只把它放入 Authorization Header；HTTP 错误不会包含上游响应正文。
+当前 UI 为每个订阅源分别保存、删除并显示密钥的“已配置/未配置”状态，不读取或回显已保存密钥；切换来源不会把一个来源的密钥复制给另一个来源。非秘密 Provider 配置与密钥引用单独持久化。Provider 每次请求在凭据边界内短暂访问密钥，只把它放入 Authorization Header；HTTP 错误不会包含上游响应正文。
 
 ## 10. 性能预算
 

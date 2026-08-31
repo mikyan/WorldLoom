@@ -42,6 +42,7 @@ kotlin {
             implementation(projects.shared.agentRuntime)
             implementation(projects.shared.contentGeneration)
             implementation(projects.shared.providerApi)
+            implementation(projects.shared.providerOpenai)
             implementation(projects.platform.secureVault)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material)

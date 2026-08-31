@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.worldloom.agent.runtime.GameAgentController
@@ -70,12 +69,9 @@ import io.worldloom.content.generation.RecognitionWorkspacePresentation
 import io.worldloom.rules.AdventureStatePresentation
 import io.worldloom.definition.IntegerValue
 import io.worldloom.platform.credentials.CredentialConfiguration
-import io.worldloom.platform.credentials.CredentialConfigurationState
-import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
-import io.worldloom.provider.api.ProviderConnectionTestResult
-import io.worldloom.provider.api.ProviderModelDiscoveryResult
+import io.worldloom.provider.openai.OpenAiSubscriptionSource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -99,9 +95,9 @@ fun WorldloomApp(
     saveCoordinator: SaveCoordinator? = null,
     reduceMotion: Boolean = false,
     agentController: GameAgentController? = null,
-    credentialConfiguration: CredentialConfiguration? = null,
     providerConfigurationCenter: ProviderConfigurationCenter? = null,
-    providerConfigurationId: ProviderConfigurationId? = null,
+    providerSources: List<OpenAiSubscriptionSource> = emptyList(),
+    providerCredentialConfigurations: Map<ProviderConfigurationId, CredentialConfiguration> = emptyMap(),
     recognitionWorkspace: RecognitionWorkspacePresentation? = null,
     onCancelRecognition: () -> Unit = {},
     onResumeRecognition: () -> Unit = {},
@@ -112,6 +108,7 @@ fun WorldloomApp(
     val scope = rememberCoroutineScope()
     val gameContentAvailable = state !is GameSessionUiState.Idle && state !is GameSessionUiState.Failed
     var showSetup by remember(gameContentAvailable) { mutableStateOf(!gameContentAvailable) }
+    var showProviderSettings by remember { mutableStateOf(false) }
     var npcDialogueBusy by remember(agentController) { mutableStateOf(false) }
     val gameplayInteractionBusy = agentState?.value is GameAgentState.Running || npcDialogueBusy
     LaunchedEffect(saveCoordinator, state) { saveCoordinator?.refresh() }
@@ -129,9 +126,12 @@ fun WorldloomApp(
                 ) {
                     AppHeader()
                     Spacer(Modifier.weight(1f))
-                    if (gameContentAvailable) {
+                    if (!showProviderSettings && gameContentAvailable) {
                         Button(
-                            onClick = { showSetup = !showSetup },
+                            onClick = {
+                                showSetup = !showSetup
+                                showProviderSettings = false
+                            },
                             enabled = !gameplayInteractionBusy,
                             colors = ButtonDefaults.buttonColors(
                                 backgroundColor = if (showSetup) {
@@ -152,7 +152,22 @@ fun WorldloomApp(
                     }
                 }
 
-                if (showSetup) {
+                if (showProviderSettings && providerConfigurationCenter != null) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        ProviderSettingsPage(
+                            center = providerConfigurationCenter,
+                            sources = providerSources,
+                            credentialConfigurations = providerCredentialConfigurations,
+                            onBack = {
+                                showProviderSettings = false
+                                showSetup = true
+                            },
+                        )
+                    }
+                } else if (showSetup) {
                     Column(
                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -172,6 +187,14 @@ fun WorldloomApp(
                                 )
                             }
                         }
+                        if (providerConfigurationCenter != null && providerSources.isNotEmpty()) {
+                            Button(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { showProviderSettings = true },
+                            ) {
+                                Text("配置订阅与模型")
+                            }
+                        }
                         WorldSelector(
                             worlds = session.availableWorlds,
                             onSelected = { world ->
@@ -188,12 +211,6 @@ fun WorldloomApp(
                         )
                         saveCoordinator?.let { coordinator ->
                             SaveLibraryPanel(coordinator) { agentController?.reset() }
-                        }
-                        credentialConfiguration?.let { configuration ->
-                            CredentialPanel(configuration)
-                        }
-                        if (providerConfigurationCenter != null && providerConfigurationId != null) {
-                            ProviderConfigurationPanel(providerConfigurationCenter, providerConfigurationId)
                         }
                         recognitionWorkspace?.let { workspace ->
                             RecognitionWorkspacePanel(
@@ -478,115 +495,6 @@ private fun modeLabel(mode: CharacterCreationMode): String = when (mode) {
     CharacterCreationMode.TEMPLATE -> "角色模板"
     CharacterCreationMode.POINT_BUY -> "点数分配"
     CharacterCreationMode.NARRATIVE -> "叙事背景"
-}
-
-@Composable
-private fun ProviderConfigurationPanel(
-    center: ProviderConfigurationCenter,
-    configurationId: ProviderConfigurationId,
-) {
-    val scope = rememberCoroutineScope()
-    var configuration by remember { mutableStateOf<ProviderConfiguration?>(null) }
-    var baseUrl by remember { mutableStateOf("") }
-    var modelId by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("正在读取配置…") }
-    var models by remember { mutableStateOf(emptyList<String>()) }
-    var loading by remember { mutableStateOf(false) }
-
-    LaunchedEffect(center, configurationId) {
-        configuration = center.configurations().firstOrNull { it.id == configurationId }
-        configuration?.let {
-            baseUrl = it.baseUrl
-            modelId = it.modelId
-            status = "当前模型：${it.modelId}"
-        } ?: run { status = "Provider 配置不存在" }
-    }
-
-    fun saveThen(block: suspend (ProviderConfiguration) -> Unit) {
-        val current = configuration ?: return
-        loading = true
-        scope.launch {
-            try {
-                val updated = current.copy(baseUrl = baseUrl.trim(), modelId = modelId.trim())
-                center.upsert(updated)
-                center.select(updated.id)
-                configuration = updated
-                block(updated)
-            } catch (error: IllegalArgumentException) {
-                status = error.message ?: "Provider 配置无效"
-            } finally {
-                loading = false
-            }
-        }
-    }
-
-    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("模型 Provider", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Base URL") },
-                singleLine = true,
-                enabled = !loading,
-            )
-            OutlinedTextField(
-                value = modelId,
-                onValueChange = { modelId = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Model ID") },
-                singleLine = true,
-                enabled = !loading,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = !loading && configuration != null,
-                    onClick = {
-                        saveThen { updated ->
-                            status = "已保存 ${updated.modelId}"
-                        }
-                    },
-                ) { Text("保存并切换") }
-                Button(
-                    enabled = !loading && configuration != null,
-                    onClick = {
-                        saveThen { updated ->
-                            status = when (val result = center.test(updated.id)) {
-                                is ProviderConnectionTestResult.Connected -> "连接成功"
-                                is ProviderConnectionTestResult.Failed -> result.message
-                            }
-                        }
-                    },
-                ) { Text("测试连接") }
-                Button(
-                    enabled = !loading && configuration != null,
-                    onClick = {
-                        saveThen { updated ->
-                            when (val result = center.discoverModels(updated.id)) {
-                                is ProviderModelDiscoveryResult.Success -> {
-                                    models = result.models.map { it.id }
-                                    status = "发现 ${models.size} 个模型"
-                                }
-                                is ProviderModelDiscoveryResult.Failure -> status = result.message
-                            }
-                        }
-                    },
-                ) { Text("发现模型") }
-            }
-            Text(status, color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f), fontSize = 12.sp)
-            if (models.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(models, key = { it }) { model ->
-                        Button(onClick = { modelId = model }, enabled = !loading) { Text(model) }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -1039,74 +947,6 @@ private fun StateCard(title: String, value: String) {
 }
 
 @Composable
-private fun CredentialPanel(configuration: CredentialConfiguration) {
-    val state by configuration.state.collectAsState()
-    val scope = rememberCoroutineScope()
-    var credential by remember { mutableStateOf("") }
-
-    LaunchedEffect(configuration) {
-        configuration.refresh()
-    }
-
-    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("模型凭据", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    credentialStatus(state),
-                    color = if (state is CredentialConfigurationState.Failed) {
-                        MaterialTheme.colors.error
-                    } else {
-                        MaterialTheme.colors.onSurface.copy(alpha = 0.62f)
-                    },
-                    fontSize = 12.sp,
-                )
-            }
-            OutlinedTextField(
-                value = credential,
-                onValueChange = { credential = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("OpenAI API Key") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                enabled = state !is CredentialConfigurationState.Loading,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                Button(
-                    onClick = {
-                        val submitted = credential
-                        credential = ""
-                        scope.launch { configuration.configure(submitted) }
-                    },
-                    enabled = credential.isNotBlank() && state !is CredentialConfigurationState.Loading,
-                ) {
-                    Text("保存")
-                }
-                if (state is CredentialConfigurationState.Configured) {
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = { scope.launch { configuration.clear() } },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
-                    ) {
-                        Text("删除")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun AgentPanel(
     controller: GameAgentController,
     saveCoordinator: SaveCoordinator?,
@@ -1353,14 +1193,6 @@ private fun hostedTurnStatus(status: GameTurnStatus): String = when (status) {
     GameTurnStatus.COMPLETED -> "已完成"
     GameTurnStatus.CANCELLED -> "已取消"
     GameTurnStatus.FAILED -> "未完成"
-}
-
-private fun credentialStatus(state: CredentialConfigurationState): String = when (state) {
-    CredentialConfigurationState.Unknown -> "尚未检查"
-    CredentialConfigurationState.Loading -> "正在更新…"
-    CredentialConfigurationState.Configured -> "已安全配置"
-    CredentialConfigurationState.NotConfigured -> "未配置"
-    is CredentialConfigurationState.Failed -> state.message
 }
 
 private fun signed(value: Long): String = if (value > 0) "+$value" else value.toString()

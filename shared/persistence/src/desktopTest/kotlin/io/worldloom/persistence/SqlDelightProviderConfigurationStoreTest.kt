@@ -28,6 +28,30 @@ class SqlDelightProviderConfigurationStoreTest {
         driver.close()
     }
 
+    @Test
+    fun seedsMultipleSourcesWithoutOverwritingExistingConfigurationOrSelection() = runTest {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val primary = configuration("primary", "model-a")
+        val secondary = configuration("secondary", "model-b")
+        val first = SqlDelightProviderConfigurationStore(database, listOf(primary, secondary))
+        first.put(primary.copy(modelId = "user-model"))
+        first.select(secondary.id)
+
+        val recreated = SqlDelightProviderConfigurationStore(
+            WorldloomDatabase(driver),
+            listOf(primary, secondary, configuration("third", "model-c")),
+        )
+
+        assertEquals(
+            listOf("user-model", "model-b", "model-c"),
+            recreated.list().map { it.modelId },
+        )
+        assertEquals(secondary.id, recreated.selected())
+        driver.close()
+    }
+
     private fun configuration(id: String, model: String) = ProviderConfiguration(
         id = ProviderConfigurationId(id),
         adapterId = "test.adapter",

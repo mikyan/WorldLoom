@@ -27,13 +27,11 @@ import io.worldloom.persistence.SqlDelightNpcWorkStore
 import io.worldloom.persistence.SqlDelightAgentMemoryStore
 import io.worldloom.persistence.SqlDelightRunDirectoryStore
 import io.worldloom.persistence.db.WorldloomDatabase
-import io.worldloom.provider.openai.OPENAI_API_KEY
 import io.worldloom.provider.openai.OpenAiConfigurableAdapter
-import io.worldloom.provider.openai.OPENAI_ADAPTER_ID
+import io.worldloom.provider.openai.OpenAiSubscriptionSource
+import io.worldloom.provider.openai.OpenAiSubscriptionSources
 import io.worldloom.provider.openai.createOpenAiHttpClient
-import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
-import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,10 +59,13 @@ class MainActivity : ComponentActivity() {
         val vault = AndroidKeystoreCredentialVault(applicationContext)
         val client = createOpenAiHttpClient()
         providerClient = client
-        val providerConfiguration = defaultProviderConfiguration()
+        val providerSources = OpenAiSubscriptionSources.all
         val providerCenter = ProviderConfigurationCenter(
             adapters = listOf(OpenAiConfigurableAdapter(client, vault)),
-            store = SqlDelightProviderConfigurationStore(database, providerConfiguration),
+            store = SqlDelightProviderConfigurationStore(
+                database,
+                providerSources.map(OpenAiSubscriptionSource::defaultConfiguration),
+            ),
         )
         val selectedProvider = SelectedProviderLanguageModelProvider(providerCenter)
         val agentSessionStore = SqlDelightAgentSessionStore(database)
@@ -87,15 +88,17 @@ class MainActivity : ComponentActivity() {
             memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
             backgroundScope = agentBackgroundScope,
         )
-        val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
+        val credentialConfigurations = providerSources.associate { source ->
+            source.configurationId to CredentialConfiguration(vault, source.credentialKey)
+        }
         setContent {
             WorldloomApp(
                 session = session,
                 saveCoordinator = saveCoordinator,
                 agentController = agentController,
-                credentialConfiguration = credentialConfiguration,
                 providerConfigurationCenter = providerCenter,
-                providerConfigurationId = providerConfiguration.id,
+                providerSources = providerSources,
+                providerCredentialConfigurations = credentialConfigurations,
             )
         }
     }
@@ -132,14 +135,3 @@ class MainActivity : ComponentActivity() {
     private fun readAsset(path: String): String =
         assets.open(path).bufferedReader(Charsets.UTF_8).use { it.readText() }
 }
-
-private fun defaultProviderConfiguration() = ProviderConfiguration(
-    id = ProviderConfigurationId("openai.primary"),
-    adapterId = OPENAI_ADAPTER_ID,
-    displayName = "OpenAI",
-    baseUrl = "https://api.openai.com/v1",
-    modelId = DEFAULT_OPENAI_MODEL,
-    credentialKey = OPENAI_API_KEY.value,
-)
-
-private const val DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"

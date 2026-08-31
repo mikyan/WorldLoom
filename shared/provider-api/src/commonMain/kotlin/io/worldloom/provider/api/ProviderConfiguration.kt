@@ -177,6 +177,8 @@ class ProviderConfigurationCenter(
 
     suspend fun configurations(): List<ProviderConfiguration> = store.list()
 
+    suspend fun selectedConfigurationId(): ProviderConfigurationId? = store.selected()
+
     suspend fun upsert(configuration: ProviderConfiguration) {
         require(adaptersById.containsKey(configuration.adapterId)) {
             "Unknown provider adapter: ${configuration.adapterId}"

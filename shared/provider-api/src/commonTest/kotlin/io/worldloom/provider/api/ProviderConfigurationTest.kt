@@ -19,6 +19,7 @@ class ProviderConfigurationTest {
         center.upsert(configuration)
         center.select(configuration.id)
 
+        assertEquals(configuration.id, center.selectedConfigurationId())
         assertIs<ProviderConnectionTestResult.Connected>(center.test(configuration.id))
         val models = assertIs<ProviderModelDiscoveryResult.Success>(center.discoverModels(configuration.id))
         assertEquals(listOf("model-fast", "model-deep"), models.models.map(ProviderModelDescriptor::id))

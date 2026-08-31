@@ -25,13 +25,11 @@ import io.worldloom.persistence.SqlDelightRunDirectoryStore
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.IosKeychainCredentialVault
-import io.worldloom.provider.openai.OPENAI_API_KEY
 import io.worldloom.provider.openai.OpenAiConfigurableAdapter
-import io.worldloom.provider.openai.OPENAI_ADAPTER_ID
+import io.worldloom.provider.openai.OpenAiSubscriptionSource
+import io.worldloom.provider.openai.OpenAiSubscriptionSources
 import io.worldloom.provider.openai.createOpenAiHttpClient
-import io.worldloom.provider.api.ProviderConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
-import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.SelectedProviderLanguageModelProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,10 +79,13 @@ fun MainViewController(
     val saveCoordinator = SaveCoordinator(session, SqlDelightRunDirectoryStore(database))
     val vault = IosKeychainCredentialVault()
     val providerClient = createOpenAiHttpClient()
-    val providerConfiguration = defaultProviderConfiguration()
+    val providerSources = OpenAiSubscriptionSources.all
     val providerCenter = ProviderConfigurationCenter(
         adapters = listOf(OpenAiConfigurableAdapter(providerClient, vault)),
-        store = SqlDelightProviderConfigurationStore(database, providerConfiguration),
+        store = SqlDelightProviderConfigurationStore(
+            database,
+            providerSources.map(OpenAiSubscriptionSource::defaultConfiguration),
+        ),
     )
     val selectedProvider = SelectedProviderLanguageModelProvider(providerCenter)
     val agentSessionStore = SqlDelightAgentSessionStore(database)
@@ -107,7 +108,9 @@ fun MainViewController(
         memoryStoreFactory = { runId -> SqlDelightAgentMemoryStore(database, runId) },
         backgroundScope = agentBackgroundScope,
     )
-    val credentialConfiguration = CredentialConfiguration(vault, OPENAI_API_KEY)
+    val credentialConfigurations = providerSources.associate { source ->
+        source.configurationId to CredentialConfiguration(vault, source.credentialKey)
+    }
     return ComposeUIViewController {
         DisposableEffect(providerClient) {
             onDispose {
@@ -119,9 +122,9 @@ fun MainViewController(
             session = session,
             saveCoordinator = saveCoordinator,
             agentController = agentController,
-            credentialConfiguration = credentialConfiguration,
             providerConfigurationCenter = providerCenter,
-            providerConfigurationId = providerConfiguration.id,
+            providerSources = providerSources,
+            providerCredentialConfigurations = credentialConfigurations,
         )
     }
 }
@@ -159,14 +162,3 @@ private fun loadCatalog(sources: List<ContractSources>): StaticWorldCatalog =
             "Invalid contract world resource at index ${result.sourceIndex}: ${result.message}",
         )
     }
-
-private const val DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
-
-private fun defaultProviderConfiguration() = ProviderConfiguration(
-    id = ProviderConfigurationId("openai.primary"),
-    adapterId = OPENAI_ADAPTER_ID,
-    displayName = "OpenAI",
-    baseUrl = "https://api.openai.com/v1",
-    modelId = DEFAULT_OPENAI_MODEL,
-    credentialKey = OPENAI_API_KEY.value,
-)

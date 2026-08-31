@@ -10,22 +10,30 @@ import kotlinx.coroutines.sync.withLock
 /** Persists only non-secret Provider settings; [ProviderConfiguration.credentialKey] remains a vault reference. */
 class SqlDelightProviderConfigurationStore(
     database: WorldloomDatabase,
-    initialConfiguration: ProviderConfiguration? = null,
+    initialConfigurations: List<ProviderConfiguration> = emptyList(),
 ) : ProviderConfigurationStore {
     private val queries = database.worldloomQueries
     private val mutex = Mutex()
 
     init {
+        require(initialConfigurations.map { it.id }.distinct().size == initialConfigurations.size) {
+            "Initial provider configuration ids must be unique"
+        }
         queries.ensureProviderSettings()
-        if (initialConfiguration != null &&
-            queries.selectProviderConfiguration(initialConfiguration.id.value).executeAsOneOrNull() == null
-        ) {
-            insert(initialConfiguration)
-            if (queries.selectSelectedProviderConfiguration().executeAsOneOrNull()?.selected_configuration_id == null) {
-                queries.updateSelectedProviderConfiguration(initialConfiguration.id.value)
+        initialConfigurations.forEach { configuration ->
+            if (queries.selectProviderConfiguration(configuration.id.value).executeAsOneOrNull() == null) {
+                insert(configuration)
+            }
+        }
+        if (queries.selectSelectedProviderConfiguration().executeAsOneOrNull()?.selected_configuration_id == null) {
+            initialConfigurations.firstOrNull()?.let { configuration ->
+                queries.updateSelectedProviderConfiguration(configuration.id.value)
             }
         }
     }
+
+    constructor(database: WorldloomDatabase, initialConfiguration: ProviderConfiguration) :
+        this(database, listOf(initialConfiguration))
 
     override suspend fun list(): List<ProviderConfiguration> = mutex.withLock {
         queries.selectProviderConfigurations().executeAsList().map { row ->
