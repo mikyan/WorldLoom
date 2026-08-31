@@ -137,4 +137,101 @@ class CommandValidatorTest {
             ).error.code,
         )
     }
+
+    @Test
+    fun remotePrivateDialogueRequiresAnAuthorizedCommunicationMethod() {
+        val world = testWorld(namespace = "radio")
+        val runId = RunId("run.radio")
+        val sceneId = io.worldloom.definition.DefinitionId("radio.scene.room")
+        val npcId = io.worldloom.definition.DefinitionId("radio.npc.guide")
+        val methodId = io.worldloom.definition.DefinitionId("radio.communication.handset")
+        val actorId = ActorId("system.player")
+        val state = InitialGameStateFactory.create(world.definition, runId).copy(
+            lifecycle = RunLifecycle.ACTIVE,
+            playerEntityId = world.entityId,
+            currentSceneId = sceneId,
+            sceneParticipantIds = emptySet(),
+        )
+        val command = CommandEnvelope(
+            CURRENT_COMMAND_SCHEMA_VERSION,
+            CommandId("command.radio.1"),
+            runId,
+            actorId,
+            0,
+            payload = AddressNpcCommand(
+                targetNpcId = npcId,
+                targetEntityId = world.entityId,
+                sceneId = sceneId,
+                content = "收到吗？",
+                idempotencyKey = "radio.turn.1",
+                audience = NpcDialogueAudience.PRIVATE,
+                communicationMethodId = methodId,
+            ),
+        )
+        val authorization = CommandAuthorization(actorId, setOf(CommandPermission.ADDRESS_NPC))
+        val policy = NpcAddressCommandPolicy(npcId, world.entityId, sceneId, setOf(methodId))
+
+        val valid = assertIs<CommandValidationResult.Valid>(
+            CommandValidator.validate(state, world.definition, authorization, command, npcAddressPolicy = policy),
+        )
+        val event = WorldEngine.handle(valid.command, EventId("event.radio.1")).single()
+        assertEquals(NpcDialogueAudience.PRIVATE, assertIs<NpcAddressedEvent>(event.payload).audience)
+        assertIs<StateReductionResult.Success>(StateReducer.reduce(state, world.definition, event))
+
+        val payload = assertIs<AddressNpcCommand>(command.payload)
+        val group = command.copy(
+            payload = payload.copy(audience = NpcDialogueAudience.NEARBY_GROUP),
+        )
+        assertIs<CommandValidationResult.Invalid>(
+            CommandValidator.validate(state, world.definition, authorization, group, npcAddressPolicy = policy),
+        )
+        val unknownMethod = command.copy(
+            payload = payload.copy(
+                communicationMethodId = io.worldloom.definition.DefinitionId("radio.communication.unknown"),
+            ),
+        )
+        assertIs<CommandValidationResult.Invalid>(
+            CommandValidator.validate(state, world.definition, authorization, unknownMethod, npcAddressPolicy = policy),
+        )
+    }
+
+    @Test
+    fun npcPresenceChangesAreReplayableAndRejectNoOps() {
+        val world = testWorld(namespace = "presence")
+        val runId = RunId("run.presence")
+        val sceneId = io.worldloom.definition.DefinitionId("presence.scene.room")
+        val npcId = io.worldloom.definition.DefinitionId("presence.npc.guide")
+        val actorId = ActorId("worldloom.actor.gm")
+        val state = InitialGameStateFactory.create(world.definition, runId).copy(
+            lifecycle = RunLifecycle.ACTIVE,
+            playerEntityId = world.entityId,
+            currentSceneId = sceneId,
+        )
+        val policy = NpcPresenceCommandPolicy(npcId, world.entityId, sceneId)
+        val authorization = CommandAuthorization(actorId, setOf(CommandPermission.MANAGE_NPC_PRESENCE))
+        val command = CommandEnvelope(
+            CURRENT_COMMAND_SCHEMA_VERSION,
+            CommandId("command.presence.1"),
+            runId,
+            actorId,
+            0,
+            payload = SetNpcPresenceCommand(npcId = npcId, entityId = world.entityId, sceneId = sceneId, present = true),
+        )
+
+        val valid = assertIs<CommandValidationResult.Valid>(
+            CommandValidator.validate(state, world.definition, authorization, command, npcPresencePolicy = policy),
+        )
+        val event = WorldEngine.handle(valid.command, EventId("event.presence.1")).single()
+        val arrived = assertIs<StateReductionResult.Success>(StateReducer.reduce(state, world.definition, event)).state
+        assertEquals(setOf(world.entityId), arrived.sceneParticipantIds)
+        assertIs<CommandValidationResult.Invalid>(
+            CommandValidator.validate(
+                arrived,
+                world.definition,
+                authorization,
+                command.copy(expectedSequence = arrived.lastSequence),
+                npcPresencePolicy = policy,
+            ),
+        )
+    }
 }

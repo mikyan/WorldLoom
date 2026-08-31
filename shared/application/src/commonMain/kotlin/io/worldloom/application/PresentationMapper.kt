@@ -12,6 +12,8 @@ import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.NpcKnowledgeRevealedEvent
+import io.worldloom.world.NpcPresenceChangedEvent
+import io.worldloom.world.NpcDialogueAudience
 import io.worldloom.world.RunLifecycleChangedEvent
 import io.worldloom.rules.ActivityCompletedEvent
 import io.worldloom.rules.ScheduledTriggerFiredEvent
@@ -129,11 +131,21 @@ object PresentationMapper {
                 is QuestAdvancedEvent -> "任务推进：${payload.questId.value} · ${payload.status.name}"
                 is ProgressClockAdvancedEvent -> "进度钟：${payload.clockId.value} · ${payload.value}"
                 is AdventureEndingReachedEvent -> "结局条件达成：${payload.endingId.value}"
-                is NpcPublicActionPublishedEvent -> when (payload.kind) {
-                    io.worldloom.world.NpcPublicActionKind.SPEECH -> "${payload.entityId.value}：${payload.content}"
-                    io.worldloom.world.NpcPublicActionKind.ACTION -> "${payload.entityId.value}：${payload.content}"
+                is NpcPublicActionPublishedEvent -> if (payload.audience == NpcDialogueAudience.PRIVATE) {
+                    "${payload.entityId.value} 悄悄对你说：${payload.content}"
+                } else {
+                    "${payload.entityId.value}：${payload.content}"
                 }
-                is NpcAddressedEvent -> "你对 ${payload.targetNpcId.value}：${payload.content}"
+                is NpcAddressedEvent -> if (payload.audience == NpcDialogueAudience.PRIVATE) {
+                    "你悄悄对 ${payload.targetNpcId.value}：${payload.content}"
+                } else {
+                    "你对 ${payload.targetNpcId.value}：${payload.content}"
+                }
+                is NpcPresenceChangedEvent -> if (payload.present) {
+                    "${payload.npcId.value} 来到玩家身边"
+                } else {
+                    "${payload.npcId.value} 离开玩家身边"
+                }
                 is NpcKnowledgeRevealedEvent -> payload.publicSummary
 
             else -> "事件已记录"
@@ -144,11 +156,17 @@ object PresentationMapper {
                 speakerKind = PresentedChatSpeakerKind.NPC,
                 speakerId = payload.entityId.value,
                 content = payload.content,
+                audience = payload.audience,
+                targetId = payload.targetEntityId?.value,
+                communicationMethodId = payload.communicationMethodId,
             )
             is NpcAddressedEvent -> PresentedChatMessage(
                 speakerKind = PresentedChatSpeakerKind.PLAYER,
                 speakerName = "你",
                 content = payload.content,
+                audience = payload.audience,
+                targetId = payload.targetNpcId.value,
+                communicationMethodId = payload.communicationMethodId,
             )
             else -> null
         }
@@ -168,6 +186,11 @@ object PresentationMapper {
                 )
             },
             chatMessage = chatMessage,
+            publicReplayEligible = when (val payload = event.payload) {
+                is NpcAddressedEvent -> payload.audience != NpcDialogueAudience.PRIVATE
+                is NpcPublicActionPublishedEvent -> payload.audience != NpcDialogueAudience.PRIVATE
+                else -> true
+            },
         )
     }
 
@@ -192,6 +215,7 @@ object PresentationMapper {
         is NpcPublicActionPublishedEvent -> "worldloom.event.npc.public-action"
         is NpcAddressedEvent -> "worldloom.event.npc.addressed"
         is NpcKnowledgeRevealedEvent -> "worldloom.event.npc.knowledge-revealed"
+        is NpcPresenceChangedEvent -> "worldloom.event.npc.presence-changed"
         else -> "worldloom.event.other"
     }
 

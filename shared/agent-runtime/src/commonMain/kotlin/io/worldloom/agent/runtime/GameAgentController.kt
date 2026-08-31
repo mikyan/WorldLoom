@@ -6,6 +6,7 @@ import io.worldloom.definition.DefinitionId
 import io.worldloom.provider.api.ProviderToolCall
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
+import io.worldloom.world.NpcDialogueAudience
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -55,11 +56,20 @@ interface GameAgentController {
     val history: StateFlow<GameAgentHistoryState>
 
     suspend fun send(input: String)
+    /** Recovers persisted active turns after loading a Run; never interrupts a live controller turn. */
+    suspend fun recoverInterruptedHistory()
+    /** Reloads durable history without changing any persisted turn status. */
     suspend fun refreshHistory()
     suspend fun loadEarlierHistory()
     suspend fun retry(turnId: TurnId)
     suspend fun recoverNarration(turnId: TurnId)
-    suspend fun addressNpc(npcId: DefinitionId, content: String, idempotencyKey: String): NpcDialogueResult
+    suspend fun addressNpc(
+        npcId: DefinitionId,
+        content: String,
+        idempotencyKey: String,
+        audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+        communicationMethodId: DefinitionId? = null,
+    ): NpcDialogueResult
 
     fun reset()
 }
@@ -147,7 +157,21 @@ class DefaultGameAgentController(
         }
     }
 
-    override suspend fun refreshHistory() = historyMutex.withLock {
+    override suspend fun recoverInterruptedHistory() {
+        if (!runMutex.tryLock()) {
+            refreshHistory()
+            return
+        }
+        try {
+            refreshHistory(recoverInterrupted = true)
+        } finally {
+            runMutex.unlock()
+        }
+    }
+
+    override suspend fun refreshHistory() = refreshHistory(recoverInterrupted = false)
+
+    private suspend fun refreshHistory(recoverInterrupted: Boolean) = historyMutex.withLock {
         val context = gameSession.commandContext()
         val ready = gameSession.state.value as? GameSessionUiState.Ready
         if (context == null || ready == null) {
@@ -156,12 +180,14 @@ class DefaultGameAgentController(
             return@withLock
         }
         mutableHistory.value = mutableHistory.value.copy(runId = context.runId, loading = true, error = null)
-        when (val recovery = recoveryCoordinator.recover(context.runId, ready.presentation.lastSequence)) {
-            is GameTurnRecoveryResult.Failure -> {
-                mutableHistory.value = mutableHistory.value.copy(loading = false, error = recovery.message)
-                return@withLock
+        if (recoverInterrupted) {
+            when (val recovery = recoveryCoordinator.recover(context.runId, ready.presentation.lastSequence)) {
+                is GameTurnRecoveryResult.Failure -> {
+                    mutableHistory.value = mutableHistory.value.copy(loading = false, error = recovery.message)
+                    return@withLock
+                }
+                is GameTurnRecoveryResult.Completed -> Unit
             }
-            is GameTurnRecoveryResult.Completed -> Unit
         }
         val raw = when (val result = turnStore.history(context.runId, limit = 50)) {
             is GameTurnHistoryResult.Success -> result.page
@@ -275,6 +301,8 @@ class DefaultGameAgentController(
         npcId: DefinitionId,
         content: String,
         idempotencyKey: String,
+        audience: NpcDialogueAudience,
+        communicationMethodId: DefinitionId?,
     ): NpcDialogueResult {
         val gateway = directToolGateway ?: return NpcDialogueResult.Failed("NPC 对话入口尚未配置。")
         if (content.trim().length !in 1..500) return NpcDialogueResult.Failed("对话内容需为 1 到 500 个字符。")
@@ -292,6 +320,8 @@ class DefaultGameAgentController(
                     arguments = buildJsonObject {
                         put("npcId", npcId.value)
                         put("content", content)
+                        put("audience", audience.name)
+                        communicationMethodId?.let { put("communicationMethodId", it.value) }
                     },
                 ),
             )

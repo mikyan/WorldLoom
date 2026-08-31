@@ -132,6 +132,7 @@ fun WorldloomApp(
                     notice = gameplayNotice,
                     agentController = agentController.takeIf { gameplayInteractive },
                     interactive = gameplayInteractive,
+                    runKey = session.currentRunId?.value.orEmpty(),
                     historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
                     onExit = { showSetup = true },
                     onReplay = { scope.launch { session.replay() } },
@@ -1005,7 +1006,7 @@ private fun AgentPanel(
     var guidanceState by remember(guidanceRunKey) { mutableStateOf(GuidanceInteractionState()) }
     val running = state is GameAgentState.Running
     val tutorial = guidanceState.visibleTutorials(guidance).firstOrNull()
-    LaunchedEffect(controller, historyKey) { controller.refreshHistory() }
+    LaunchedEffect(controller, guidanceRunKey) { controller.recoverInterruptedHistory() }
     LaunchedEffect(saveCoordinator, state, history.items.size) { saveCoordinator?.refresh() }
 
     Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {

@@ -18,6 +18,7 @@ import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.EntityId
 import io.worldloom.world.NpcPublicActionKind
+import io.worldloom.world.NpcDialogueAudience
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonArray
@@ -42,6 +43,7 @@ val PROGRESS_CLOCK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.progress
 val NPC_SPEAK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.speak")
 val NPC_ACT_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.act")
 val NPC_ADDRESS_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.address")
+val NPC_PRESENCE_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.npc.presence")
 
 private val NUMERIC_STATE_MODULE_ID = DefinitionId("worldloom.core.numeric-state")
 private val DIRECT_ADJUSTMENT_PARAMETER_ID = DefinitionId("worldloom.parameter.direct-adjustment")
@@ -243,6 +245,9 @@ class DefaultAgentToolGateway(
                 kind = NpcPublicActionKind.SPEECH,
                 content = call.requireString("content"),
                 revealKnowledgeIds = call.optionalStringList("revealKnowledgeIds").map(::DefinitionId),
+                audience = call.optionalString("audience")?.let(NpcDialogueAudience::valueOf)
+                    ?: NpcDialogueAudience.NEARBY_GROUP,
+                communicationMethodId = call.optionalString("communicationMethodId")?.let(::DefinitionId),
             )
 
             NPC_ACT_TOOL_ID.value -> GameSessionCommand.PublishNpcAction(
@@ -255,6 +260,14 @@ class DefaultAgentToolGateway(
                 npcId = DefinitionId(call.requireString("npcId")),
                 content = call.requireString("content"),
                 idempotencyKey = call.id,
+                audience = call.optionalString("audience")?.let(NpcDialogueAudience::valueOf)
+                    ?: NpcDialogueAudience.NEARBY_GROUP,
+                communicationMethodId = call.optionalString("communicationMethodId")?.let(::DefinitionId),
+            )
+
+            NPC_PRESENCE_TOOL_ID.value -> GameSessionCommand.SetNpcPresence(
+                npcId = DefinitionId(call.requireString("npcId")),
+                present = call.requireBoolean("present"),
             )
 
             else -> return ToolInvocationResult.Failure(
@@ -374,12 +387,15 @@ private data class StandardAgentTool(
         context.adventureStateDefinition?.clocks?.isNotEmpty() == true
     } else if (capabilityId == NPC_SPEAK_TOOL_ID) {
         context.npcProfiles.any { it.actorId == identity.actorId && it.canSpeak &&
-            it.entityId in currentParticipants(context) }
+            (it.entityId in currentParticipants(context) || it.remoteCommunicationMethodIds.isNotEmpty()) }
     } else if (capabilityId == NPC_ACT_TOOL_ID) {
         context.npcProfiles.any { it.actorId == identity.actorId && it.publicActionIds.isNotEmpty() &&
             it.entityId in currentParticipants(context) }
     } else if (capabilityId == NPC_ADDRESS_TOOL_ID) {
-        context.npcProfiles.any { it.canSpeak && it.entityId in currentParticipants(context) }
+        context.npcProfiles.any { it.canSpeak &&
+            (it.entityId in currentParticipants(context) || it.remoteCommunicationMethodIds.isNotEmpty()) }
+    } else if (capabilityId == NPC_PRESENCE_TOOL_ID) {
+        context.npcProfiles.isNotEmpty() && context.currentSceneId != null
     } else {
         enabledByManifest(context.modules)
     }
@@ -483,16 +499,25 @@ private data class StandardAgentTool(
             "actionId",
             context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.publicActionIds.orEmpty().map { it.value },
         )
-        NPC_SPEAK_TOOL_ID -> definition.withAllowed(
-            "revealKnowledgeIds",
-            context.npcProfiles.firstOrNull { it.actorId == identity.actorId }?.knowledge.orEmpty()
-                .filter { it.revealable }.map { it.id.value },
-        )
+        NPC_SPEAK_TOOL_ID -> {
+            val npc = context.npcProfiles.firstOrNull { it.actorId == identity.actorId }
+            definition.copy(parameters = definition.parameters.map { parameter -> when (parameter.name) {
+                "revealKnowledgeIds" -> parameter.copy(
+                    allowedValues = npc?.knowledge.orEmpty().filter { it.revealable }.map { it.id.value },
+                )
+                "communicationMethodId" -> parameter.copy(
+                    allowedValues = npc?.remoteCommunicationMethodIds.orEmpty().map { it.value }.sorted(),
+                )
+                else -> parameter
+            } })
+        }
         NPC_ADDRESS_TOOL_ID -> definition.withAllowed(
             "npcId",
-            context.npcProfiles.filter { it.canSpeak && it.entityId in currentParticipants(context) }
+            context.npcProfiles.filter { it.canSpeak &&
+                (it.entityId in currentParticipants(context) || it.remoteCommunicationMethodIds.isNotEmpty()) }
                 .map { it.id.value },
         )
+        NPC_PRESENCE_TOOL_ID -> definition.withAllowed("npcId", context.npcProfiles.map { it.id.value })
 
         else -> definition
     }
@@ -692,9 +717,22 @@ private object StandardAgentTools {
         StandardAgentTool(
             definition = ProviderToolDefinition(
                 name = NPC_SPEAK_TOOL_ID.value,
-                description = "Publish one in-character utterance as an auditable public scene event. Final model text remains private.",
+                description = "Publish one in-character utterance with an explicit nearby-group or private audience. Final model text remains private.",
                 parameters = listOf(
-                    stringParameter("content", "Public utterance, 1 to 500 characters."),
+                    stringParameter("content", "Player-visible utterance, 1 to 500 characters."),
+                    ProviderToolParameter(
+                        "audience",
+                        "Use PRIVATE only when replying to a private player message; otherwise use NEARBY_GROUP.",
+                        ProviderToolValueType.STRING,
+                        required = false,
+                        allowedValues = NpcDialogueAudience.entries.map { it.name },
+                    ),
+                    ProviderToolParameter(
+                        "communicationMethodId",
+                        "Shared remote-communication method for a remote PRIVATE reply; omit for nearby dialogue.",
+                        ProviderToolValueType.STRING,
+                        required = false,
+                    ),
                     ProviderToolParameter(
                         "revealKnowledgeIds",
                         "Optional IDs from this NPC's reveal whitelist; public summaries are fixed by the world package.",
@@ -709,14 +747,39 @@ private object StandardAgentTools {
         StandardAgentTool(
             definition = ProviderToolDefinition(
                 name = NPC_ADDRESS_TOOL_ID.value,
-                description = "Address one dialogue-enabled NPC who is present in the current scene.",
+                description = "Address one reachable NPC using nearby group speech or an authorized private channel.",
                 parameters = listOf(
-                    stringParameter("npcId", "Current-scene NPC identifier."),
+                    stringParameter("npcId", "Reachable NPC identifier."),
                     stringParameter("content", "Player-visible speech, 1 to 500 characters."),
+                    ProviderToolParameter(
+                        "audience",
+                        "NEARBY_GROUP for @ dialogue or PRIVATE for # dialogue.",
+                        ProviderToolValueType.STRING,
+                        required = false,
+                        allowedValues = NpcDialogueAudience.entries.map { it.name },
+                    ),
+                    ProviderToolParameter(
+                        "communicationMethodId",
+                        "Shared remote-communication method for a remote PRIVATE message; omit when nearby.",
+                        ProviderToolValueType.STRING,
+                        required = false,
+                    ),
                 ),
             ),
             capabilityId = NPC_ADDRESS_TOOL_ID,
             permission = CommandPermission.ADDRESS_NPC,
+        ),
+        StandardAgentTool(
+            definition = ProviderToolDefinition(
+                name = NPC_PRESENCE_TOOL_ID.value,
+                description = "Add or remove one configured NPC from the player's current nearby-character list.",
+                parameters = listOf(
+                    stringParameter("npcId", "Configured NPC identifier."),
+                    ProviderToolParameter("present", "True when the NPC arrives; false when they leave.", ProviderToolValueType.BOOLEAN),
+                ),
+            ),
+            capabilityId = NPC_PRESENCE_TOOL_ID,
+            permission = CommandPermission.MANAGE_NPC_PRESENCE,
         ),
         StandardAgentTool(
             definition = ProviderToolDefinition(
@@ -772,6 +835,9 @@ private fun ProviderToolCall.requireString(name: String): String =
 
 private fun ProviderToolCall.requireLong(name: String): Long =
     requireNotNull((arguments.getValue(name) as JsonPrimitive).longOrNull)
+
+private fun ProviderToolCall.requireBoolean(name: String): Boolean =
+    requireNotNull((arguments.getValue(name) as JsonPrimitive).booleanOrNull)
 
 private fun ProviderToolCall.optionalLong(name: String): Long? =
     (arguments[name] as? JsonPrimitive)?.longOrNull
@@ -900,9 +966,30 @@ private fun validateIdentifiers(
                 if (!npc.canSpeak) return "NPC is not allowed to speak publicly"
                 if (call.requireString("content").trim().length !in 1..500) return "NPC public content is outside the supported range"
                 val reveals = call.optionalStringList("revealKnowledgeIds")
+                val audience = call.optionalString("audience")?.let(NpcDialogueAudience::valueOf)
+                    ?: NpcDialogueAudience.NEARBY_GROUP
+                val communicationMethodId = call.optionalString("communicationMethodId")?.let(::DefinitionId)
+                val nearby = npc.entityId in context.currentSceneParticipantIds
+                val reachable = when (audience) {
+                    NpcDialogueAudience.NEARBY_GROUP -> nearby && communicationMethodId == null
+                    NpcDialogueAudience.PRIVATE -> if (nearby) {
+                        communicationMethodId == null
+                    } else {
+                        communicationMethodId in npc.remoteCommunicationMethodIds
+                    }
+                }
+                if (!reachable) return "NPC speech audience or communication method is not reachable"
+                if (identity.dialogueAudience != null &&
+                    (audience != identity.dialogueAudience || communicationMethodId != identity.communicationMethodId)
+                ) {
+                    return "NPC reply must preserve the triggering dialogue audience and communication method"
+                }
                 if (reveals.size > 4 || reveals.distinct().size != reveals.size ||
                     (reveals.isNotEmpty() && CommandPermission.REVEAL_NPC_KNOWLEDGE !in identity.permissions)
                 ) return "NPC knowledge reveal is not allowed"
+                if (audience == NpcDialogueAudience.PRIVATE && reveals.isNotEmpty()) {
+                    return "Private NPC speech cannot publish world knowledge"
+                }
                 val allowed = npc.knowledge.filter { it.revealable }.mapTo(mutableSetOf()) { it.id.value }
                 if (reveals.any { it !in allowed }) return "NPC knowledge reveal is not allowed"
             }
@@ -919,11 +1006,33 @@ private fun validateIdentifiers(
                 val npcId = DefinitionId(call.requireString("npcId"))
                 val npc = context.npcProfiles.firstOrNull { it.id == npcId }
                     ?: return "Tool target is not a configured NPC"
-                if (!npc.canSpeak || npc.entityId !in context.currentSceneParticipantIds) {
-                    return "Tool target is not addressable in the current scene"
+                val audience = call.optionalString("audience")?.let(NpcDialogueAudience::valueOf)
+                    ?: NpcDialogueAudience.NEARBY_GROUP
+                val communicationMethodId = call.optionalString("communicationMethodId")?.let(::DefinitionId)
+                val nearby = npc.entityId in context.currentSceneParticipantIds
+                val reachable = when (audience) {
+                    NpcDialogueAudience.NEARBY_GROUP -> nearby && communicationMethodId == null
+                    NpcDialogueAudience.PRIVATE -> if (nearby) {
+                        communicationMethodId == null
+                    } else {
+                        communicationMethodId in npc.remoteCommunicationMethodIds
+                    }
+                }
+                if (!npc.canSpeak || !reachable) {
+                    return "Tool target is not reachable for this dialogue audience"
                 }
                 if (call.requireString("content").trim().length !in 1..500) {
                     return "Player dialogue is outside the supported range"
+                }
+            }
+
+            NPC_PRESENCE_TOOL_ID.value -> {
+                val npcId = DefinitionId(call.requireString("npcId"))
+                val npc = context.npcProfiles.firstOrNull { it.id == npcId }
+                    ?: return "Tool target is not a configured NPC"
+                val present = call.requireBoolean("present")
+                if (present == (npc.entityId in context.currentSceneParticipantIds)) {
+                    return "NPC presence already matches the requested state"
                 }
             }
         }

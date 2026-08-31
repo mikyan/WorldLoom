@@ -5,6 +5,7 @@ import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
 import io.worldloom.definition.DefinitionId
 import io.worldloom.world.EntityId
+import io.worldloom.world.NpcDialogueAudience
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -22,6 +23,8 @@ data class NpcAgentProfile(
     val privateKnowledge: List<String> = emptyList(),
     val revealableKnowledgeIds: Set<DefinitionId> = emptySet(),
     val publicActionIds: Set<DefinitionId> = emptySet(),
+    val replyAudience: NpcDialogueAudience? = null,
+    val communicationMethodId: DefinitionId? = null,
 ) {
     init {
         require(identityPrompt.isNotBlank()) { "NPC identity prompt must not be blank" }
@@ -132,7 +135,13 @@ class NpcAgent(
                 contextBudgetTokens = policy.contextBudgetTokens,
             ),
         )
-        val identity = AgentIdentity(profile.agentId, profile.actorId, profile.permissions)
+        val identity = AgentIdentity(
+            profile.agentId,
+            profile.actorId,
+            profile.permissions,
+            profile.replyAudience,
+            profile.communicationMethodId,
+        )
         when (
             val result = runtime.run(
                 AgentRunRequest(

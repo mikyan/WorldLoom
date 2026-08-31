@@ -81,7 +81,7 @@ class GameAgentControllerTest {
     }
 
     @Test
-    fun refreshRecoversRetryAndReadOnlyNarrationWithoutRepeatingTools() = runTest {
+    fun resumeRecoveryProvidesRetryAndReadOnlyNarrationWithoutRepeatingTools() = runTest {
         val session = StubGameSession(
             readyState(
                 lastSequence = 2,
@@ -105,7 +105,7 @@ class GameAgentControllerTest {
             turnStore = store,
         )
 
-        controller.refreshHistory()
+        controller.recoverInterruptedHistory()
 
         val interrupted = assertNotNull(controller.history.value.items.singleOrNull())
         assertEquals(GameTurnRecoveryKind.NARRATION_REQUIRED, interrupted.recoveryKind)
@@ -138,7 +138,7 @@ class GameAgentControllerTest {
             gameSession = session,
             turnStore = store,
         )
-        controller.refreshHistory()
+        controller.recoverInterruptedHistory()
 
         controller.retry(source.turnId)
 
@@ -178,6 +178,38 @@ class GameAgentControllerTest {
         val retried = controller.history.value.items.last()
         assertEquals(GameTurnStatus.COMPLETED, retried.status)
         assertEquals(2, controller.history.value.items.size)
+    }
+
+    @Test
+    fun historyReadsCannotInterruptALiveTurnWhenItsEventSequenceAdvances() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val session = StubGameSession(readyState())
+        val store = InMemoryGameTurnStore()
+        val controller = DefaultGameAgentController(
+            runtime = AgentRuntime(GatedStreamingProvider(release), EmptyToolGateway),
+            gameSession = session,
+            turnStore = store,
+        )
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { controller.send("搜寻附近物资") }
+        assertIs<GameAgentState.Running>(controller.state.value)
+
+        session.state.value = readyState(
+            lastSequence = 1,
+            timeline = listOf(PresentedEvent(1, "搜寻结果已提交")),
+        )
+        controller.refreshHistory()
+        controller.recoverInterruptedHistory()
+
+        val running = assertNotNull(store.latest(RunId("test.run")))
+        assertEquals(GameTurnStatus.RUNNING, running.status)
+        assertEquals(null, controller.history.value.items.single().safeFailureMessage)
+
+        release.complete(Unit)
+        job.join()
+
+        val completed = assertNotNull(store.latest(RunId("test.run")))
+        assertEquals(GameTurnStatus.COMPLETED, completed.status)
+        assertTrue(controller.history.value.items.none { it.status == GameTurnStatus.FAILED })
     }
 
     private fun readyState(

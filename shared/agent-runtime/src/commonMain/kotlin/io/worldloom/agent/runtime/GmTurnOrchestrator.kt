@@ -288,6 +288,17 @@ object GmContextProjector {
                     scene.actions.forEach { appendLine("- ${it.label} (${it.id.value})") }
                 }
             }
+            if (presentation.characters.isNotEmpty()) {
+                appendLine("可对话角色与通讯状态：")
+                presentation.characters.forEach { character ->
+                    val reachability = buildList {
+                        if (character.nearby) add("在玩家身边")
+                        character.remoteCommunicationMethods.forEach { add("远程:${it.label}(${it.id.value})") }
+                    }.ifEmpty { listOf("当前不可联络") }
+                    appendLine("- ${character.displayName} (${character.id.value})：${reachability.joinToString()}")
+                }
+                appendLine("角色来到或离开玩家身边属于客观变化，必须调用 npc.presence；不得只在叙述中宣告。")
+            }
             if (presentation.fields.isNotEmpty()) {
                 appendLine("玩家可见状态：")
                 presentation.fields.forEach { appendLine("- ${it.label}: ${it.value}") }
@@ -707,8 +718,14 @@ class GameTurnOrchestrator(
                 add(CommandPermission.TRAVEL)
                 if (context.availableTravelRoutes.any { it.requiresCheck }) add(CommandPermission.RESOLVE_CHECK)
             }
-            if (context.npcProfiles.any { it.canSpeak && it.entityId in context.currentSceneParticipantIds }) {
+            if (context.npcProfiles.any { it.canSpeak &&
+                    (it.entityId in context.currentSceneParticipantIds || it.remoteCommunicationMethodIds.isNotEmpty())
+                }
+            ) {
                 add(CommandPermission.ADDRESS_NPC)
+            }
+            if (context.npcProfiles.isNotEmpty() && context.currentSceneId != null) {
+                add(CommandPermission.MANAGE_NPC_PRESENCE)
             }
             context.adventureStateDefinition?.let { adventure ->
                 if (adventure.inventory != null) add(CommandPermission.MANAGE_INVENTORY)

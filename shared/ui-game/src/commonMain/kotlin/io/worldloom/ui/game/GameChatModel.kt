@@ -3,6 +3,7 @@ package io.worldloom.ui.game
 import io.worldloom.agent.runtime.GameAgentHistoryState
 import io.worldloom.application.GamePresentation
 import io.worldloom.application.PresentedChatSpeakerKind
+import io.worldloom.world.NpcDialogueAudience
 
 internal enum class GameChatSpeakerKind { PM, PLAYER, NPC, SYSTEM }
 
@@ -12,6 +13,8 @@ internal data class GameChatMessage(
     val speaker: String,
     val kind: GameChatSpeakerKind,
     val content: String,
+    val audienceLabel: String? = null,
+    val private: Boolean = false,
 )
 
 /** Builds a public group-chat projection without treating presentation prose as world facts. */
@@ -73,6 +76,16 @@ internal fun buildGameChatMessages(
                 PresentedChatSpeakerKind.NPC -> GameChatSpeakerKind.NPC
             },
             content = chat.content,
+            audienceLabel = if (chat.audience == NpcDialogueAudience.PRIVATE) {
+                buildString {
+                    append("# ")
+                    append(chat.targetName ?: "私密")
+                    chat.communicationLabel?.let { append(" · ").append(it) }
+                }
+            } else if (chat.speakerKind == PresentedChatSpeakerKind.PLAYER && chat.targetName != null) {
+                "@ ${chat.targetName} · 身边可见"
+            } else null,
+            private = chat.audience == NpcDialogueAudience.PRIVATE,
         )
     }
 

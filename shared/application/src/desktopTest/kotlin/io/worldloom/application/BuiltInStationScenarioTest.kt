@@ -40,6 +40,7 @@ class BuiltInStationScenarioTest {
                 assertEquals("第一幕 · 阴影唤醒", opening?.firstActLabel)
                 assertEquals("worldloom.background.station-core", opening?.backgroundAssetId)
                 assertEquals(listOf("莱拉"), opening?.npcs?.map(PresentedNpc::displayName))
+                assertEquals(listOf("worldloom.avatar.station-lyra"), opening?.npcs?.map(PresentedNpc::avatarAssetId))
 
                 route.steps.forEach { step ->
                     assertIs<ActionResult.Success>(

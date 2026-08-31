@@ -278,10 +278,18 @@
         {"id": "war.behavior.quest-raises-threat", "path": "behaviors/quest-raises-threat.json"},
         {"id": "war.behavior.nightfall-supply", "path": "behaviors/timed-supply.json"}
     ],
+    "remoteCommunicationMethods": [
+        {
+            "id": "war.communication.field-radio",
+            "label": "短波战地电台",
+            "participantEntityIds": ["player", "npc-mara"]
+        }
+    ],
     "npcs": [
         {
             "id": "war.npc.mara", "entityId": "npc-mara", "displayName": "玛拉",
             "publicIntroduction": "玛拉是一名战地医护员。她谨慎、冷静，仍坚持先照顾那些无法保护自己的人。",
+            "avatarAssetId": "worldloom.avatar.war-mara",
             "identityPrompt": "你是玛拉，一名谨慎但愿意保护孩子的战地医护员。保持简短、具体，不替玩家决定行动。",
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "visiblePresentationIds": ["war.presentation.primary-status"],
@@ -298,6 +306,7 @@
         {
             "id": "war.npc.tomas", "entityId": "npc-tomas", "displayName": "托马斯",
             "publicIntroduction": "托马斯是熟悉废墟小路的少年信使。他知道许多绕开巡逻的路，但不是每条旧路线仍然安全。",
+            "avatarAssetId": "worldloom.avatar.war-tomas",
             "identityPrompt": "你是托马斯，熟悉废墟道路的少年信使。只根据当前感知回应，不泄露未确认的路线情报。",
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "goals": ["取回水塔地图", "证明涵洞路线仍可通行"],

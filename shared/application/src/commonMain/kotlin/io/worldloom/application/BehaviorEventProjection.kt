@@ -26,6 +26,8 @@ import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.NPC_ADDRESSED_EVENT_TYPE_ID
 import io.worldloom.world.NpcKnowledgeRevealedEvent
 import io.worldloom.world.NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID
+import io.worldloom.world.NpcPresenceChangedEvent
+import io.worldloom.world.NPC_PRESENCE_CHANGED_EVENT_TYPE_ID
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
@@ -127,6 +129,11 @@ internal object BehaviorEventProjector {
             is NpcKnowledgeRevealedEvent -> NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID.also {
                 values["event.npcId"] = DefinitionReferenceValue(payload.npcId)
                 values["event.knowledgeId"] = DefinitionReferenceValue(payload.knowledgeId)
+            }
+            is NpcPresenceChangedEvent -> NPC_PRESENCE_CHANGED_EVENT_TYPE_ID.also {
+                values["event.npcId"] = DefinitionReferenceValue(payload.npcId)
+                values["event.entityId"] = TextValue(payload.entityId.value)
+                values["event.present"] = BooleanValue(payload.present)
             }
             else -> return null
         }

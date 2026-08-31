@@ -196,7 +196,9 @@ Worldloom Runtime 提供类型系统、普通检定、对抗检定、资源映�
 
 正式游玩使用独立于世界选择、存档和 Provider 配置的沉浸式页面。叙事以群聊记录呈现：PM、玩家与公开发言的 NPC 拥有稳定身份和不同视觉层级；规则快捷行动只生成受约束的游戏操作，不能绕过 Command/Event 权威链路。每个新 Run 的群聊顶部按固定顺序展示世界包声明的背景前提、游戏目标、第一幕与初始场景；仅当初始场景声明 NPC 参与者时，继续展示这些 NPC 的 spoiler-safe 公开介绍。
 
-桌面端采用横屏双栏布局，以群聊为视觉中心、世界与角色投影为右侧 HUD；移动端锁定竖屏并将 HUD 压缩为聊天附近的情境操作。场景背景使用 16:9 资产与中心安全区：桌面端覆盖横向画布，移动端以 `ContentScale.Crop` 从中部裁出与屏幕等高的竖向画面。世界包通过稳定的 `backgroundAssetId` 引用表现资产；未知资产必须回退到通用背景，Runtime 不按 worldId 或题材分支。
+桌面端采用横屏双栏布局，以群聊为视觉中心、世界与角色投影为右侧 HUD；角色区采用群聊式紧凑成员栏，通过“身边 / 全部”切换同一份 Definition 驱动投影，点击头像后才展示公开介绍与寻址操作。移动端锁定竖屏并复用该横向成员栏。场景背景使用 16:9 资产与中心安全区：桌面端覆盖横向画布，移动端以 `ContentScale.Crop` 从中部裁出与屏幕等高的竖向画面。世界包通过稳定的 `backgroundAssetId` 与可选 `avatarAssetId` 引用表现资产；未知资产必须回退到通用背景或姓名首字头像，Runtime 不按 worldId 或题材分支。
+
+输入框使用显式寻址语法：`@角色` 是对身边目标的群体可见发言，PM 与玩家身边的全部 NPC 都可感知；`#角色` 是只对 PM、玩家和目标可见的私密对话。场景外目标只有在世界包声明某种远程通讯方式、且玩家与目标 Entity 都列为该方式的持有者时，才能使用 `#` 联系。界面只负责解析寻址并提交类型化 Command，不自行判断或修改可见性事实。
 
 卡片可以作为紧凑的信息容器。“卡片”描述组件形态，点击后可以查看、展开、定位或使用对应对象；相关操作最终进入统一的意图理解与规则判定流程。具体面板、字段、排序、组件类型和数据绑定由 `presentation.json` 与已启用模块提供，Runtime 只实现可复用组件和绑定解释器。
 
@@ -710,7 +712,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成三十五轮工程基线并处于 `0.1.0-alpha.1` 候选，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成三十五轮工程基线并发布 `0.0.1`，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -740,7 +742,7 @@ NPC 模型只能通过 `npc.speak` 或 `npc.act` 发布玩家可见内容；Tool
 
 `SaveCoordinator` 把开始、继续、重命名和归档组织为应用用例，SQLDelight `save_run` 只保存目录元数据与固定世界内容版本；事实历史仍只来自 EventLog。继续游戏先校验内容版本，再加载兼容 Snapshot 和尾部事件并用 Reducer 重建；Snapshot Schema、JSON 或身份不合法时丢弃缓存、从完整 EventLog 重建并显示非阻断诊断，EventLog 本身不连续或不可解码时拒绝继续。Run 完成状态由生命周期 Event 投影，不由目录按钮伪造。
 
-Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector` 向前分页。事件详情包含稳定 Event 类型、EventId、correlation/causation、公开摘要和可审计 Random Record；离线公开回放从初始状态重放 EventLog 并与当前状态逐字段比较。该投影不访问 Provider 设置、Vault、Agent Session、NPC 私有记忆或上下文检查点，因此普通回放不会包含密钥、模型正文和未揭示秘密。角色字段、库存、状态、关系、任务和进度钟继续只读取 Definition/模块投影，以横向虚拟卡片兼容窄屏和桌面；减少动态效果路径用静态加载反馈且不引入强制动效。
+Presentation 默认只保留玩家可见的最近 200 个事件并通过 `ReplayInspector` 向前分页。事件详情包含稳定 Event 类型、EventId、correlation/causation、可见摘要和可审计 Random Record；离线公开回放从初始状态重放完整 EventLog 并与当前状态逐字段比较，再排除标记为 `PRIVATE` 的对话正文。该投影不访问 Provider 设置、Vault、Agent Session、NPC 私有记忆或上下文检查点，因此普通回放不会包含私聊、密钥、模型正文和未揭示秘密。角色字段、库存、状态、关系、任务和进度钟继续只读取 Definition/模块投影，以横向虚拟卡片兼容窄屏和桌面；减少动态效果路径用静态加载反馈且不引入强制动效。
 
 封闭 Alpha 使用 Fake GM/NPC 作为发布权威，把建角、时间、活动、旅行、Behavior、NPC、持久化 GM Turn、进程重建、结局和公开回放串成单一 SQLDelight 系统旅程。Provider 不可用/限流、工具拒绝、EventStore 原子失败、磁盘不足等价注入、终止窗口、坏 Snapshot 和坏 EventLog 都有对应回归。`alphaGate` 统一运行仓库检查、迁移、iOS Simulator Kotlin 编译与 Android/Desktop Release 构建，`alphaRelease` 输出 SHA-256；版本与 Schema 边界记录在 `release/alpha-manifest.json`。真实 Provider 只做开发者自带 Vault 凭据后的可选冒烟，不成为确定性发布结果。
 
@@ -751,6 +753,8 @@ Presentation 默认只保留最近 200 个公开事件并通过 `ReplayInspector
 第 28 轮增加版本化 `AddressNpcCommand` / `NpcAddressedEvent` 和动态 `worldloom.tool.npc.address`。目标 NPC 必须由世界包声明为可发言、存在于当前场景且出现在本次 Tool Schema 的允许 ID 中；公开文本限 500 字符，Run 内幂等键用于吸收双击与 Provider 重试。玩家发言先原子追加 EventLog，NPC 工作 ID 再由 `EventId + targetNpcId` 确定；恢复扫描只为该目标创建对话工作，NPC 的公开响应仍必须经过 `npc.speak` / `npc.act`。共享 UI 从 Presentation 的 Definition 驱动角色列表选择目标，不解析世界键或题材 ID。
 
 第 29 轮将 NPC 知识升级为带稳定 DefinitionId 的私有正文、可选固定公开摘要和显式揭示权限，同时兼容旧 `privateKnowledge`。`npc.speak` 的动态 Schema 只列出该 NPC 自身可揭示的知识 ID，Tool Gateway 与 CommandValidator 再次核对 Actor、当前 Scene、Entity、ID 和固定摘要；模型不能改写摘要或借用其他角色知识。`NpcKnowledgeRevealedEvent` 只携带公开摘要并进入 EventLog、Presentation、公开回放和后续主持人上下文；玩家定向发言、NPC 公开响应和揭示摘要以来源 EventId 写入该 NPC 独立情景记忆，私有正文及模型最终回复不会跨分区复制。
+
+角色寻址在此基础上增加 audience 与 transport：`AddressNpcCommand`、`NpcAddressedEvent`、NPC 发言 Command/Event 都以 `NEARBY_GROUP` 或 `PRIVATE` 固定可见范围，并可引用世界包声明的 `remoteCommunicationMethods`。附近成员是 `GameState.sceneParticipantIds` 的权威投影；PM 只能通过 `SetNpcPresenceCommand` / `NpcPresenceChangedEvent` 动态加入或移除 NPC。私聊只分发给目标 NPC，NPC 回复身份带有本次调用的通道约束，任何扩大到公开群聊或改用其他通讯手段的 Tool 调用都会被拒绝。私聊事实保留在 EventLog 与玩家时间线以支持恢复，但普通公开回放必须过滤私聊正文。
 
 第 30 轮把通用 Agent Memory/Compaction 正式接入主持人。`GmContinuityCoordinator` 从持久化终态 `GameTurn` 与其公开 Event 证据修复连续 `AgentTurnRecord`，每 Run 使用 `SqlDelightAgentMemoryStore` 和固定 `worldloom.agent.gm`，与其他 Run 及 NPC AgentId 分区隔离。`GmContextProjector` 依次提供最后有效公开剧情检查点、未压缩公开回合尾部和当前 Presentation，并明确检查点只是非权威叙事辅助，冲突时当前 EventLog 投影与动态 Tool Schema 优先。`AgentCompactionCoordinator` 在宿主生命周期 Scope 中冻结旧范围、异步生成确定性公开候选、校验 AgentId/范围/来源后原子发布；前台回合不等待，失败保留旧检查点，Android/iOS/Desktop 销毁入口会取消遗留任务。
 

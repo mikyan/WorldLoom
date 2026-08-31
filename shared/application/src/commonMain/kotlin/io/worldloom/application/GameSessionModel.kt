@@ -6,6 +6,7 @@ import io.worldloom.world.CommandAuthorization
 import io.worldloom.world.ActorId
 import io.worldloom.world.EntityId
 import io.worldloom.world.NpcPublicActionKind
+import io.worldloom.world.NpcDialogueAudience
 import io.worldloom.world.RunId
 import io.worldloom.world.RunLifecycle
 import io.worldloom.rules.AdventureStateDefinition
@@ -30,6 +31,7 @@ data class PresentedEvent(
     val correlationId: String? = null,
     val randomRecord: PresentedRandomRecord? = null,
     val chatMessage: PresentedChatMessage? = null,
+    val publicReplayEligible: Boolean = true,
 )
 
 data class PresentedRandomRecord(
@@ -63,6 +65,7 @@ data class GamePresentation(
     val timelineTotalCount: Int = timeline.size,
     val timelineTruncated: Boolean = false,
     val opening: PresentedOpening? = null,
+    val characters: List<PresentedNpc> = emptyList(),
 )
 
 data class PresentedOpening(
@@ -122,6 +125,14 @@ data class PresentedNpc(
     val entityId: EntityId,
     val displayName: String,
     val publicIntroduction: String? = null,
+    val nearby: Boolean = false,
+    val remoteCommunicationMethods: List<PresentedCommunicationMethod> = emptyList(),
+    val avatarAssetId: String? = null,
+)
+
+data class PresentedCommunicationMethod(
+    val id: DefinitionId,
+    val label: String,
 )
 
 enum class PresentedChatSpeakerKind { PLAYER, NPC }
@@ -131,6 +142,11 @@ data class PresentedChatMessage(
     val speakerId: String? = null,
     val speakerName: String? = null,
     val content: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val targetId: String? = null,
+    val targetName: String? = null,
+    val communicationMethodId: DefinitionId? = null,
+    val communicationLabel: String? = null,
 )
 
 data class PresentedAction(val id: DefinitionId, val label: String)
@@ -264,12 +280,21 @@ sealed interface GameSessionCommand {
         val actionId: DefinitionId? = null,
         val content: String,
         val revealKnowledgeIds: List<DefinitionId> = emptyList(),
+        val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+        val communicationMethodId: DefinitionId? = null,
     ) : GameSessionCommand
 
     data class AddressNpc(
         val npcId: DefinitionId,
         val content: String,
         val idempotencyKey: String,
+        val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+        val communicationMethodId: DefinitionId? = null,
+    ) : GameSessionCommand
+
+    data class SetNpcPresence(
+        val npcId: DefinitionId,
+        val present: Boolean,
     ) : GameSessionCommand
 }
 
@@ -288,6 +313,7 @@ data class SessionCommandContext(
     val adventureStateDefinition: AdventureStateDefinition? = null,
     val npcProfiles: List<SessionNpcProfile> = emptyList(),
     val revealedKnowledge: List<SessionRevealedKnowledge> = emptyList(),
+    val playerEntityId: EntityId? = null,
 )
 
 data class SessionNpcKnowledge(
@@ -317,6 +343,7 @@ data class SessionNpcProfile(
     val knowledge: List<SessionNpcKnowledge> = emptyList(),
     val canSpeak: Boolean,
     val publicActionIds: Set<DefinitionId>,
+    val remoteCommunicationMethodIds: Set<DefinitionId> = emptySet(),
 )
 
 data class SessionCommittedEvent(
@@ -328,6 +355,9 @@ data class SessionCommittedEvent(
     val targetNpcId: DefinitionId? = null,
     val publicInput: String? = null,
     val directedNpcWake: Boolean = false,
+    val visibleNpcIds: Set<DefinitionId>? = null,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val communicationMethodId: DefinitionId? = null,
 )
 
 /** Explicitly public NPC Tool output; private model text and memory are never represented here. */
@@ -339,6 +369,8 @@ data class SessionNpcPublicAction(
     val kind: NpcPublicActionKind,
     val actionId: DefinitionId?,
     val content: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val communicationMethodId: DefinitionId? = null,
 )
 
 data class SessionAvailableAction(

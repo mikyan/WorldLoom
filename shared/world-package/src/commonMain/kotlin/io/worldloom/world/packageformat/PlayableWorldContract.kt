@@ -50,6 +50,7 @@ private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.npc.public-action"),
     DefinitionId("worldloom.event.npc.addressed"),
     DefinitionId("worldloom.event.npc.knowledge-revealed"),
+    DefinitionId("worldloom.event.npc.presence-changed"),
 )
 
 @Serializable
@@ -148,6 +149,8 @@ data class PlayableNpcProfile(
     val displayName: String,
     /** Public, spoiler-safe introduction shown when this NPC first appears in the opening scene. */
     val publicIntroduction: String? = null,
+    /** Stable presentation asset resolved by UI; unknown IDs fall back to generated initials. */
+    val avatarAssetId: String? = null,
     val identityPrompt: String,
     val wakeEventTypes: List<DefinitionId>,
     val visiblePresentationIds: List<DefinitionId> = emptyList(),
@@ -156,6 +159,14 @@ data class PlayableNpcProfile(
     val knowledge: List<PlayableNpcKnowledgeDefinition> = emptyList(),
     val capabilities: Set<PlayableNpcCapability> = setOf(PlayableNpcCapability.SPEAK),
     val publicActionIds: List<DefinitionId> = emptyList(),
+)
+
+/** A world-authored remote communication item or channel shared by its listed holders. */
+@Serializable
+data class PlayableRemoteCommunicationMethod(
+    val id: DefinitionId,
+    val label: String,
+    val participantEntityIds: List<String>,
 )
 
 @Serializable
@@ -230,6 +241,7 @@ data class PlayableWorldContract(
     val adventureState: AdventureStateDefinition? = null,
     val behaviors: List<PlayableBehaviorReference> = emptyList(),
     val npcs: List<PlayableNpcProfile> = emptyList(),
+    val remoteCommunicationMethods: List<PlayableRemoteCommunicationMethod> = emptyList(),
     val guidance: PlayableGuidanceDefinition? = null,
     val goldenRoutes: List<PlayableRouteFixture>,
 )
@@ -292,6 +304,7 @@ enum class PlayableWorldProblemCode {
     BEHAVIOR_INVALID,
     BEHAVIOR_ID_MISMATCH,
     NPC_INVALID,
+    COMMUNICATION_INVALID,
     GUIDANCE_INVALID,
     GUIDANCE_REFERENCE_UNKNOWN,
     GUIDANCE_TARGET_NOT_VISIBLE,
@@ -421,6 +434,7 @@ object PlayableWorldValidator {
         }
         validateScenes(contract, definition, scenes, actions, problems)
         validateNpcs(contract, definition, scenes, modules, problems)
+        validateRemoteCommunication(contract, definition, problems)
         validateTemporal(contract, definition, scenes.keys, problems)
         validateGuidance(contract, scenes, actions, problems)
         validateAdventureState(contract, definition, problems)
@@ -500,6 +514,15 @@ object PlayableWorldValidator {
                 path,
                 "NPC prompt, knowledge or goal text exceeds its validated boundary",
             )
+            npc.avatarAssetId?.let { assetId ->
+                if (assetId.length > 128 || !assetId.matches(Regex("[a-z0-9][a-z0-9._-]*"))) {
+                    problems += problem(
+                        PlayableWorldProblemCode.NPC_INVALID,
+                        "$path.avatarAssetId",
+                        "NPC avatar asset ID must be a lowercase stable identifier",
+                    )
+                }
+            }
             npc.knowledge.forEachIndexed { knowledgeIndex, knowledge ->
                 val knowledgePath = "$path.knowledge[$knowledgeIndex]"
                 if (!seenKnowledgeIds.add(knowledge.id)) problems += problem(
@@ -543,6 +566,40 @@ object PlayableWorldValidator {
                 "$path.publicActionIds",
                 "NPC ACT capability requires a unique non-empty public action whitelist",
             )
+        }
+    }
+
+    private fun validateRemoteCommunication(
+        contract: PlayableWorldContract,
+        definition: ValidatedWorldDefinition,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        duplicateIds(
+            contract.remoteCommunicationMethods.map(PlayableRemoteCommunicationMethod::id),
+            "remoteCommunicationMethods",
+            problems,
+        )
+        val entityIds = definition.source.initialEntities.map { it.entityId }.toSet()
+        contract.remoteCommunicationMethods.forEachIndexed { index, method ->
+            val path = "remoteCommunicationMethods[$index]"
+            if (method.label.isBlank() || method.label.length > 100) {
+                problems += problem(
+                    PlayableWorldProblemCode.COMMUNICATION_INVALID,
+                    "$path.label",
+                    "Remote communication label must be non-blank and at most 100 characters",
+                )
+            }
+            if (
+                method.participantEntityIds.size < 2 ||
+                method.participantEntityIds.distinct().size != method.participantEntityIds.size ||
+                method.participantEntityIds.any { it !in entityIds }
+            ) {
+                problems += problem(
+                    PlayableWorldProblemCode.COMMUNICATION_INVALID,
+                    "$path.participantEntityIds",
+                    "Remote communication requires at least two unique initialized holders",
+                )
+            }
         }
     }
 

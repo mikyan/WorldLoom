@@ -13,6 +13,7 @@ const val CURRENT_ACTION_OUTCOME_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_ADDRESS_NPC_COMMAND_SCHEMA_VERSION: Int = 1
 const val CURRENT_REVEAL_NPC_KNOWLEDGE_COMMAND_SCHEMA_VERSION: Int = 1
+const val CURRENT_NPC_PRESENCE_COMMAND_SCHEMA_VERSION: Int = 1
 
 @Polymorphic
 interface GameCommandPayload
@@ -68,9 +69,15 @@ data class PublishNpcActionCommand(
     val kind: NpcPublicActionKind,
     val actionId: DefinitionId? = null,
     val content: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val targetEntityId: EntityId? = null,
+    val communicationMethodId: DefinitionId? = null,
 ) : GameCommandPayload
 
-/** Player-visible speech addressed to one configured NPC in the current scene. */
+@Serializable
+enum class NpcDialogueAudience { NEARBY_GROUP, PRIVATE }
+
+/** Player speech addressed to one configured NPC, with an explicit audience and transport. */
 @Serializable
 @SerialName("address-npc")
 data class AddressNpcCommand(
@@ -80,6 +87,19 @@ data class AddressNpcCommand(
     val sceneId: DefinitionId,
     val content: String,
     val idempotencyKey: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val communicationMethodId: DefinitionId? = null,
+) : GameCommandPayload
+
+/** Adds or removes one configured NPC from the player's current-scene presence projection. */
+@Serializable
+@SerialName("set-npc-presence")
+data class SetNpcPresenceCommand(
+    val schemaVersion: Int = CURRENT_NPC_PRESENCE_COMMAND_SCHEMA_VERSION,
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val present: Boolean,
 ) : GameCommandPayload
 
 @Serializable
@@ -120,6 +140,7 @@ enum class CommandPermission {
     ADVANCE_PROGRESS_CLOCK,
     PUBLISH_NPC_ACTION,
     ADDRESS_NPC,
+    MANAGE_NPC_PRESENCE,
     REVEAL_NPC_KNOWLEDGE,
 }
 

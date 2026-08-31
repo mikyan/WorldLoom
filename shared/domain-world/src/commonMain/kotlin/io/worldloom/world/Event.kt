@@ -13,6 +13,8 @@ const val CURRENT_SCENE_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION: Int = 1
 const val CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION: Int = 1
 val NPC_ADDRESSED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.addressed")
+const val CURRENT_NPC_PRESENCE_EVENT_SCHEMA_VERSION: Int = 1
+val NPC_PRESENCE_CHANGED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.presence-changed")
 const val CURRENT_NPC_KNOWLEDGE_REVEALED_EVENT_SCHEMA_VERSION: Int = 1
 val NPC_KNOWLEDGE_REVEALED_EVENT_TYPE_ID: DefinitionId = DefinitionId("worldloom.event.npc.knowledge-revealed")
 
@@ -100,6 +102,9 @@ data class NpcPublicActionPublishedEvent(
     val kind: NpcPublicActionKind,
     val actionId: DefinitionId? = null,
     val content: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val targetEntityId: EntityId? = null,
+    val communicationMethodId: DefinitionId? = null,
 ) : GameEventPayload
 
 @Serializable
@@ -111,6 +116,18 @@ data class NpcAddressedEvent(
     val sceneId: DefinitionId,
     val content: String,
     val idempotencyKey: String,
+    val audience: NpcDialogueAudience = NpcDialogueAudience.NEARBY_GROUP,
+    val communicationMethodId: DefinitionId? = null,
+) : GameEventPayload
+
+@Serializable
+@SerialName("npc-presence-changed")
+data class NpcPresenceChangedEvent(
+    val schemaVersion: Int = CURRENT_NPC_PRESENCE_EVENT_SCHEMA_VERSION,
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val present: Boolean,
 ) : GameEventPayload
 
 @Serializable

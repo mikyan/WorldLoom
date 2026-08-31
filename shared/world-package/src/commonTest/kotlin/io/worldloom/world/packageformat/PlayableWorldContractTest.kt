@@ -36,13 +36,54 @@ import kotlin.test.assertTrue
 
 class PlayableWorldContractTest {
     @Test
-    fun openingPresentationRejectsBlankCopyAndUnstableBackgroundAssetIds() {
+    fun remoteCommunicationRejectsUnknownOrSinglePartyParticipants() {
+        val fixture = fixture()
+        val invalid = fixture.contract.copy(
+            remoteCommunicationMethods = listOf(
+                PlayableRemoteCommunicationMethod(
+                    id("test.communication.radio"),
+                    "Radio",
+                    listOf("player", "missing-npc"),
+                ),
+                PlayableRemoteCommunicationMethod(
+                    id("test.communication.solo"),
+                    "Solo channel",
+                    listOf("player", "player"),
+                ),
+            ),
+        )
+
+        val problems = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(invalid, fixture.definition, fixture.modules, emptyMap()),
+        ).problems
+
+        assertTrue(problems.any {
+            it.code == PlayableWorldProblemCode.COMMUNICATION_INVALID && it.path.endsWith("participantEntityIds")
+        })
+    }
+
+    @Test
+    fun presentationRejectsBlankOpeningAndUnstableAssetIds() {
         val fixture = fixture()
         val invalid = fixture.contract.copy(
             opening = PlayableOpeningPresentation("", "Reach safety", "Act I"),
             scenes = fixture.contract.scenes.map { scene ->
-                scene.copy(backgroundAssetId = "Not A Stable Asset")
+                scene.copy(
+                    participantEntityIds = listOf("npc-guide"),
+                    backgroundAssetId = "Not A Stable Asset",
+                )
             },
+            npcs = listOf(
+                PlayableNpcProfile(
+                    id = id("test.npc.guide"),
+                    entityId = "npc-guide",
+                    displayName = "Guide",
+                    publicIntroduction = "A public guide.",
+                    avatarAssetId = "Not A Stable Asset",
+                    identityPrompt = "Guide the player.",
+                    wakeEventTypes = listOf(id("worldloom.event.action.outcome-applied")),
+                ),
+            ),
         )
 
         val problems = assertIs<PlayableWorldValidationResult.Invalid>(
@@ -51,6 +92,7 @@ class PlayableWorldContractTest {
 
         assertTrue(problems.any { it.path == "opening" })
         assertTrue(problems.any { it.path.endsWith("backgroundAssetId") })
+        assertTrue(problems.any { it.path.endsWith("avatarAssetId") })
     }
 
     @Test

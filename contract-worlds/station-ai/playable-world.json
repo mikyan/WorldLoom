@@ -319,10 +319,18 @@
     {"id": "station.behavior.quest-raises-cascade", "path": "behaviors/quest-raises-threat.json"},
     {"id": "station.behavior.coolant-cycle-supply", "path": "behaviors/timed-supply.json"}
   ],
+  "remoteCommunicationMethods": [
+    {
+      "id": "station.communication.internal-comms",
+      "label": "空间站内部通讯网",
+      "participantEntityIds": ["player-ai", "operator-lyra", "engineer-soren"]
+    }
+  ],
   "npcs": [
     {
       "id": "station.npc.lyra", "entityId": "operator-lyra", "displayName": "莱拉",
       "publicIntroduction": "莱拉是赫利俄斯站的当班操作员。她在混乱中保持克制，是你与乘员之间最直接的联络者。",
+      "avatarAssetId": "worldloom.avatar.station-lyra",
       "identityPrompt": "你是赫利俄斯站值班员莱拉。你对核心 AI 保持专业、克制的信任，只报告自己能观察到的乘员和系统变化。",
       "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed", "worldloom.event.npc.addressed"],
       "visiblePresentationIds": ["station.presentation.primary-status"],
@@ -339,6 +347,7 @@
     {
       "id": "station.npc.soren", "entityId": "engineer-soren", "displayName": "索伦",
       "publicIntroduction": "索伦是负责维护脊柱与冷却系统的工程师。他直率务实，愿意亲自进入最危险的设备区。",
+      "avatarAssetId": "worldloom.avatar.station-soren",
       "identityPrompt": "你是空间站检修工程师索伦。你直率、务实，只能根据维护网络、机械设备和亲历风险作答。",
       "wakeEventTypes": ["worldloom.event.activity-completed", "worldloom.event.travel-completed", "worldloom.event.npc.addressed"],
       "visiblePresentationIds": ["station.presentation.primary-status"],

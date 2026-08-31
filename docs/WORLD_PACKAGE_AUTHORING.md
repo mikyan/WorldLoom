@@ -51,7 +51,29 @@ behaviors/               # 契约引用 Behavior 时按需提供
 
 `playableNpcs[].knowledge` 中的每项知识必须使用包内全局唯一的稳定 DefinitionId。`privateText` 只进入该 NPC 的私有上下文；需要允许角色公开时，同时提供 `publicSummary` 并设置 `revealable: true`。公开摘要应写成可直接进入玩家时间线的既成事实，不要依赖模型改写，也不要包含作者仍想保密的尾注。
 
+NPC 可通过可选的 `avatarAssetId` 引用 UI 提供的头像资产。该值必须是小写稳定标识符；未知标识符会回退为姓名首字头像，不能作为 Runtime 逻辑或信息权限的判断依据。`publicIntroduction` 必须保持 spoiler-safe，玩家点击成员头像时会展示该介绍。
+
 Runtime 只把当前 NPC 自身可揭示的 ID 放入 `npc.speak.revealKnowledgeIds`。提交后，Validator 会再次核对 NPC、Entity、Scene、知识 ID 和固定摘要；公开 Event 只保存 `publicSummary`。旧包中的 `privateKnowledge` 仍可读取，但不会自动变成可揭示知识，作者应显式迁移后再开放。
+
+## 附近角色与远程通讯
+
+场景的 `participantEntityIds` 定义玩家进入该场景时的初始附近角色。运行中 PM 可以通过受限工具让已配置 NPC 加入或离开附近清单；作者不能用叙述文字代替这一事实变化。
+
+`remoteCommunicationMethods` 可声明题材无关的远程通讯手段：
+
+```json
+{
+  "remoteCommunicationMethods": [
+    {
+      "id": "example.communication.radio",
+      "label": "便携电台",
+      "participantEntityIds": ["player", "npc-guide"]
+    }
+  ]
+}
+```
+
+每种方式需要稳定 DefinitionId、面向玩家的非空标签，以及至少两个不同且已初始化的 Entity。只有玩家 Entity 与目标 NPC Entity 同时出现在同一方式中，目标不在身边时 UI 和 Tool Gateway 才允许 `#角色` 私聊。`@角色` 始终要求目标在玩家身边，并向 PM 与全部附近 NPC 可见；私聊不会进入普通公开回放。
 
 ## 教程、场景提示与脱困出口
 

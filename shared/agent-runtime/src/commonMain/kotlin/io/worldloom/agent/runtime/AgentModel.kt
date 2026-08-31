@@ -5,6 +5,8 @@ import io.worldloom.provider.api.ProviderMessage
 import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
+import io.worldloom.world.NpcDialogueAudience
+import io.worldloom.definition.DefinitionId
 import kotlin.jvm.JvmInline
 
 private val AGENT_IDENTIFIER_PATTERN = Regex("^[a-zA-Z0-9][a-zA-Z0-9._:-]*$")
@@ -27,6 +29,9 @@ data class AgentIdentity(
     val agentId: AgentId,
     val actorId: ActorId,
     val permissions: Set<CommandPermission>,
+    /** Optional invocation-scoped channel pin used to prevent an NPC from widening a private reply. */
+    val dialogueAudience: NpcDialogueAudience? = null,
+    val communicationMethodId: DefinitionId? = null,
 )
 
 data class AgentRunRequest(

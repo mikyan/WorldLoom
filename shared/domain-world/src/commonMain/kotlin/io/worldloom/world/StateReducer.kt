@@ -83,6 +83,7 @@ object StateReducer : EventReducer {
             || payload is PlayerEnteredSceneEvent
             || payload is NpcPublicActionPublishedEvent
             || payload is NpcAddressedEvent
+            || payload is NpcPresenceChangedEvent
             || payload is NpcKnowledgeRevealedEvent
 
     override fun reduce(
@@ -102,6 +103,7 @@ object StateReducer : EventReducer {
             is PlayerEnteredSceneEvent -> reduceSceneEntry(state, event, payload)
             is NpcPublicActionPublishedEvent -> reduceNpcPublicAction(state, event, payload)
             is NpcAddressedEvent -> reduceNpcAddress(state, event, payload)
+            is NpcPresenceChangedEvent -> reduceNpcPresence(state, event, payload)
             is NpcKnowledgeRevealedEvent -> reduceNpcKnowledgeReveal(state, event, payload)
             else -> failure(
                 StateReductionErrorCode.UNSUPPORTED_EVENT_PAYLOAD,
@@ -139,11 +141,17 @@ object StateReducer : EventReducer {
         if (payload.schemaVersion != CURRENT_NPC_ADDRESSED_EVENT_SCHEMA_VERSION) {
             return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC address event schema")
         }
+        val nearby = payload.targetEntityId in state.sceneParticipantIds
+        val transportValid = payload.communicationMethodId != null
+        val audienceValid = when (payload.audience) {
+            NpcDialogueAudience.NEARBY_GROUP -> nearby && payload.communicationMethodId == null
+            NpcDialogueAudience.PRIVATE -> nearby || transportValid
+        }
         if (
             state.lifecycle != RunLifecycle.ACTIVE ||
             payload.sceneId != state.currentSceneId ||
-            payload.targetEntityId !in state.sceneParticipantIds ||
-            payload.targetEntityId !in state.entities
+            payload.targetEntityId !in state.entities ||
+            !audienceValid
         ) {
             return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC address is outside its current scene")
         }
@@ -155,6 +163,30 @@ object StateReducer : EventReducer {
         return StateReductionResult.Success(state.copy(lastSequence = event.sequence))
     }
 
+    private fun reduceNpcPresence(
+        state: GameState,
+        event: EventEnvelope,
+        payload: NpcPresenceChangedEvent,
+    ): StateReductionResult {
+        if (payload.schemaVersion != CURRENT_NPC_PRESENCE_EVENT_SCHEMA_VERSION) {
+            return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC presence event schema")
+        }
+        if (
+            state.lifecycle != RunLifecycle.ACTIVE || payload.sceneId != state.currentSceneId ||
+            payload.entityId !in state.entities || payload.present == (payload.entityId in state.sceneParticipantIds)
+        ) {
+            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC presence change is outside the current scene")
+        }
+        val participants = if (payload.present) {
+            state.sceneParticipantIds + payload.entityId
+        } else {
+            state.sceneParticipantIds - payload.entityId
+        }
+        return StateReductionResult.Success(
+            state.copy(lastSequence = event.sequence, sceneParticipantIds = participants),
+        )
+    }
+
     private fun reduceNpcPublicAction(
         state: GameState,
         event: EventEnvelope,
@@ -163,10 +195,18 @@ object StateReducer : EventReducer {
         if (payload.schemaVersion != CURRENT_NPC_PUBLIC_ACTION_EVENT_SCHEMA_VERSION) {
             return failure(StateReductionErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC action event schema")
         }
+        val nearby = payload.entityId in state.sceneParticipantIds
+        val audienceStructurallyValid = when (payload.audience) {
+            NpcDialogueAudience.NEARBY_GROUP -> nearby &&
+                payload.targetEntityId == null && payload.communicationMethodId == null
+            NpcDialogueAudience.PRIVATE -> payload.kind == NpcPublicActionKind.SPEECH &&
+                payload.targetEntityId == state.playerEntityId &&
+                (nearby || payload.communicationMethodId != null)
+        }
         if (state.lifecycle != RunLifecycle.ACTIVE || payload.sceneId != state.currentSceneId ||
-            payload.entityId !in state.sceneParticipantIds || payload.entityId !in state.entities
+            !audienceStructurallyValid || payload.entityId !in state.entities
         ) {
-            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC public action is outside its current scene")
+            return failure(StateReductionErrorCode.CURRENT_SCENE_MISMATCH, "payload", "NPC action audience is outside its current scene")
         }
         if (payload.content.isBlank() || payload.content.length > 500 ||
             (payload.kind == NpcPublicActionKind.SPEECH) != (payload.actionId == null)

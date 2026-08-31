@@ -23,6 +23,7 @@ import io.worldloom.world.ActorId
 import io.worldloom.world.CommandPermission
 import io.worldloom.world.NPC_ADDRESSED_EVENT_TYPE_ID
 import io.worldloom.world.RunId
+import io.worldloom.world.NpcDialogueAudience
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -335,7 +336,10 @@ class NpcSceneOrchestratorContractTest {
         val initialAddress = DefaultAgentToolGateway(session).availableTools(identity)
             .single { it.name == NPC_ADDRESS_TOOL_ID.value }
 
-        assertEquals(listOf("station.npc.lyra"), initialAddress.parameters.single { it.name == "npcId" }.allowedValues)
+        assertEquals(
+            listOf("station.npc.lyra", "station.npc.soren"),
+            initialAddress.parameters.single { it.name == "npcId" }.allowedValues,
+        )
         assertEquals(listOf("莱拉"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
 
         assertIs<ActionResult.Success>(
@@ -344,10 +348,65 @@ class NpcSceneOrchestratorContractTest {
         val maintenanceAddress = DefaultAgentToolGateway(session).availableTools(identity)
             .single { it.name == NPC_ADDRESS_TOOL_ID.value }
         assertEquals(
-            listOf("station.npc.soren"),
+            listOf("station.npc.lyra", "station.npc.soren"),
             maintenanceAddress.parameters.single { it.name == "npcId" }.allowedValues,
         )
         assertEquals(listOf("索伦"), ready(session).presentation.scene?.addressableNpcs?.map { it.displayName })
+    }
+
+    @Test
+    fun remotePrivateDialogueWakesOnlyItsTargetAndPinsTheNpcReplyChannel() = runTest {
+        val session = session("station-ai", "npc-remote-private")
+        assertIs<LoadResult.Success>(session.load(id("contract.station-ai")))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        val provider = SpeakingNpcProvider(privateCommunicationMethodId = "station.communication.internal-comms")
+        val workStore = InMemoryNpcWorkStore()
+        val orchestrator = NpcSceneOrchestrator(
+            AgentRuntime(provider, DefaultAgentToolGateway(session), InMemoryAgentSessionStore()),
+            session,
+            workStore,
+        )
+        val gateway = DefaultAgentToolGateway(session, orchestrator)
+        val player = AgentIdentity(
+            AgentId("worldloom.agent.player-dialogue"),
+            ActorId("system.player"),
+            setOf(CommandPermission.ADDRESS_NPC),
+        )
+        val input = "只在内部频道确认隔离器"
+
+        val result = assertIs<ToolInvocationResult.Success>(
+            gateway.invoke(
+                player,
+                ProviderToolCall(
+                    "remote-private-1",
+                    NPC_ADDRESS_TOOL_ID.value,
+                    buildJsonObject {
+                        put("npcId", "station.npc.soren")
+                        put("content", input)
+                        put("audience", NpcDialogueAudience.PRIVATE.name)
+                        put("communicationMethodId", "station.communication.internal-comms")
+                    },
+                ),
+            ),
+        )
+
+        assertTrue(result.worldChanged)
+        val privateEvents = ready(session).presentation.timeline.filter {
+            it.chatMessage?.audience == NpcDialogueAudience.PRIVATE
+        }
+        assertEquals(2, privateEvents.size)
+        assertTrue(privateEvents.any { it.chatMessage?.speakerName == "索伦" })
+        assertTrue(provider.systemPrompts.single().contains("远程通讯"))
+        assertEquals(
+            listOf("station.npc.soren"),
+            workStore.list(RunId("npc-remote-private.run.1"))
+                .filter { it.eventType == NPC_ADDRESSED_EVENT_TYPE_ID }
+                .map { it.npcId.value },
+        )
+        val replay = assertIs<io.worldloom.application.PublicReplayResult.Verified>(
+            session.exportVerifiedPublicReplay(),
+        ).document
+        assertTrue(replay.events.none { input in it.summary || it.chatMessage?.audience == NpcDialogueAudience.PRIVATE })
     }
 
     @Test
@@ -515,6 +574,7 @@ class NpcSceneOrchestratorContractTest {
 private class SpeakingNpcProvider(
     private val usePublicAction: Boolean = false,
     private val revealKnowledgeId: String? = null,
+    private val privateCommunicationMethodId: String? = null,
 ) : LanguageModelProvider {
     override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
     var calls: Int = 0
@@ -553,6 +613,10 @@ private class SpeakingNpcProvider(
                                 NPC_SPEAK_TOOL_ID.value,
                                 buildJsonObject {
                                     put("content", content)
+                                    if ("这是私密对话" in system) {
+                                        put("audience", NpcDialogueAudience.PRIVATE.name)
+                                        privateCommunicationMethodId?.let { put("communicationMethodId", it) }
+                                    }
                                     revealKnowledgeId?.let { knowledgeId ->
                                         put("revealKnowledgeIds", buildJsonArray { add(JsonPrimitive(knowledgeId)) })
                                     }

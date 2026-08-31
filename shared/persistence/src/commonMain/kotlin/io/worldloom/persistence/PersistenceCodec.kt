@@ -14,6 +14,7 @@ import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.NpcAddressedEvent
+import io.worldloom.world.NpcPresenceChangedEvent
 import io.worldloom.world.NpcKnowledgeRevealedEvent
 import io.worldloom.application.CharacterCreationDraft
 import io.worldloom.agent.runtime.GameTurn
@@ -75,6 +76,7 @@ object PersistenceCodec {
                 subclass(AdventureEndingReachedEvent::class)
                 subclass(NpcPublicActionPublishedEvent::class)
                 subclass(NpcAddressedEvent::class)
+                subclass(NpcPresenceChangedEvent::class)
                 subclass(NpcKnowledgeRevealedEvent::class)
             }
         }

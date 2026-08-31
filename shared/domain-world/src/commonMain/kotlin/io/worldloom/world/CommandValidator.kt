@@ -93,6 +93,11 @@ sealed interface ValidatedCommand {
         val payload: AddressNpcCommand,
     ) : ValidatedCommand
 
+    data class SetNpcPresence(
+        override val envelope: CommandEnvelope,
+        val payload: SetNpcPresenceCommand,
+    ) : ValidatedCommand
+
     data class RevealNpcKnowledge(
         override val envelope: CommandEnvelope,
         val payload: RevealNpcKnowledgeCommand,
@@ -124,10 +129,19 @@ data class NpcPublicActionCommandPolicy(
     val sceneId: DefinitionId,
     val allowedActionIds: Set<DefinitionId>,
     val canSpeak: Boolean,
+    val playerEntityId: EntityId? = null,
+    val remoteCommunicationMethodIds: Set<DefinitionId> = emptySet(),
 )
 
 /** Exact addressable NPC identity pinned by the validated world package and current scene. */
 data class NpcAddressCommandPolicy(
+    val npcId: DefinitionId,
+    val entityId: EntityId,
+    val sceneId: DefinitionId,
+    val remoteCommunicationMethodIds: Set<DefinitionId> = emptySet(),
+)
+
+data class NpcPresenceCommandPolicy(
     val npcId: DefinitionId,
     val entityId: EntityId,
     val sceneId: DefinitionId,
@@ -193,6 +207,7 @@ object CommandValidator {
         actionOutcomePolicy: ActionOutcomeCommandPolicy? = null,
         npcPublicActionPolicy: NpcPublicActionCommandPolicy? = null,
         npcAddressPolicy: NpcAddressCommandPolicy? = null,
+        npcPresencePolicy: NpcPresenceCommandPolicy? = null,
         npcKnowledgeRevealPolicy: NpcKnowledgeRevealCommandPolicy? = null,
     ): CommandValidationResult {
         CommandEnvelopeValidator.validate(state, authorization, envelope)?.let {
@@ -230,6 +245,13 @@ object CommandValidator {
                 envelope,
                 payload,
                 npcAddressPolicy,
+            )
+            is SetNpcPresenceCommand -> validateNpcPresence(
+                state,
+                authorization,
+                envelope,
+                payload,
+                npcPresencePolicy,
             )
             is RevealNpcKnowledgeCommand -> validateNpcKnowledgeReveal(
                 state,
@@ -300,15 +322,26 @@ object CommandValidator {
             "payload",
             "Validated NPC address policy is required",
         )
+        val nearby = payload.targetEntityId in state.sceneParticipantIds
+        val transportAllowed = payload.communicationMethodId != null &&
+            payload.communicationMethodId in expected.remoteCommunicationMethodIds
+        val audienceAllowed = when (payload.audience) {
+            NpcDialogueAudience.NEARBY_GROUP -> nearby && payload.communicationMethodId == null
+            NpcDialogueAudience.PRIVATE -> if (nearby) {
+                payload.communicationMethodId == null
+            } else {
+                transportAllowed
+            }
+        }
         if (
             payload.targetNpcId != expected.npcId ||
             payload.targetEntityId != expected.entityId ||
             payload.sceneId != expected.sceneId ||
             payload.sceneId != state.currentSceneId ||
-            payload.targetEntityId !in state.sceneParticipantIds ||
-            payload.targetEntityId !in state.entities
+            payload.targetEntityId !in state.entities ||
+            !audienceAllowed
         ) {
-            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload", "NPC is not addressable in the current scene")
+            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload", "NPC is not reachable for this dialogue audience")
         }
         val content = payload.content.trim()
         if (content.length !in 1..500) {
@@ -318,6 +351,38 @@ object CommandValidator {
             return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload.idempotencyKey", "NPC dialogue idempotency key is invalid")
         }
         return CommandValidationResult.Valid(ValidatedCommand.AddressNpc(envelope, payload.copy(content = content)))
+    }
+
+    private fun validateNpcPresence(
+        state: GameState,
+        authorization: CommandAuthorization,
+        envelope: CommandEnvelope,
+        payload: SetNpcPresenceCommand,
+        policy: NpcPresenceCommandPolicy?,
+    ): CommandValidationResult {
+        if (CommandPermission.MANAGE_NPC_PRESENCE !in authorization.permissions) {
+            return invalid(CommandValidationErrorCode.PERMISSION_DENIED, "payload", "Actor cannot change NPC presence")
+        }
+        if (payload.schemaVersion != CURRENT_NPC_PRESENCE_COMMAND_SCHEMA_VERSION) {
+            return invalid(CommandValidationErrorCode.PAYLOAD_SCHEMA_UNSUPPORTED, "payload.schemaVersion", "Unsupported NPC presence schema")
+        }
+        if (state.lifecycle != RunLifecycle.ACTIVE) {
+            return invalid(CommandValidationErrorCode.RUN_LIFECYCLE_INVALID, "payload", "NPC presence requires an ACTIVE Run")
+        }
+        val expected = policy ?: return invalid(
+            CommandValidationErrorCode.NPC_ADDRESS_POLICY_REQUIRED,
+            "payload",
+            "Validated NPC presence policy is required",
+        )
+        if (
+            payload.npcId != expected.npcId || payload.entityId != expected.entityId ||
+            payload.sceneId != expected.sceneId || payload.sceneId != state.currentSceneId ||
+            payload.entityId !in state.entities ||
+            payload.present == (payload.entityId in state.sceneParticipantIds)
+        ) {
+            return invalid(CommandValidationErrorCode.NPC_ADDRESS_MISMATCH, "payload", "NPC presence change is not allowed")
+        }
+        return CommandValidationResult.Valid(ValidatedCommand.SetNpcPresence(envelope, payload))
     }
 
     private fun validateNpcPublicAction(
@@ -341,10 +406,20 @@ object CommandValidator {
             "payload",
             "Validated NPC action policy is required",
         )
+        val nearby = payload.entityId in state.sceneParticipantIds
+        val transportAllowed = payload.communicationMethodId != null &&
+            payload.communicationMethodId in expected.remoteCommunicationMethodIds
+        val audienceAllowed = when (payload.audience) {
+            NpcDialogueAudience.NEARBY_GROUP -> nearby &&
+                payload.targetEntityId == null && payload.communicationMethodId == null
+            NpcDialogueAudience.PRIVATE -> payload.kind == NpcPublicActionKind.SPEECH &&
+                payload.targetEntityId == expected.playerEntityId &&
+                if (nearby) payload.communicationMethodId == null else transportAllowed
+        }
         if (payload.entityId != expected.entityId || payload.sceneId != expected.sceneId ||
-            payload.sceneId != state.currentSceneId || payload.entityId !in state.sceneParticipantIds
+            payload.sceneId != state.currentSceneId || !audienceAllowed
         ) {
-            return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload", "NPC is not present in the current scene")
+            return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload", "NPC action audience or transport is not allowed")
         }
         val content = payload.content.trim()
         if (content.isEmpty() || content.length > 500) {
@@ -354,7 +429,10 @@ object CommandValidator {
             NpcPublicActionKind.SPEECH -> if (!expected.canSpeak || payload.actionId != null) {
                 return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload", "NPC speech is not allowed")
             }
-            NpcPublicActionKind.ACTION -> if (payload.actionId == null || payload.actionId !in expected.allowedActionIds) {
+            NpcPublicActionKind.ACTION -> if (
+                payload.audience != NpcDialogueAudience.NEARBY_GROUP ||
+                payload.actionId == null || payload.actionId !in expected.allowedActionIds
+            ) {
                 return invalid(CommandValidationErrorCode.NPC_ACTION_MISMATCH, "payload.actionId", "NPC public action is not allowed")
             }
         }

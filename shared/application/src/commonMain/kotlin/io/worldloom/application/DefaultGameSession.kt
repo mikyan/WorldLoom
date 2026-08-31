@@ -39,6 +39,10 @@ import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.NpcKnowledgeRevealedEvent
 import io.worldloom.world.NpcKnowledgeRevealCommandPolicy
 import io.worldloom.world.RevealNpcKnowledgeCommand
+import io.worldloom.world.NpcDialogueAudience
+import io.worldloom.world.NpcPresenceChangedEvent
+import io.worldloom.world.NpcPresenceCommandPolicy
+import io.worldloom.world.SetNpcPresenceCommand
 import io.worldloom.world.ActionOutcomeCommandPolicy
 import io.worldloom.world.ApplyActionOutcomeCommand
 import io.worldloom.world.EventReducer
@@ -711,6 +715,7 @@ class DefaultGameSession(
                 availableTravelRoutes = session.availableTravelRoutes(),
                 adventureStateDefinition = session.playableContract?.source?.adventureState,
                 npcProfiles = session.npcProfiles(),
+                playerEntityId = session.currentState.playerEntityId,
                 revealedKnowledge = eventStore.read(session.currentState.runId).mapNotNull { event ->
                     val payload = event.payload as? NpcKnowledgeRevealedEvent ?: return@mapNotNull null
                     SessionRevealedKnowledge(payload.npcId, payload.knowledgeId, payload.publicSummary, event.sequence)
@@ -739,6 +744,9 @@ class DefaultGameSession(
                             sceneId = payload.sceneId
                             participants = payload.participantIds.toSet()
                         }
+                        is NpcPresenceChangedEvent -> {
+                            participants = if (payload.present) participants + payload.entityId else participants - payload.entityId
+                        }
                         else -> Unit
                     }
                     if (event.sequence > afterSequence) {
@@ -761,6 +769,27 @@ class DefaultGameSession(
                                         else -> null
                                     },
                                     directedNpcWake = event.payload is NpcAddressedEvent,
+                                    visibleNpcIds = when (val payload = event.payload) {
+                                        is NpcAddressedEvent -> if (payload.audience == NpcDialogueAudience.PRIVATE) {
+                                            setOf(payload.targetNpcId)
+                                        } else {
+                                            session.npcProfiles().filter { it.entityId in participants }.mapTo(mutableSetOf()) { it.id }
+                                        }
+                                        is NpcPublicActionPublishedEvent -> if (payload.audience == NpcDialogueAudience.PRIVATE) {
+                                            emptySet()
+                                        } else null
+                                        else -> null
+                                    },
+                                    audience = when (val payload = event.payload) {
+                                        is NpcAddressedEvent -> payload.audience
+                                        is NpcPublicActionPublishedEvent -> payload.audience
+                                        else -> NpcDialogueAudience.NEARBY_GROUP
+                                    },
+                                    communicationMethodId = when (val payload = event.payload) {
+                                        is NpcAddressedEvent -> payload.communicationMethodId
+                                        is NpcPublicActionPublishedEvent -> payload.communicationMethodId
+                                        else -> null
+                                    },
                                 ),
                             )
                         }
@@ -793,6 +822,8 @@ class DefaultGameSession(
                     kind = payload.kind,
                     actionId = payload.actionId,
                     content = payload.content,
+                    audience = payload.audience,
+                    communicationMethodId = payload.communicationMethodId,
                 )
             }
             .toList()
@@ -875,7 +906,8 @@ class DefaultGameSession(
                     runId = replayed.runId,
                     worldId = replayed.worldDefinitionId,
                     lastSequence = replayed.lastSequence,
-                    events = events.map { PresentationMapper.presentEvent(session.definition, it) },
+                    events = events.map { PresentationMapper.presentEvent(session.definition, it) }
+                        .filter(PresentedEvent::publicReplayEligible),
                 ),
             )
         }
@@ -922,6 +954,7 @@ class DefaultGameSession(
         -> executeAdventureCommand(request, authorization)
         is GameSessionCommand.PublishNpcAction -> executeNpcPublicAction(request, authorization)
         is GameSessionCommand.AddressNpc -> executeNpcAddress(request, authorization)
+        is GameSessionCommand.SetNpcPresence -> executeNpcPresence(request, authorization)
     }
 
     private suspend fun executeNpcAddress(
@@ -943,7 +976,9 @@ class DefaultGameSession(
                 existing.targetNpcId == request.npcId &&
                 existing.targetEntityId == profile.entityId &&
                 existing.sceneId == sceneId &&
-                existing.content == normalizedContent
+                existing.content == normalizedContent &&
+                existing.audience == request.audience &&
+                existing.communicationMethodId == request.communicationMethodId
             ) {
                 ActionResult.Success
             } else {
@@ -962,6 +997,8 @@ class DefaultGameSession(
                 sceneId = sceneId,
                 content = request.content,
                 idempotencyKey = request.idempotencyKey,
+                audience = request.audience,
+                communicationMethodId = request.communicationMethodId,
             ),
         )
         val validated = when (
@@ -970,7 +1007,68 @@ class DefaultGameSession(
                 session.definition,
                 authorization,
                 command,
-                npcAddressPolicy = NpcAddressCommandPolicy(profile.id, profile.entityId, sceneId),
+                npcAddressPolicy = NpcAddressCommandPolicy(
+                    profile.id,
+                    profile.entityId,
+                    sceneId,
+                    profile.remoteCommunicationMethodIds,
+                ),
+            )
+        ) {
+            is CommandValidationResult.Valid -> validation.command
+            is CommandValidationResult.Invalid -> return failAction(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val events = WorldEngine.handle(validated, idSource.nextEventId())
+        val candidate = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+            is StateReductionResult.Success -> reduction.state
+            is StateReductionResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+        when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
+            is EventAppendResult.Success -> Unit
+            is EventAppendResult.Failure -> return failAction(
+                SessionError(SessionErrorCode.EVENT_STORE_REJECTED, append.error.message),
+            )
+        }
+        session.currentState = candidate
+        val notice = writeSnapshotIfDue(session)
+        publishReady(session, eventStore.read(session.currentState.runId), notice)
+        return ActionResult.Success
+    }
+
+    private suspend fun executeNpcPresence(
+        request: GameSessionCommand.SetNpcPresence,
+        authorization: CommandAuthorization,
+    ): ActionResult {
+        val session = loaded
+            ?: return failAction(SessionError(SessionErrorCode.SESSION_NOT_LOADED, "Load a world before acting"))
+        val profile = session.npcProfiles().firstOrNull { it.id == request.npcId }
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC is not declared by this world"))
+        val sceneId = session.currentState.currentSceneId
+            ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC presence has no current scene"))
+        val command = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = session.currentState.runId,
+            actorId = authorization.actorId,
+            expectedSequence = session.currentState.lastSequence,
+            payload = SetNpcPresenceCommand(
+                npcId = profile.id,
+                entityId = profile.entityId,
+                sceneId = sceneId,
+                present = request.present,
+            ),
+        )
+        val validated = when (
+            val validation = CommandValidator.validate(
+                session.currentState,
+                session.definition,
+                authorization,
+                command,
+                npcPresencePolicy = NpcPresenceCommandPolicy(profile.id, profile.entityId, sceneId),
             )
         ) {
             is CommandValidationResult.Valid -> validation.command
@@ -1008,7 +1106,9 @@ class DefaultGameSession(
         val sceneId = session.currentState.currentSceneId
             ?: return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC has no current scene"))
         if (request.revealKnowledgeIds.size > 4 || request.revealKnowledgeIds.distinct().size != request.revealKnowledgeIds.size ||
-            (request.revealKnowledgeIds.isNotEmpty() && request.kind != io.worldloom.world.NpcPublicActionKind.SPEECH)
+            (request.revealKnowledgeIds.isNotEmpty() &&
+                (request.kind != io.worldloom.world.NpcPublicActionKind.SPEECH ||
+                    request.audience == NpcDialogueAudience.PRIVATE))
         ) {
             return failAction(SessionError(SessionErrorCode.COMMAND_REJECTED, "NPC knowledge reveal is not allowed"))
         }
@@ -1028,6 +1128,11 @@ class DefaultGameSession(
                 kind = request.kind,
                 actionId = request.actionId,
                 content = request.content,
+                audience = request.audience,
+                targetEntityId = if (request.audience == NpcDialogueAudience.PRIVATE) {
+                    session.currentState.playerEntityId
+                } else null,
+                communicationMethodId = request.communicationMethodId,
             ),
         )
         val validated = when (
@@ -1041,6 +1146,8 @@ class DefaultGameSession(
                     sceneId = sceneId,
                     allowedActionIds = profile.publicActionIds,
                     canSpeak = profile.canSpeak,
+                    playerEntityId = session.currentState.playerEntityId,
+                    remoteCommunicationMethodIds = profile.remoteCommunicationMethodIds,
                 ),
             )
         ) {
@@ -2087,6 +2194,11 @@ class DefaultGameSession(
 
     private fun LoadedSession.npcProfiles(): List<SessionNpcProfile> =
         playableContract?.source?.npcs.orEmpty().map { npc ->
+            val playerEntityId = currentState.playerEntityId?.value
+            val remoteMethods = playableContract?.source?.remoteCommunicationMethods.orEmpty().filter { method ->
+                playerEntityId != null && playerEntityId in method.participantEntityIds &&
+                    npc.entityId in method.participantEntityIds
+            }
             SessionNpcProfile(
                 id = npc.id,
                 entityId = EntityId(npc.entityId),
@@ -2107,6 +2219,7 @@ class DefaultGameSession(
                 },
                 canSpeak = PlayableNpcCapability.SPEAK in npc.capabilities,
                 publicActionIds = npc.publicActionIds.toSet(),
+                remoteCommunicationMethodIds = remoteMethods.mapTo(mutableSetOf()) { it.id },
             )
         }.sortedBy { it.id.value }
 
@@ -2147,6 +2260,27 @@ class DefaultGameSession(
         state: GameState,
         contract: ValidatedPlayableWorldContract?,
     ): GamePresentation {
+        val playerEntityId = state.playerEntityId?.value
+        val characters = contract?.source?.npcs.orEmpty()
+            .filter { PlayableNpcCapability.SPEAK in it.capabilities }
+            .sortedBy { it.id.value }
+            .map { npc ->
+                val methods = contract?.source?.remoteCommunicationMethods.orEmpty()
+                    .filter { method ->
+                        playerEntityId != null && playerEntityId in method.participantEntityIds &&
+                            npc.entityId in method.participantEntityIds
+                    }
+                    .map { PresentedCommunicationMethod(it.id, it.label) }
+                PresentedNpc(
+                    id = npc.id,
+                    entityId = EntityId(npc.entityId),
+                    displayName = npc.displayName,
+                    publicIntroduction = npc.publicIntroduction,
+                    nearby = EntityId(npc.entityId) in state.sceneParticipantIds,
+                    remoteCommunicationMethods = methods,
+                    avatarAssetId = npc.avatarAssetId,
+                )
+            }
         val scene = state.currentSceneId?.let { sceneId ->
             contract?.scene(sceneId)?.let { configured ->
                 PresentedScene(
@@ -2163,7 +2297,16 @@ class DefaultGameSession(
                     addressableNpcs = contract.source.npcs.filter { npc ->
                         PlayableNpcCapability.SPEAK in npc.capabilities && EntityId(npc.entityId) in state.sceneParticipantIds
                     }.sortedBy { it.id.value }.map { npc ->
-                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName, npc.publicIntroduction)
+                        PresentedNpc(
+                            npc.id,
+                            EntityId(npc.entityId),
+                            npc.displayName,
+                            npc.publicIntroduction,
+                            nearby = true,
+                            remoteCommunicationMethods = characters.firstOrNull { it.id == npc.id }
+                                ?.remoteCommunicationMethods.orEmpty(),
+                            avatarAssetId = npc.avatarAssetId,
+                        )
                     },
                 )
             }
@@ -2185,6 +2328,7 @@ class DefaultGameSession(
         } ?: GuidancePresentation()
         return presentation.copy(
             scene = scene,
+            characters = characters,
             opening = contract?.source?.opening?.let { opening ->
                 val initialScene = contract.scene(contract.source.initialSceneId)
                 val initialParticipants = initialScene?.participantEntityIds.orEmpty().toSet()
@@ -2197,7 +2341,13 @@ class DefaultGameSession(
                     npcs = contract.source.npcs.filter { npc ->
                         npc.entityId in initialParticipants
                     }.sortedBy { it.id.value }.map { npc ->
-                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName, npc.publicIntroduction)
+                        PresentedNpc(
+                            id = npc.id,
+                            entityId = EntityId(npc.entityId),
+                            displayName = npc.displayName,
+                            publicIntroduction = npc.publicIntroduction,
+                            avatarAssetId = npc.avatarAssetId,
+                        )
                     },
                     backgroundAssetId = initialScene?.backgroundAssetId,
                 )
@@ -2212,14 +2362,27 @@ class DefaultGameSession(
             guidance = guidance,
             timeline = presentation.timeline.map { event ->
                 val chat = event.chatMessage
-                if (chat?.speakerKind != PresentedChatSpeakerKind.NPC || chat.speakerId == null) {
-                    event
-                } else {
-                    val speakerName = contract?.source?.npcs
-                        ?.firstOrNull { it.entityId == chat.speakerId }
-                        ?.displayName
-                    event.copy(chatMessage = chat.copy(speakerName = speakerName ?: chat.speakerId))
+                if (chat == null) return@map event
+                val speakerName = if (chat.speakerKind == PresentedChatSpeakerKind.NPC && chat.speakerId != null) {
+                    contract?.source?.npcs?.firstOrNull { it.entityId == chat.speakerId }?.displayName
+                        ?: chat.speakerId
+                } else chat.speakerName
+                val targetName = when {
+                    chat.speakerKind == PresentedChatSpeakerKind.PLAYER && chat.targetId != null ->
+                        contract?.source?.npcs?.firstOrNull { it.id.value == chat.targetId }?.displayName ?: chat.targetId
+                    chat.speakerKind == PresentedChatSpeakerKind.NPC && chat.targetId != null -> "你"
+                    else -> chat.targetName
                 }
+                val communicationLabel = chat.communicationMethodId?.let { methodId ->
+                    contract?.source?.remoteCommunicationMethods?.firstOrNull { it.id == methodId }?.label
+                }
+                event.copy(
+                    chatMessage = chat.copy(
+                        speakerName = speakerName,
+                        targetName = targetName,
+                        communicationLabel = communicationLabel,
+                    ),
+                )
             },
         )
     }

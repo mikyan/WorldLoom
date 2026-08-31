@@ -50,6 +50,10 @@ class BuiltInWarScenarioTest {
             assertEquals("第一幕 · 炮火后的清晨", opening.opening?.firstActLabel)
             assertEquals("worldloom.background.war-ruins", opening.opening?.backgroundAssetId)
             assertEquals(listOf("玛拉", "托马斯"), opening.opening?.npcs?.map(PresentedNpc::displayName))
+            assertEquals(
+                listOf("worldloom.avatar.war-mara", "worldloom.avatar.war-tomas"),
+                opening.opening?.npcs?.map(PresentedNpc::avatarAssetId),
+            )
 
             route.steps.forEach { step ->
                 assertIs<ActionResult.Success>(
