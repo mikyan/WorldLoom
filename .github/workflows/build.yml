@@ -33,7 +33,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build installable Android APK
-        run: ./gradlew :apps:androidApp:assembleDebug
+        run: ./gradlew :apps:androidApp:verifyDebugUiAssets
       - name: Stage Android package
         shell: bash
         run: |

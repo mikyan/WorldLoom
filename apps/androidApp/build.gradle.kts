@@ -1,4 +1,18 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.Sync
+import java.util.zip.ZipFile
+
+val uiGameResourcePackage = "io.worldloom.ui.game.generated.resources"
+
+val uiGameComposeResources = project(":shared:ui-game")
+    .layout.projectDirectory.dir("src/commonMain/composeResources")
+val generatedUiGameComposeAssets = layout.buildDirectory.dir("generated/uiGameComposeAssets")
+val prepareUiGameComposeAssets = tasks.register<Sync>("prepareUiGameComposeAssets") {
+    from(uiGameComposeResources)
+    into(generatedUiGameComposeAssets.map { directory ->
+        directory.dir("composeResources/$uiGameResourcePackage")
+    })
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -45,6 +59,43 @@ android {
     sourceSets["main"].assets.directories.add(
         rootProject.layout.projectDirectory.dir("contract-worlds").asFile.absolutePath,
     )
+    // Compose's Android KMP library target currently generates resource accessors but
+    // does not publish the common resource payload into the consuming APK. Mirror the
+    // files at the exact asset paths encoded in those generated accessors.
+    sourceSets["main"].assets.directories.add(
+        generatedUiGameComposeAssets.get().asFile.absolutePath,
+    )
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(prepareUiGameComposeAssets)
+}
+
+tasks.register("verifyDebugUiAssets") {
+    group = "verification"
+    description = "Build the Android debug APK and verify that gameplay Compose resources are packaged."
+    dependsOn("assembleDebug")
+    doLast {
+        val apkDirectory = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
+        val apks = apkDirectory.listFiles { file -> file.extension == "apk" }.orEmpty().toList()
+        check(apks.size == 1) { "Expected one Android debug APK, found ${apks.size}" }
+        val requiredAssets = listOf(
+            "gameplay_station_core.png",
+            "gameplay_war_ruins.png",
+            "npc_station_lyra.png",
+            "npc_station_soren.png",
+            "npc_war_mara.png",
+            "npc_war_tomas.png",
+        ).map { fileName ->
+            "assets/composeResources/$uiGameResourcePackage/drawable/$fileName"
+        }
+        ZipFile(apks.single()).use { apk ->
+            val missing = requiredAssets.filter { path -> apk.getEntry(path) == null }
+            check(missing.isEmpty()) {
+                "Android APK is missing gameplay Compose resources: ${missing.joinToString()}"
+            }
+        }
+    }
 }
 
 kotlin {
