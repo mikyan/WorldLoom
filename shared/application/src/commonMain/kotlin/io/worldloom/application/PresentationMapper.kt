@@ -139,6 +139,19 @@ object PresentationMapper {
             else -> "事件已记录"
         }
         val check = event.payload as? CheckResolvedEvent
+        val chatMessage = when (val payload = event.payload) {
+            is NpcPublicActionPublishedEvent -> PresentedChatMessage(
+                speakerKind = PresentedChatSpeakerKind.NPC,
+                speakerId = payload.entityId.value,
+                content = payload.content,
+            )
+            is NpcAddressedEvent -> PresentedChatMessage(
+                speakerKind = PresentedChatSpeakerKind.PLAYER,
+                speakerName = "你",
+                content = payload.content,
+            )
+            else -> null
+        }
         return PresentedEvent(
             sequence = event.sequence,
             summary = summary,
@@ -154,6 +167,7 @@ object PresentationMapper {
                     outcomeId = check.record.outcomeId,
                 )
             },
+            chatMessage = chatMessage,
         )
     }
 

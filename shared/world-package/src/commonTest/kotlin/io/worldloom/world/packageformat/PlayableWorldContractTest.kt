@@ -36,6 +36,24 @@ import kotlin.test.assertTrue
 
 class PlayableWorldContractTest {
     @Test
+    fun openingPresentationRejectsBlankCopyAndUnstableBackgroundAssetIds() {
+        val fixture = fixture()
+        val invalid = fixture.contract.copy(
+            opening = PlayableOpeningPresentation("", "Reach safety", "Act I"),
+            scenes = fixture.contract.scenes.map { scene ->
+                scene.copy(backgroundAssetId = "Not A Stable Asset")
+            },
+        )
+
+        val problems = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(invalid, fixture.definition, fixture.modules, emptyMap()),
+        ).problems
+
+        assertTrue(problems.any { it.path == "opening" })
+        assertTrue(problems.any { it.path.endsWith("backgroundAssetId") })
+    }
+
+    @Test
     fun temporalConfigurationRejectsUnknownScenesAndMissingModuleDeclarations() {
         val fixture = fixture()
         val invalid = fixture.contract.copy(

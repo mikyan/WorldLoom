@@ -29,6 +29,7 @@ data class PresentedEvent(
     val causationId: String? = null,
     val correlationId: String? = null,
     val randomRecord: PresentedRandomRecord? = null,
+    val chatMessage: PresentedChatMessage? = null,
 )
 
 data class PresentedRandomRecord(
@@ -61,6 +62,17 @@ data class GamePresentation(
     val guidance: GuidancePresentation = GuidancePresentation(),
     val timelineTotalCount: Int = timeline.size,
     val timelineTruncated: Boolean = false,
+    val opening: PresentedOpening? = null,
+)
+
+data class PresentedOpening(
+    val premise: String,
+    val objective: String,
+    val firstActLabel: String,
+    val sceneLabel: String,
+    val sceneDescription: String? = null,
+    val npcs: List<PresentedNpc> = emptyList(),
+    val backgroundAssetId: String? = null,
 )
 
 data class TimelinePage(
@@ -102,9 +114,24 @@ data class PresentedScene(
     val actions: List<PresentedAction>,
     val description: String? = null,
     val addressableNpcs: List<PresentedNpc> = emptyList(),
+    val backgroundAssetId: String? = null,
 )
 
-data class PresentedNpc(val id: DefinitionId, val entityId: EntityId, val displayName: String)
+data class PresentedNpc(
+    val id: DefinitionId,
+    val entityId: EntityId,
+    val displayName: String,
+    val publicIntroduction: String? = null,
+)
+
+enum class PresentedChatSpeakerKind { PLAYER, NPC }
+
+data class PresentedChatMessage(
+    val speakerKind: PresentedChatSpeakerKind,
+    val speakerId: String? = null,
+    val speakerName: String? = null,
+    val content: String,
+)
 
 data class PresentedAction(val id: DefinitionId, val label: String)
 

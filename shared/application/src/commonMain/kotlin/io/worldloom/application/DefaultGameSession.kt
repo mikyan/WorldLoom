@@ -2159,10 +2159,11 @@ class DefaultGameSession(
                         PresentedAction(action.id, action.label ?: action.id.value)
                     },
                     description = configured.description,
+                    backgroundAssetId = configured.backgroundAssetId,
                     addressableNpcs = contract.source.npcs.filter { npc ->
                         PlayableNpcCapability.SPEAK in npc.capabilities && EntityId(npc.entityId) in state.sceneParticipantIds
                     }.sortedBy { it.id.value }.map { npc ->
-                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName)
+                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName, npc.publicIntroduction)
                     },
                 )
             }
@@ -2184,6 +2185,23 @@ class DefaultGameSession(
         } ?: GuidancePresentation()
         return presentation.copy(
             scene = scene,
+            opening = contract?.source?.opening?.let { opening ->
+                val initialScene = contract.scene(contract.source.initialSceneId)
+                val initialParticipants = initialScene?.participantEntityIds.orEmpty().toSet()
+                PresentedOpening(
+                    premise = opening.premise,
+                    objective = opening.objective,
+                    firstActLabel = opening.firstActLabel,
+                    sceneLabel = initialScene?.label ?: contract.source.initialSceneId.value,
+                    sceneDescription = initialScene?.description,
+                    npcs = contract.source.npcs.filter { npc ->
+                        npc.entityId in initialParticipants
+                    }.sortedBy { it.id.value }.map { npc ->
+                        PresentedNpc(npc.id, EntityId(npc.entityId), npc.displayName, npc.publicIntroduction)
+                    },
+                    backgroundAssetId = initialScene?.backgroundAssetId,
+                )
+            },
             completedObjectiveIds = state.completedObjectiveIds,
             endingId = state.endingId,
             worldTimeMinutes = contract?.source?.temporal?.let { TemporalState.minute(state, it) },
@@ -2192,6 +2210,17 @@ class DefaultGameSession(
             adventureState = contract?.source?.adventureState?.let { AdventureStateProjector.project(state, it) },
             endingSummary = state.endingId?.let { contract?.ending(it)?.summary },
             guidance = guidance,
+            timeline = presentation.timeline.map { event ->
+                val chat = event.chatMessage
+                if (chat?.speakerKind != PresentedChatSpeakerKind.NPC || chat.speakerId == null) {
+                    event
+                } else {
+                    val speakerName = contract?.source?.npcs
+                        ?.firstOrNull { it.entityId == chat.speakerId }
+                        ?.displayName
+                    event.copy(chatMessage = chat.copy(speakerName = speakerName ?: chat.speakerId))
+                }
+            },
         )
     }
 

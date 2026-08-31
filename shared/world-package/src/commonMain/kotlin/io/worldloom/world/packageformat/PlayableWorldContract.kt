@@ -67,6 +67,16 @@ data class PlayableScene(
     val actionIds: List<DefinitionId>,
     val participantEntityIds: List<String> = emptyList(),
     val description: String? = null,
+    /** Stable presentation asset ID resolved by the client; it is never executable content. */
+    val backgroundAssetId: String? = null,
+)
+
+/** Declarative copy spoken by the PM before the first scene becomes interactive. */
+@Serializable
+data class PlayableOpeningPresentation(
+    val premise: String,
+    val objective: String,
+    val firstActLabel: String = "第一幕",
 )
 
 @Serializable
@@ -136,6 +146,8 @@ data class PlayableNpcProfile(
     val id: DefinitionId,
     val entityId: String,
     val displayName: String,
+    /** Public, spoiler-safe introduction shown when this NPC first appears in the opening scene. */
+    val publicIntroduction: String? = null,
     val identityPrompt: String,
     val wakeEventTypes: List<DefinitionId>,
     val visiblePresentationIds: List<DefinitionId> = emptyList(),
@@ -206,6 +218,7 @@ data class PlayableWorldContract(
     val estimatedPlayMinutes: Int? = null,
     val catalogPriority: Int = 0,
     val character: PlayableCharacterEntry,
+    val opening: PlayableOpeningPresentation? = null,
     val initialSceneId: DefinitionId,
     val requiredModuleIds: List<DefinitionId>,
     val scenes: List<PlayableScene>,
@@ -398,6 +411,7 @@ object PlayableWorldValidator {
         val routes = index(contract.goldenRoutes, PlayableRouteFixture::id, "goldenRoutes", problems)
 
         validateLabels(contract, problems)
+        validateOpeningPresentation(contract, problems)
         if (contract.initialSceneId !in scenes) {
             problems += problem(
                 PlayableWorldProblemCode.INITIAL_SCENE_UNKNOWN,
@@ -479,7 +493,8 @@ object PlayableWorldValidator {
                 "NPC display name and identity prompt must not be blank",
             )
             if (npc.identityPrompt.length > 2_000 || npc.privateKnowledge.any { it.isBlank() || it.length > 1_000 } ||
-                npc.goals.any { it.isBlank() || it.length > 500 }
+                npc.goals.any { it.isBlank() || it.length > 500 } ||
+                npc.publicIntroduction?.let { it.isBlank() || it.length > 500 } == true
             ) problems += problem(
                 PlayableWorldProblemCode.NPC_INVALID,
                 path,
@@ -528,6 +543,33 @@ object PlayableWorldValidator {
                 "$path.publicActionIds",
                 "NPC ACT capability requires a unique non-empty public action whitelist",
             )
+        }
+    }
+
+    private fun validateOpeningPresentation(
+        contract: PlayableWorldContract,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        contract.opening?.let { opening ->
+            if (
+                opening.premise.isBlank() || opening.premise.length > 2_000 ||
+                opening.objective.isBlank() || opening.objective.length > 1_000 ||
+                opening.firstActLabel.isBlank() || opening.firstActLabel.length > 100
+            ) problems += problem(
+                PlayableWorldProblemCode.CONTENT_METADATA_INVALID,
+                "opening",
+                "Opening premise, objective, and first-act label must be non-blank and within presentation limits",
+            )
+        }
+        contract.scenes.forEachIndexed { index, scene ->
+            val assetId = scene.backgroundAssetId ?: return@forEachIndexed
+            if (assetId.length > 128 || !assetId.matches(Regex("[a-z0-9][a-z0-9._-]*"))) {
+                problems += problem(
+                    PlayableWorldProblemCode.CONTENT_METADATA_INVALID,
+                    "scenes[$index].backgroundAssetId",
+                    "Background asset ID must be a lowercase stable identifier",
+                )
+            }
         }
     }
 

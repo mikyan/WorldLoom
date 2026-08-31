@@ -47,6 +47,9 @@ class BuiltInWarScenarioTest {
             val opening = presentation(session)
             assertEquals("war.scene.ruins", opening.scene?.id?.value)
             assertTrue(!opening.scene?.description.isNullOrBlank())
+            assertEquals("第一幕 · 炮火后的清晨", opening.opening?.firstActLabel)
+            assertEquals("worldloom.background.war-ruins", opening.opening?.backgroundAssetId)
+            assertEquals(listOf("玛拉", "托马斯"), opening.opening?.npcs?.map(PresentedNpc::displayName))
 
             route.steps.forEach { step ->
                 assertIs<ActionResult.Success>(

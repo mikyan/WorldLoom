@@ -4,6 +4,11 @@
     "estimatedPlayMinutes": 60,
     "catalogPriority": 100,
     "character": {"profilePath": "character-profile.json", "playerEntityId": "player"},
+    "opening": {
+        "premise": "战争切断了城市与外界的联系。炮火、饥饿和巡逻队把每一次移动都变成选择，而你只有十三岁，必须在越来越危险的废墟中找到活路。",
+        "objective": "活着抵达撤离车队，并尽可能保护同伴、药品和仍愿意彼此帮助的人。",
+        "firstActLabel": "第一幕 · 炮火后的清晨"
+    },
     "initialSceneId": "war.scene.ruins",
     "requiredModuleIds": [
         "worldloom.core.numeric-state", "worldloom.rules.random-check", "worldloom.rules.world-time",
@@ -15,6 +20,7 @@
         {
             "id": "war.scene.ruins", "label": "钟楼废墟",
             "description": "上午八点，炮声刚停。你、玛拉和托马斯躲在倒塌钟楼的阴影里，必须在巡逻队返回前找到水、药品和离城路线。",
+            "backgroundAssetId": "worldloom.background.war-ruins",
             "actionIds": ["war.action.search-supplies"], "participantEntityIds": ["npc-mara", "npc-tomas"]
         },
         {
@@ -275,6 +281,7 @@
     "npcs": [
         {
             "id": "war.npc.mara", "entityId": "npc-mara", "displayName": "玛拉",
+            "publicIntroduction": "玛拉是一名战地医护员。她谨慎、冷静，仍坚持先照顾那些无法保护自己的人。",
             "identityPrompt": "你是玛拉，一名谨慎但愿意保护孩子的战地医护员。保持简短、具体，不替玩家决定行动。",
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "visiblePresentationIds": ["war.presentation.primary-status"],
@@ -290,6 +297,7 @@
         },
         {
             "id": "war.npc.tomas", "entityId": "npc-tomas", "displayName": "托马斯",
+            "publicIntroduction": "托马斯是熟悉废墟小路的少年信使。他知道许多绕开巡逻的路，但不是每条旧路线仍然安全。",
             "identityPrompt": "你是托马斯，熟悉废墟道路的少年信使。只根据当前感知回应，不泄露未确认的路线情报。",
             "wakeEventTypes": ["worldloom.event.scene.entered", "worldloom.event.activity-completed", "worldloom.event.travel-completed"],
             "goals": ["取回水塔地图", "证明涵洞路线仍可通行"],

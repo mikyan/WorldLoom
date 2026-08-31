@@ -111,14 +111,55 @@ fun WorldloomApp(
     var showProviderSettings by remember { mutableStateOf(false) }
     var npcDialogueBusy by remember(agentController) { mutableStateOf(false) }
     val gameplayInteractionBusy = agentState?.value is GameAgentState.Running || npcDialogueBusy
+    val gameplayPresentation = when (val current = state) {
+        is GameSessionUiState.Ready -> current.presentation
+        is GameSessionUiState.Ended -> current.presentation
+        else -> null
+    }
+    val gameplayNotice = when (val current = state) {
+        is GameSessionUiState.Ready -> current.notice
+        is GameSessionUiState.Ended -> current.notice
+        else -> null
+    }
+    val gameplayInteractive = state is GameSessionUiState.Ready
     LaunchedEffect(saveCoordinator, state) { saveCoordinator?.refresh() }
 
     MaterialTheme(colors = WorldloomColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
+            if (!showSetup && !showProviderSettings && gameplayPresentation != null) {
+                GameplayPage(
+                    presentation = gameplayPresentation,
+                    notice = gameplayNotice,
+                    agentController = agentController.takeIf { gameplayInteractive },
+                    interactive = gameplayInteractive,
+                    historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
+                    onExit = { showSetup = true },
+                    onReplay = { scope.launch { session.replay() } },
+                    onAction = { actionId ->
+                        scope.launch { session.perform(GameSessionAction.PerformAvailableAction(actionId)) }
+                    },
+                    onAdjust = { presentationId ->
+                        scope.launch { session.perform(GameSessionAction.AdjustPresentedField(presentationId)) }
+                    },
+                    onCheck = { presentationId ->
+                        scope.launch { session.perform(GameSessionAction.ResolvePresentedCheck(presentationId)) }
+                    },
+                    onWait = { minutes ->
+                        scope.launch { session.perform(GameSessionAction.AdvanceWorldTime(minutes)) }
+                    },
+                    onActivity = { activityId ->
+                        scope.launch { session.perform(GameSessionAction.PerformActivity(activityId)) }
+                    },
+                    onTravel = { routeId ->
+                        scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
+                    },
+                    onNpcBusyChanged = { npcDialogueBusy = it },
+                )
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -291,6 +332,7 @@ fun WorldloomApp(
 
                         is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
                     }
+                }
                 }
             }
         }

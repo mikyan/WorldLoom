@@ -93,7 +93,7 @@ fun main() {
     application {
         Window(
             title = "Worldloom / 织境",
-            state = WindowState(width = 1100.dp, height = 820.dp),
+            state = WindowState(width = 1280.dp, height = 800.dp),
             onCloseRequest = {
                 agentBackgroundScope.cancel()
                 providerClient.close()

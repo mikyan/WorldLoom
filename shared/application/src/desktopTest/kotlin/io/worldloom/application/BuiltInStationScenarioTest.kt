@@ -36,6 +36,10 @@ class BuiltInStationScenarioTest {
                 val first = session(catalog, driver, prefix)
                 assertIs<LoadResult.Success>(first.load(entry.id))
                 assertIs<ActionResult.Success>(first.confirmCharacter())
+                val opening = assertIs<GameSessionUiState.Ready>(first.state.value).presentation.opening
+                assertEquals("第一幕 · 阴影唤醒", opening?.firstActLabel)
+                assertEquals("worldloom.background.station-core", opening?.backgroundAssetId)
+                assertEquals(listOf("莱拉"), opening?.npcs?.map(PresentedNpc::displayName))
 
                 route.steps.forEach { step ->
                     assertIs<ActionResult.Success>(

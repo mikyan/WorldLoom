@@ -7,6 +7,10 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+compose.resources {
+    packageOfResClass = "io.worldloom.ui.game.generated.resources"
+}
+
 kotlin {
     jvm("desktop") {
         compilerOptions {
@@ -48,6 +52,7 @@ kotlin {
             implementation(libs.compose.material)
             implementation(libs.compose.runtime)
             implementation(libs.compose.ui)
+            implementation(libs.compose.components.resources)
             implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
