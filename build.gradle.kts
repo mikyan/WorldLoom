@@ -12,7 +12,7 @@ plugins {
 
 allprojects {
     group = "io.worldloom"
-    version = "0.1.0-alpha.1"
+    version = "0.0.1"
 }
 
 tasks.named("check") {
@@ -164,7 +164,9 @@ tasks.register("desktopReleaseSmoke") {
     doLast {
         val jarRoot = layout.projectDirectory.dir("apps/desktopApp/build/compose/jars").asFile
         val releaseJars = jarRoot.walkTopDown()
-            .filter { it.isFile && it.name.endsWith("-release.jar") }
+            .filter {
+                it.isFile && it.name.endsWith("-${project.version}-release.jar")
+            }
             .toList()
         check(releaseJars.size == 1) { "Expected one Desktop release JAR, found ${releaseJars.size}" }
         val smokeLog = layout.buildDirectory.file("alpha/desktop-smoke.log").get().asFile

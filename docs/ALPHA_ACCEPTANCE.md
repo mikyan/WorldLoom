@@ -1,8 +1,8 @@
 # Worldloom 封闭 Alpha 验收
 
-文档状态：Alpha candidate<br>
-版本：`0.1.0-alpha.1`<br>
-更新日期：2026-08-19
+文档状态：Alpha release<br>
+版本：`0.0.1`<br>
+更新日期：2026-08-31
 
 ## 1. 本轮产品范围
 

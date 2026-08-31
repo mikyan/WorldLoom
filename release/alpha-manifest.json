@@ -1,7 +1,7 @@
 {
     "schema": "worldloom.release-manifest/v1",
-    "release": "0.1.0-alpha.1",
-    "channel": "closed-alpha-candidate",
+    "release": "0.0.1",
+    "channel": "alpha",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
         {"id": "contract.station-ai", "contentVersion": 2, "contractOnly": false}
@@ -35,6 +35,6 @@
     ],
     "hashes": "build/alpha/artifact-hashes.sha256",
     "candidateGate": "round35CandidateGate",
-    "status": "candidate",
+    "status": "released",
     "iosHandoff": "apps/iosApp/iosApp.xcodeproj"
 }

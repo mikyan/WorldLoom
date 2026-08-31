@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -30,7 +32,22 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :apps:androidApp:assembleDebug
+      - name: Build installable Android APK
+        run: ./gradlew :apps:androidApp:assembleDebug
+      - name: Stage Android package
+        shell: bash
+        run: |
+          mkdir -p dist
+          apk="$(find apps/androidApp/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$apk"
+          safe_ref="${GITHUB_REF_NAME//\//-}"
+          cp "$apk" "dist/Worldloom-Android-${safe_ref}.apk"
+      - name: Upload Android package
+        uses: actions/upload-artifact@v4
+        with:
+          name: worldloom-android-${{ github.run_id }}
+          path: dist/*.apk
+          if-no-files-found: error
 
   desktop-build:
     runs-on: windows-latest
@@ -136,11 +153,21 @@ jobs:
             throw "Installed native launcher exited during startup with code $($app.ExitCode)"
           }
           Stop-Process -Id $app.Id -Force
+      - name: Stage Windows installer
+        shell: pwsh
+        run: |
+          $msiFiles = @(Get-ChildItem "apps/desktopApp/build/compose/binaries/main-release/msi" -Filter "*.msi")
+          if ($msiFiles.Count -ne 1) {
+            throw "Expected one MSI, found $($msiFiles.Count)"
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $safeRef = $env:GITHUB_REF_NAME -replace '[/\\]', '-'
+          Copy-Item $msiFiles[0].FullName "dist/Worldloom-Windows-x64-$safeRef.msi"
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Worldloom-Windows-0.1.2-alpha.1
-          path: apps/desktopApp/build/compose/binaries/main-release/msi/*.msi
+          name: worldloom-windows-${{ github.run_id }}
+          path: dist/*.msi
           if-no-files-found: error
 
   ios-build:
@@ -164,3 +191,37 @@ jobs:
           ARCHS=arm64
           ONLY_ACTIVE_ARCH=YES
           build
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - common-check
+      - android-build
+      - desktop-build
+      - ios-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: worldloom-*-${{ github.run_id }}
+          path: dist
+          merge-multiple: true
+      - name: Write SHA-256 checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "Worldloom ${GITHUB_REF_NAME#v}"
+          --generate-notes
+          --verify-tag
