@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -68,4 +69,27 @@ kotlin {
     }
 
     jvmToolchain(17)
+}
+
+val desktopTestTask = tasks.named<Test>("desktopTest")
+desktopTestTask.configure {
+    filter {
+        excludeTestsMatching("io.worldloom.provider.openai.MiMoBuiltInWorldLiveTest")
+    }
+}
+
+tasks.register<Test>("mimoLiveTest") {
+    group = "verification"
+    description = "Run ten real MiMo v2.5 turns against each built-in world."
+    dependsOn("desktopTestClasses")
+    testClassesDirs = desktopTestTask.get().testClassesDirs
+    classpath = desktopTestTask.get().classpath
+    filter {
+        includeTestsMatching("io.worldloom.provider.openai.MiMoBuiltInWorldLiveTest")
+    }
+    systemProperty("worldloom.live.mimo", "true")
+    maxParallelForks = 1
+    failFast = true
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live provider interactions must never reuse cached results") { true }
 }

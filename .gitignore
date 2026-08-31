@@ -27,3 +27,4 @@ desktop.ini
 *.credential
 *.env
 .env.*
+.worldloom-live/

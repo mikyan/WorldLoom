@@ -28,6 +28,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 - [项目设计文档](docs/DESIGN.md)
 - [项目初始化设计](docs/PROJECT_INITIALIZATION.md)
 - [迭代执行与验收记录](docs/ITERATION_EXECUTION.md)
+- [真实模型冒烟测试](docs/LIVE_MODEL_TESTING.md)
 - [封闭 Alpha 验收与发行说明](docs/ALPHA_ACCEPTANCE.md)
 - [内置战争生存短剧本说明](docs/BUILT_IN_WAR_SCENARIO.md)
 - [内置空间站短剧本说明](docs/BUILT_IN_STATION_SCENARIO.md)
@@ -129,6 +130,7 @@ BYOK 密钥由平台凭据保险箱保存：Android 使用 Keystore，iOS 使用
 ```powershell
 ./gradlew.bat check
 ./gradlew.bat :shared:content-generation:desktopTest
+./gradlew.bat :shared:provider-openai:mimoLiveTest --no-configuration-cache
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64

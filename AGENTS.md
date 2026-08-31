@@ -145,6 +145,7 @@ docs/       # 设计文档和 ADR
 ./gradlew.bat :shared:content-generation:desktopTest
 ./gradlew.bat :shared:persistence:verifyCommonMainWorldloomDatabaseMigration
 ./gradlew.bat :shared:provider-openai:desktopTest
+./gradlew.bat :shared:provider-openai:mimoLiveTest --no-configuration-cache
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:desktopApp:run
