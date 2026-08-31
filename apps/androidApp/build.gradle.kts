@@ -1,6 +1,35 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.TaskAction
 import java.util.zip.ZipFile
+
+abstract class VerifyApkAssets : DefaultTask() {
+    @get:InputDirectory
+    abstract val apkDirectory: DirectoryProperty
+
+    @get:Input
+    abstract val requiredAssets: ListProperty<String>
+
+    @TaskAction
+    fun verify() {
+        val apks = apkDirectory.get().asFile
+            .listFiles { file -> file.extension == "apk" }
+            .orEmpty()
+            .toList()
+        check(apks.size == 1) { "Expected one Android debug APK, found ${apks.size}" }
+        ZipFile(apks.single()).use { apk ->
+            val missing = requiredAssets.get().filter { path -> apk.getEntry(path) == null }
+            check(missing.isEmpty()) {
+                "Android APK is missing gameplay Compose resources: ${missing.joinToString()}"
+            }
+        }
+    }
+}
 
 val uiGameResourcePackage = "io.worldloom.ui.game.generated.resources"
 
@@ -71,15 +100,13 @@ tasks.named("preBuild").configure {
     dependsOn(prepareUiGameComposeAssets)
 }
 
-tasks.register("verifyDebugUiAssets") {
+tasks.register<VerifyApkAssets>("verifyDebugUiAssets") {
     group = "verification"
     description = "Build the Android debug APK and verify that gameplay Compose resources are packaged."
     dependsOn("assembleDebug")
-    doLast {
-        val apkDirectory = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
-        val apks = apkDirectory.listFiles { file -> file.extension == "apk" }.orEmpty().toList()
-        check(apks.size == 1) { "Expected one Android debug APK, found ${apks.size}" }
-        val requiredAssets = listOf(
+    apkDirectory.set(layout.buildDirectory.dir("outputs/apk/debug"))
+    requiredAssets.set(
+        listOf(
             "gameplay_station_core.png",
             "gameplay_war_ruins.png",
             "npc_station_lyra.png",
@@ -88,14 +115,8 @@ tasks.register("verifyDebugUiAssets") {
             "npc_war_tomas.png",
         ).map { fileName ->
             "assets/composeResources/$uiGameResourcePackage/drawable/$fileName"
-        }
-        ZipFile(apks.single()).use { apk ->
-            val missing = requiredAssets.filter { path -> apk.getEntry(path) == null }
-            check(missing.isEmpty()) {
-                "Android APK is missing gameplay Compose resources: ${missing.joinToString()}"
-            }
-        }
-    }
+        },
+    )
 }
 
 kotlin {
