@@ -20,6 +20,8 @@ import io.worldloom.provider.api.ProviderUsage
 import io.worldloom.persistence.SqlDelightAgentMemoryStore
 import io.worldloom.persistence.SqlDelightGameTurnStore
 import io.worldloom.persistence.db.WorldloomDatabase
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandPermission
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -40,11 +42,12 @@ class GameTurnOrchestratorContractTest {
         val session = playableSession("gm-success")
         val provider = ActionThenNarrateProvider()
         val followUps = RecordingFollowUpDispatcher()
+        val gateway = DefaultAgentToolGateway(session, followUps)
         val turnStore = InMemoryGameTurnStore()
         val orchestrator = GameTurnOrchestrator(
             runtime = AgentRuntime(
                 provider,
-                DefaultAgentToolGateway(session, followUps),
+                gateway,
                 InMemoryAgentSessionStore(),
             ),
             gameSession = session,
@@ -52,7 +55,12 @@ class GameTurnOrchestratorContractTest {
         )
         val turnId = TurnId("player-turn.1")
 
-        val first = assertIs<GmTurnResult.Completed>(orchestrator.submit(turnId, "我搜索附近的补给"))
+        val awaiting = assertIs<GmTurnResult.AwaitingPlayer>(orchestrator.submit(turnId, "我搜索附近的补给"))
+        assertNotNull(awaiting.turn.pendingCheck)
+        assertEquals(6, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        val first = assertIs<GmTurnResult.Completed>(
+            orchestrator.resolvePendingCheck(turnId, { gateway.confirmPlayerCheck(playerCheckIdentity(), it) }),
+        )
         val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
 
         assertEquals(11, ready.presentation.lastSequence)
@@ -74,7 +82,7 @@ class GameTurnOrchestratorContractTest {
         assertEquals(1, followUps.requests.size)
         assertEquals(6, followUps.requests.single().afterSequence)
         assertEquals(11, followUps.requests.single().committedThroughSequence)
-        assertTrue(provider.requests.last().messages.any { it.content.orEmpty().contains("foregroundResults") })
+        assertTrue(provider.requests.last().messages.any { it.content.orEmpty().contains("玩家刚刚确认掷骰") })
 
         val duplicate = assertIs<GmTurnResult.Completed>(orchestrator.submit(turnId, "我搜索附近的补给"))
         assertEquals(first.turn, duplicate.turn)
@@ -147,15 +155,19 @@ class GameTurnOrchestratorContractTest {
     fun providerFailureAfterToolCommitPersistsRecoverablePartialTurn() = runTest {
         val session = playableSession("gm-partial")
         val provider = ActionThenFailProvider()
+        val gateway = DefaultAgentToolGateway(session)
         val store = InMemoryGameTurnStore()
         val turnId = TurnId("player-turn.partial")
         val orchestrator = GameTurnOrchestrator(
-            AgentRuntime(provider, DefaultAgentToolGateway(session)),
+            AgentRuntime(provider, gateway),
             session,
             store,
         )
 
-        val failed = assertIs<GmTurnResult.Failed>(orchestrator.submit(turnId, "搜索补给"))
+        assertIs<GmTurnResult.AwaitingPlayer>(orchestrator.submit(turnId, "搜索补给"))
+        val failed = assertIs<GmTurnResult.Failed>(
+            orchestrator.resolvePendingCheck(turnId, { gateway.confirmPlayerCheck(playerCheckIdentity(), it) }),
+        )
 
         assertTrue(failed.turn.worldChanged)
         assertEquals(11, failed.turn.deliveredSequence)
@@ -403,6 +415,12 @@ class GameTurnOrchestratorContractTest {
     }
 
     companion object {
+        private fun playerCheckIdentity() = AgentIdentity(
+            GM_AGENT_ID,
+            ActorId("system.player"),
+            setOf(CommandPermission.APPLY_ACTION_OUTCOME, CommandPermission.RESOLVE_CHECK),
+        )
+
         private fun actionCall(actionId: String) = ProviderToolCall(
             id = "action-call",
             name = PERFORM_ACTION_TOOL_ID.value,

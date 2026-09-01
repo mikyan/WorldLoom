@@ -38,6 +38,8 @@ import io.worldloom.rules.RandomServiceError
 import io.worldloom.rules.RandomServiceErrorCode
 import io.worldloom.rules.RandomServiceResult
 import io.worldloom.rules.RestorableRandomService
+import io.worldloom.world.ActorId
+import io.worldloom.world.CommandPermission
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -77,10 +79,11 @@ class AlphaJourneySystemTest {
         assertIs<ActionResult.Success>(first.confirmCharacter())
         val runId = assertNotNull(first.currentRunId)
         val firstTurns = SqlDelightGameTurnStore(firstDatabase)
+        val firstGateway = DefaultAgentToolGateway(first)
         val firstGm = GameTurnOrchestrator(
             AgentRuntime(
                 provider,
-                DefaultAgentToolGateway(first),
+                firstGateway,
                 SqlDelightAgentSessionStore(firstDatabase, runId),
             ),
             first,
@@ -100,7 +103,8 @@ class AlphaJourneySystemTest {
         )
 
         inputs.take(7).forEach { input ->
-            val result = assertIs<GmTurnResult.Completed>(firstGm.submit(firstTurns.nextTurnId(runId), input))
+            val turnId = firstTurns.nextTurnId(runId)
+            val result = assertIs<GmTurnResult.Completed>(completeTurn(firstGm, firstGateway, turnId, input))
             assertTrue(result.turn.output.orEmpty().let { "war." !in it && "worldloom." !in it })
         }
         val beforeRestart = ready(first).presentation
@@ -121,17 +125,19 @@ class AlphaJourneySystemTest {
         assertIs<LoadResult.Success>(resumed.resume(worldId, runId))
         assertEquals(beforeRestart, ready(resumed).presentation)
         val resumedTurns = SqlDelightGameTurnStore(resumedDatabase)
+        val resumedGateway = DefaultAgentToolGateway(resumed)
         val resumedGm = GameTurnOrchestrator(
             AgentRuntime(
                 provider,
-                DefaultAgentToolGateway(resumed),
+                resumedGateway,
                 SqlDelightAgentSessionStore(resumedDatabase, runId),
             ),
             resumed,
             resumedTurns,
         )
         inputs.drop(7).forEach { input ->
-            val result = assertIs<GmTurnResult.Completed>(resumedGm.submit(resumedTurns.nextTurnId(runId), input))
+            val turnId = resumedTurns.nextTurnId(runId)
+            val result = assertIs<GmTurnResult.Completed>(completeTurn(resumedGm, resumedGateway, turnId, input))
             assertTrue(result.turn.output.orEmpty().let { "war." !in it && "worldloom." !in it })
         }
 
@@ -193,7 +199,9 @@ class AlphaJourneySystemTest {
         repeat(2) {
             val turnId = firstTurns.nextTurnId(runId)
             val turnMark = TimeSource.Monotonic.markNow()
-            assertIs<GmTurnResult.Completed>(firstGm.submit(turnId, "主持人，请根据当前局势推进可用行动"))
+            assertIs<GmTurnResult.Completed>(
+                completeTurn(firstGm.orchestrator, firstGm.gateway, turnId, "主持人，请根据当前局势推进可用行动"),
+            )
             assertTrue(turnMark.elapsedNow() < 10.seconds, "Fake GM foreground turn exceeded the Alpha budget")
         }
         val sequenceBeforeRestart = ready(first).presentation.lastSequence
@@ -211,7 +219,9 @@ class AlphaJourneySystemTest {
         var remainingTurns = 0
         while (resumed.state.value is GameSessionUiState.Ready && remainingTurns < 10) {
             val turnId = resumedTurns.nextTurnId(runId)
-            assertIs<GmTurnResult.Completed>(resumedGm.submit(turnId, "继续主持，执行当前可用行动"))
+            assertIs<GmTurnResult.Completed>(
+                completeTurn(resumedGm.orchestrator, resumedGm.gateway, turnId, "继续主持，执行当前可用行动"),
+            )
             remainingTurns += 1
         }
 
@@ -257,21 +267,55 @@ class AlphaJourneySystemTest {
         memoryStoreFactory = { InMemoryAgentMemoryStore() },
     )
 
+    private data class TestGmHost(
+        val orchestrator: GameTurnOrchestrator,
+        val gateway: DefaultAgentToolGateway,
+    )
+
     private fun gmOrchestrator(
         provider: LanguageModelProvider,
         session: DefaultGameSession,
         database: WorldloomDatabase,
         turns: GameTurnStore,
         followUps: GameTurnFollowUpDispatcher,
-    ) = GameTurnOrchestrator(
-        runtime = AgentRuntime(
-            provider,
-            DefaultAgentToolGateway(session, followUps),
-            SqlDelightAgentSessionStore(database, session.currentRunId),
-        ),
-        gameSession = session,
-        turnStore = turns,
-    )
+    ): TestGmHost {
+        val gateway = DefaultAgentToolGateway(session, followUps)
+        return TestGmHost(
+            GameTurnOrchestrator(
+                runtime = AgentRuntime(
+                    provider,
+                    gateway,
+                    SqlDelightAgentSessionStore(database, session.currentRunId),
+                ),
+                gameSession = session,
+                turnStore = turns,
+            ),
+            gateway,
+        )
+    }
+
+    private suspend fun completeTurn(
+        orchestrator: GameTurnOrchestrator,
+        gateway: DefaultAgentToolGateway,
+        turnId: TurnId,
+        input: String,
+    ): GmTurnResult {
+        val submitted = orchestrator.submit(turnId, input)
+        if (submitted !is GmTurnResult.AwaitingPlayer || submitted.turn.pendingCheck == null) return submitted
+        return orchestrator.resolvePendingCheck(
+            turnId,
+            { check ->
+                gateway.confirmPlayerCheck(
+                    AgentIdentity(
+                        GM_AGENT_ID,
+                        ActorId("system.player"),
+                        setOf(CommandPermission.APPLY_ACTION_OUTCOME, CommandPermission.RESOLVE_CHECK),
+                    ),
+                    check,
+                )
+            },
+        )
+    }
 
     private fun ready(session: DefaultGameSession): GameSessionUiState.Ready = assertIs(session.state.value)
 

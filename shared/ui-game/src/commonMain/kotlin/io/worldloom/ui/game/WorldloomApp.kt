@@ -1083,6 +1083,7 @@ private fun AgentPanel(
 
                 is GameAgentState.Completed -> Unit
                 is GameAgentState.AwaitingPlayer -> Unit
+                is GameAgentState.AwaitingCheck -> Unit
                 is GameAgentState.Failed -> Text(
                     when (current.recoveryKind) {
                         GameTurnRecoveryKind.RETRY_SAFE -> "${current.message} 可以安全重试。"

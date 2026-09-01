@@ -95,10 +95,13 @@ flowchart LR
 声明意图
 → 按 CheckProfile 解析输入和修正来源
 → 冻结难度、风险、公式与随机请求
+→ 向玩家呈现待判定请求并等待确认
 → 执行可审计随机或确定性计算
 → 确定结果档位
 → 由对应领域规则生成代价、效果和 GameEvent
 ```
+
+玩家角色发起且需要 CheckProfile 的行动采用两阶段提交。意图解析阶段只创建可恢复的待判定请求，不掷骰、不选择结果、不写入 EventLog；界面必须显示行动、判定名称、骰式和明确的“掷骰”或“进行判定”操作。玩家确认后，Runtime 才在同一个权威事务中生成 Random Record、Check Record、行动结果与后续事件。判定记录先以系统消息进入对话，再由无写权限的主持人回合根据已提交事件继续叙述。等待期间禁用新的事实型行动，重新载入 Run 后仍恢复同一待判定请求。
 
 `CheckProfile` 可以声明骰子公式、修正槽位、对抗方式、重掷规则和结果区间。常见算法由声明式配置表达；复杂算法由带版本的规则模块实现，并由世界包选择启用。
 
@@ -112,7 +115,7 @@ Worldloom Runtime 提供类型系统、普通检定、对抗检定、资源映�
 
 世界包可以通过 `RuleProfile` 选择 Runtime 已注册的其他判定框架。织境 Agent 负责选择和配置规则，不生成或执行任意代码形式的新算法。
 
-主持人 Agent 在需要判定时调用受约束的规则工具。`rule.resolve_check` 先冻结 CheckProfile 与参数，再通过 RandomService 执行配置要求的随机请求或确定性计算，随后由 RuleEngine 计算结果档位；启用骰子能力的世界还可以使用 `dice.roll`。资源和状态变化由 Agent 或 Behavior Runtime 提交 Command，经验证后由 WorldEngine 通过 Event 应用。
+主持人 Agent 在需要判定时调用受约束的规则工具。工具对玩家行动只发起待判定请求，不能代替玩家确认或指定结果；确认后，`rule.resolve_check` 冻结 CheckProfile 与参数，再通过 RandomService 执行配置要求的随机请求或确定性计算，随后由 RuleEngine 计算结果档位。启用骰子能力的世界还可以使用 `dice.roll`。资源和状态变化由 Agent 或 Behavior Runtime 提交 Command，经验证后由 WorldEngine 通过 Event 应用。
 
 ### 2.2 推进动力
 
@@ -195,6 +198,8 @@ Worldloom Runtime 提供类型系统、普通检定、对抗检定、资源映�
 主游戏界面的视觉中心始终是当前场景、主持人叙事与玩家行动输入。角色和世界信息位于侧栏、浮层或可展开的信息块中，帮助玩家理解局面；自然语言行动区始终与当前叙事保持直接关联。
 
 正式游玩使用独立于世界选择、存档和 Provider 配置的沉浸式页面。叙事以群聊记录呈现：PM、玩家与公开发言的 NPC 拥有稳定身份和不同视觉层级；规则快捷行动只生成受约束的游戏操作，不能绕过 Command/Event 权威链路。每个新 Run 的群聊顶部按固定顺序展示世界包声明的背景前提、游戏目标、第一幕与初始场景；仅当初始场景声明 NPC 参与者时，继续展示这些 NPC 的 spoiler-safe 公开介绍。
+
+需要判定的玩家行动在对应玩家气泡之后插入 PM 身份的待判定卡。卡片显示人类可读的行动名、CheckProfile 标签和骰式；确认前不展示结果，也不允许继续提交其他事实型行动。确认后卡片由 EventLog 中的 Random Record 投影为系统判定消息，包含各骰结果、总值与公开结果档位，随后主持叙事继续出现在同一对话流中。Provider、Tool Gateway 或 Schema 的原始错误不得替代判定卡出现在玩家对话里。
 
 启动首页使用独立的洞穴织梦场景和蜘蛛织梦者引导。桌面端把“新梦境 / 继续梦境 / 设置”三项主菜单放在画面左侧，移动端放在底部安全区；背景始终使用同一张 16:9 资产，窄屏通过中心裁切保留角色主体。新梦境以可左右滑动或箭头切换的梦茧轮播呈现，名称、简介、目标和预计时长来自 `WorldCatalogEntry` 对世界包 `opening` 与目录元数据的投影，不按 worldId 硬编码。进入新 Run 或继续存档前检查当前选中 Provider 的 Vault 凭据；未就绪时由织梦者触发配置浮层，成功保存后再执行 Run 创建/恢复，并用可关闭的过渡动效进入游玩页。减少动态效果模式保留相同状态机，只把过渡时长降为零。
 
@@ -757,6 +762,8 @@ Presentation 默认只保留玩家可见的最近 200 个事件并通过 `Replay
 第 26 轮将 GM Turn 升级为 `schemaVersion = 2` 的公开表现记录：状态之外显式保存输出类型、权威事件证据范围、恢复类别和可安全投影的错误类别。`GameTurnStore` 按 Run 与稳定 ordinal 分页，SQLDelight migration 8 为旧回合补充分区内顺序；旧 schema 1 JSON 在读取时迁移。`HostedTurnHistoryProjector` 会隔离损坏、身份不匹配或引用未来 Event 的记录，只投影玩家输入、主持公开叙事、澄清和归一化错误，不把模型措辞写入 EventLog 或用于重建世界。
 
 第 27 轮把 Turn 记录升级到 `schemaVersion = 3` 并加入请求类型与父 Turn 引用。`GameTurnRecoveryCoordinator` 在继续 Run 时分页扫描遗留 `ACCEPTED/RUNNING` 记录：EventLog 未前进时标为 `RETRY_SAFE`，已前进时标为 `NARRATION_REQUIRED`，重复扫描不再次执行模型或工具。重试必须使用新 TurnId、相同输入并引用原 Turn；补叙述使用无权限 GM 身份和独立 Session，动态工具列表为空，只能读取原证据事件范围。控制器与共享 UI 按 Run 恢复分页对话，显示安全错误、取消、澄清和证据范围，并为两种恢复类别提供不同操作。
+
+玩家确认判定使用 `schemaVersion = 4` 的 GM Turn。`CHECK_REQUEST` 输出与类型化 `PendingPlayerCheck` 成对持久化；`AWAITING_PLAYER` 阶段的 EventLog 序列保持不变。确认时网关重新校验当前场景、行动、CheckProfile 与权限，再由原子 Action Command 生成随机记录和结果事件。同一 Turn 随后进入只读叙述阶段；若进程在事实提交后中断，既有证据范围继续按 `NARRATION_REQUIRED` 恢复，不会再次掷骰。
 
 第 28 轮增加版本化 `AddressNpcCommand` / `NpcAddressedEvent` 和动态 `worldloom.tool.npc.address`。目标 NPC 必须由世界包声明为可发言、存在于当前场景且出现在本次 Tool Schema 的允许 ID 中；公开文本限 500 字符，Run 内幂等键用于吸收双击与 Provider 重试。玩家发言先原子追加 EventLog，NPC 工作 ID 再由 `EventId + targetNpcId` 确定；恢复扫描只为该目标创建对话工作，NPC 的公开响应仍必须经过 `npc.speak` / `npc.act`。共享 UI 从 Presentation 的 Definition 驱动角色列表选择目标，不解析世界键或题材 ID。
 

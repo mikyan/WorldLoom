@@ -29,6 +29,8 @@ sealed interface GameAgentState {
 
     data class AwaitingPlayer(val question: String, val turnId: TurnId? = null) : GameAgentState
 
+    data class AwaitingCheck(val check: PendingPlayerCheck, val turnId: TurnId) : GameAgentState
+
     data class Failed(
         val message: String,
         val worldChanged: Boolean = false,
@@ -63,6 +65,7 @@ interface GameAgentController {
     suspend fun loadEarlierHistory()
     suspend fun retry(turnId: TurnId)
     suspend fun recoverNarration(turnId: TurnId)
+    suspend fun rollPendingCheck(turnId: TurnId)
     suspend fun addressNpc(
         npcId: DefinitionId,
         content: String,
@@ -139,10 +142,9 @@ class DefaultGameAgentController(
             )
             mutableState.value = when (result) {
                 is GmTurnResult.Completed -> GameAgentState.Completed(result.turn.output.orEmpty(), result.turn.turnId)
-                is GmTurnResult.AwaitingPlayer -> GameAgentState.AwaitingPlayer(
-                    result.turn.output.orEmpty(),
-                    result.turn.turnId,
-                )
+                is GmTurnResult.AwaitingPlayer -> result.turn.pendingCheck?.let {
+                    GameAgentState.AwaitingCheck(it, result.turn.turnId)
+                } ?: GameAgentState.AwaitingPlayer(result.turn.output.orEmpty(), result.turn.turnId)
                 is GmTurnResult.Cancelled -> GameAgentState.Idle
                 is GmTurnResult.Failed -> GameAgentState.Failed(
                     message = result.turn.errorCode?.let(::publicGameTurnFailureMessage) ?: "主持回合失败",
@@ -281,13 +283,69 @@ class DefaultGameAgentController(
             }
             mutableState.value = when (result) {
                 is GmTurnResult.Completed -> GameAgentState.Completed(result.turn.output.orEmpty(), result.turn.turnId)
-                is GmTurnResult.AwaitingPlayer -> GameAgentState.AwaitingPlayer(
-                    result.turn.output.orEmpty(),
-                    result.turn.turnId,
-                )
+                is GmTurnResult.AwaitingPlayer -> result.turn.pendingCheck?.let {
+                    GameAgentState.AwaitingCheck(it, result.turn.turnId)
+                } ?: GameAgentState.AwaitingPlayer(result.turn.output.orEmpty(), result.turn.turnId)
                 is GmTurnResult.Cancelled -> GameAgentState.Idle
                 is GmTurnResult.Failed -> GameAgentState.Failed(
                     result.turn.errorCode?.let(::publicGameTurnFailureMessage) ?: "补叙述失败。",
+                    result.turn.worldChanged,
+                    result.turn.turnId,
+                    result.turn.recoveryKind,
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            mutableState.value = GameAgentState.Idle
+            throw cancelled
+        } finally {
+            runMutex.unlock()
+            withContext(NonCancellable) { refreshHistory() }
+        }
+    }
+
+    override suspend fun rollPendingCheck(turnId: TurnId) {
+        val gateway = directToolGateway
+        if (gateway == null) {
+            mutableState.value = GameAgentState.Failed("掷骰入口尚未配置。", turnId = turnId)
+            return
+        }
+        if (!runMutex.tryLock()) return
+        try {
+            val context = gameSession.commandContext()
+            if (context == null) {
+                mutableState.value = GameAgentState.Failed("请先加载一个世界。", turnId = turnId)
+                return
+            }
+            val partial = StringBuilder()
+            mutableState.value = GameAgentState.Running("正在掷骰并结算…", turnId)
+            val result = orchestrator.resolvePendingCheck(
+                turnId = turnId,
+                commit = { check ->
+                    gateway.confirmPlayerCheck(
+                        AgentIdentity(
+                            agentId = AgentId("worldloom.agent.player-check"),
+                            actorId = ActorId("system.player"),
+                            permissions = setOf(
+                                CommandPermission.APPLY_ACTION_OUTCOME,
+                                CommandPermission.RESOLVE_CHECK,
+                            ),
+                        ),
+                        check,
+                    )
+                },
+                onTextDelta = { delta ->
+                    partial.append(delta)
+                    mutableState.value = GameAgentState.Running(partial.toString(), turnId)
+                },
+            )
+            mutableState.value = when (result) {
+                is GmTurnResult.Completed -> GameAgentState.Completed(result.turn.output.orEmpty(), result.turn.turnId)
+                is GmTurnResult.AwaitingPlayer -> result.turn.pendingCheck?.let {
+                    GameAgentState.AwaitingCheck(it, result.turn.turnId)
+                } ?: GameAgentState.AwaitingPlayer(result.turn.output.orEmpty(), result.turn.turnId)
+                is GmTurnResult.Cancelled -> GameAgentState.Idle
+                is GmTurnResult.Failed -> GameAgentState.Failed(
+                    result.turn.errorCode?.let(::publicGameTurnFailureMessage) ?: "掷骰未能完成，请重试。",
                     result.turn.worldChanged,
                     result.turn.turnId,
                     result.turn.recoveryKind,
@@ -332,6 +390,9 @@ class DefaultGameAgentController(
             )
             when (result) {
                 is ToolInvocationResult.Success -> NpcDialogueResult.Committed(result.worldChanged)
+                is ToolInvocationResult.AwaitingPlayerCheck -> NpcDialogueResult.Failed(
+                    "NPC 对话不能发起玩家检定。",
+                )
                 is ToolInvocationResult.Failure -> NpcDialogueResult.Failed(
                     result.error.message,
                     result.worldChanged,

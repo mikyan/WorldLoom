@@ -29,6 +29,49 @@ import kotlin.test.assertTrue
 
 class ContractAgentToolTest {
     @Test
+    fun checkedActionWaitsForPlayerEvenWhenProviderSuppliesAnOutcome() = runTest {
+        val catalog = assertIs<StaticWorldCatalogResult.Success>(
+            StaticWorldCatalog.fromPackageSources(listOf(loadPackage("war-survival"))),
+        ).catalog
+        val session = DefaultGameSession(
+            catalog = catalog,
+            idSource = SequentialSessionIdSource("player-check"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        assertIs<LoadResult.Success>(session.load(DefinitionId("contract.war-survival")))
+        assertIs<io.worldloom.application.ActionResult.Success>(session.confirmCharacter())
+        val gateway = DefaultAgentToolGateway(session)
+        val identity = AgentIdentity(
+            AgentId("agent.gm.player-check"),
+            ActorId("system.player"),
+            setOf(CommandPermission.APPLY_ACTION_OUTCOME, CommandPermission.RESOLVE_CHECK),
+        )
+        val before = assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence
+
+        val pending = assertIs<ToolInvocationResult.AwaitingPlayerCheck>(
+            gateway.invoke(
+                identity,
+                ProviderToolCall(
+                    "checked-action",
+                    PERFORM_ACTION_TOOL_ID.value,
+                    JsonObject(
+                        mapOf(
+                            "actionId" to JsonPrimitive("war.action.search-supplies"),
+                            "outcomeId" to JsonPrimitive("war.outcome.success"),
+                        ),
+                    ),
+                ),
+            ),
+        ).check
+
+        assertEquals("穿过街道进入药房", pending.actionLabel)
+        assertEquals("2d6", pending.diceNotation)
+        assertEquals(before, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertIs<ToolInvocationResult.Success>(gateway.confirmPlayerCheck(identity, pending))
+        assertTrue(assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence > before)
+    }
+
+    @Test
     fun adventureToolsExposeConfiguredDefinitionsAndCommitThroughTheSession() = runTest {
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
             StaticWorldCatalog.fromPackageSources(listOf(loadPackage("station-ai"))),

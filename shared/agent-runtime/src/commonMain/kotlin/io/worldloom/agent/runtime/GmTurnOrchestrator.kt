@@ -18,7 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlin.jvm.JvmInline
 
 const val LEGACY_GM_TURN_SCHEMA_VERSION: Int = 1
-const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 3
+const val CURRENT_GM_TURN_SCHEMA_VERSION: Int = 4
 const val CURRENT_GM_PROFILE_SCHEMA_VERSION: Int = 1
 
 @Serializable
@@ -31,7 +31,7 @@ value class TurnId(val value: String) {
 enum class GameTurnStatus { ACCEPTED, RUNNING, AWAITING_PLAYER, COMPLETED, CANCELLED, FAILED }
 
 @Serializable
-enum class GameTurnOutputKind { NONE, NARRATION, CLARIFICATION, FAILURE }
+enum class GameTurnOutputKind { NONE, NARRATION, CLARIFICATION, CHECK_REQUEST, FAILURE }
 
 @Serializable
 enum class GameTurnRecoveryKind { NONE, RETRY_SAFE, NARRATION_REQUIRED }
@@ -70,6 +70,7 @@ data class GameTurn(
     val errorCode: GameTurnErrorCode? = null,
     val requestKind: GameTurnRequestKind = GameTurnRequestKind.PLAYER_ACTION,
     val parentTurnId: TurnId? = null,
+    val pendingCheck: PendingPlayerCheck? = null,
 ) {
     init {
         require(schemaVersion in LEGACY_GM_TURN_SCHEMA_VERSION..CURRENT_GM_TURN_SCHEMA_VERSION) {
@@ -101,10 +102,20 @@ data class GameTurn(
         ) {
             "Retry and narration-recovery turns must reference their source turn"
         }
+        if (pendingCheck != null) {
+            require(status == GameTurnStatus.AWAITING_PLAYER) { "Pending checks must await the player" }
+            require(outputKind == GameTurnOutputKind.CHECK_REQUEST) { "Pending checks need a check-request output" }
+        }
+        if (schemaVersion >= 4) {
+            require((outputKind == GameTurnOutputKind.CHECK_REQUEST) == (pendingCheck != null)) {
+                "Check-request output and pending check must be stored together"
+            }
+        }
     }
 
     fun toCurrentSchema(): GameTurn {
         if (schemaVersion == CURRENT_GM_TURN_SCHEMA_VERSION) return this
+        if (schemaVersion == 3) return copy(schemaVersion = CURRENT_GM_TURN_SCHEMA_VERSION)
         val migratedOutputKind = when {
             status == GameTurnStatus.AWAITING_PLAYER -> GameTurnOutputKind.CLARIFICATION
             status == GameTurnStatus.COMPLETED && !output.isNullOrBlank() -> GameTurnOutputKind.NARRATION
@@ -261,6 +272,7 @@ object GmContextProjector {
         systemPrompt = buildString {
             appendLine("你是 Worldloom 的单人跑团主持人。只依据本提示中的玩家可见事实主持当前回合。")
             appendLine("客观变化必须调用当前提供的工具；工具结果和事件序列是权威事实。不得披露隐藏信息或虚构物品、状态、地点、关系与目标变化。")
+            appendLine("带 CheckProfile 的场景行动只负责发起判定请求；系统会等待玩家点击掷骰。不得替玩家选择结果，也不得在请求判定后继续虚构结算。")
             appendLine("内部 ID、事件序号、事件类型、工具名和 JSON 只用于规则调用。最终回复必须只写自然、连贯的玩家可见中文叙事，不得复述任何内部编码或调试字段。")
             appendLine("如果缺少执行行动所必需的目标或选择，只回复 '${profile.clarificationPrefix} <具体问题>'，不要猜测。")
             if (continuity.checkpoint != null || continuity.uncompactedTurns.isNotEmpty()) {
@@ -532,6 +544,13 @@ class GameTurnOrchestrator(
         }
         val deliveredSequence = gameSession.commandContext()?.lastSequence ?: projected.visibleSequence
         when (result) {
+            is AgentRunResult.AwaitingPlayerCheck -> persistTerminal(
+                running,
+                GameTurnStatus.AWAITING_PLAYER,
+                deliveredSequence = deliveredSequence,
+                outputKind = GameTurnOutputKind.CHECK_REQUEST,
+                pendingCheck = result.check,
+            )
             is AgentRunResult.Completed -> {
                 val text = sanitizePlayerFacingNarration(result.text, ready.presentation).ifBlank {
                     if (result.worldChanged) {
@@ -571,6 +590,217 @@ class GameTurnOrchestrator(
                 } else {
                     GameTurnRecoveryKind.RETRY_SAFE
                 },
+            )
+        }
+    }
+
+    suspend fun resolvePendingCheck(
+        turnId: TurnId,
+        commit: suspend (PendingPlayerCheck) -> ToolInvocationResult,
+        onTextDelta: suspend (String) -> Unit = {},
+    ): GmTurnResult = mutex.withLock {
+        val context = gameSession.commandContext()
+            ?: return@withLock failedWithoutRun(turnId, "", "Run command context is unavailable")
+        val source = turnStore.load(context.runId, turnId)
+        val pending = source?.pendingCheck
+        if (
+            source == null ||
+            source.status != GameTurnStatus.AWAITING_PLAYER ||
+            source.outputKind != GameTurnOutputKind.CHECK_REQUEST ||
+            pending == null
+        ) {
+            return@withLock invalidRequest(
+                context.runId,
+                turnId,
+                source?.input.orEmpty(),
+                source?.requestKind ?: GameTurnRequestKind.PLAYER_ACTION,
+                source?.parentTurnId,
+                "Turn is not waiting for a player-confirmed check",
+            )
+        }
+        if (context.lastSequence != source.acceptedSequence) {
+            return@withLock GmTurnResult.Failed(
+                source.copy(
+                    error = "World facts changed while the check was waiting",
+                    errorCode = GameTurnErrorCode.INVALID_REQUEST,
+                ),
+            )
+        }
+        val running = source.copy(
+            status = GameTurnStatus.RUNNING,
+            revision = source.revision + 1,
+            outputKind = GameTurnOutputKind.NONE,
+            pendingCheck = null,
+        )
+        if (turnStore.save(running, source.revision) !is GameTurnStoreResult.Success) {
+            return@withLock GmTurnResult.Failed(
+                source.copy(
+                    error = "Player-confirmed check could not start",
+                    errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                ),
+            )
+        }
+
+        val invocation = try {
+            commit(pending)
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                val cancelledSequence = gameSession.commandContext()?.lastSequence ?: source.acceptedSequence
+                val changed = cancelledSequence > source.acceptedSequence
+                persistTerminal(
+                    running,
+                    GameTurnStatus.CANCELLED,
+                    error = "Player-confirmed check was cancelled",
+                    worldChanged = changed,
+                    deliveredSequence = cancelledSequence,
+                    errorCode = GameTurnErrorCode.CANCELLED,
+                    recoveryKind = if (changed) {
+                        GameTurnRecoveryKind.NARRATION_REQUIRED
+                    } else {
+                        GameTurnRecoveryKind.RETRY_SAFE
+                    },
+                )
+            }
+            throw cancelled
+        }
+        val through = gameSession.commandContext()?.lastSequence ?: source.acceptedSequence
+        if (through <= source.acceptedSequence) {
+            val restored = running.copy(
+                status = GameTurnStatus.AWAITING_PLAYER,
+                revision = running.revision + 1,
+                outputKind = GameTurnOutputKind.CHECK_REQUEST,
+                pendingCheck = pending,
+            )
+            return@withLock when (turnStore.save(restored, running.revision)) {
+                GameTurnStoreResult.Success -> GmTurnResult.AwaitingPlayer(restored)
+                else -> GmTurnResult.Failed(
+                    running.copy(
+                        status = GameTurnStatus.FAILED,
+                        error = "Player-confirmed check could not be restored",
+                        outputKind = GameTurnOutputKind.FAILURE,
+                        errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                    ),
+                )
+            }
+        }
+        if (invocation is ToolInvocationResult.AwaitingPlayerCheck) {
+            return@withLock persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = "Confirmed check returned another pending request",
+                worldChanged = true,
+                deliveredSequence = through,
+                errorCode = GameTurnErrorCode.TOOL_FAILURE,
+                recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+            )
+        }
+
+        val resolvedPresentation = when (val state = gameSession.state.value) {
+            is GameSessionUiState.Ready -> state.presentation
+            is GameSessionUiState.Ended -> state.presentation
+            else -> null
+        } ?: return@withLock persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = "Run presentation is unavailable after the check",
+                worldChanged = true,
+                deliveredSequence = through,
+                errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+            )
+        val visibleEvidence = resolvedPresentation.timeline.filter {
+            it.sequence > source.acceptedSequence && it.sequence <= through
+        }
+        if (visibleEvidence.isEmpty()) {
+            return@withLock persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = "No public evidence is available after the check",
+                worldChanged = true,
+                deliveredSequence = through,
+                errorCode = GameTurnErrorCode.STORAGE_FAILURE,
+                recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+            )
+        }
+        val currentContext = gameSession.commandContext() ?: context
+        val continuity = continuityFor(context.runId).prepare(resolvedPresentation.lastSequence)
+        val projected = GmContextProjector.project(resolvedPresentation, currentContext, profile, continuity)
+        val narrationPrompt = buildString {
+            appendLine(projected.systemPrompt)
+            appendLine()
+            appendLine("玩家刚刚确认掷骰，权威规则已经提交结果。不得调用工具、不得改变事实，只能根据下列玩家可见事件继续叙述。")
+            appendLine("原玩家输入：${source.input}")
+            appendLine("请求的行动：${pending.actionLabel}")
+            visibleEvidence.forEach {
+                appendLine("- ${sanitizePlayerFacingNarration(it.summary, resolvedPresentation)}")
+            }
+        }.trim()
+        val narration = try {
+            runtime.run(
+                AgentRunRequest(
+                    sessionId = AgentSessionId("worldloom.gm.check-resolution.${context.runId.value}"),
+                    identity = AgentIdentity(GM_AGENT_ID, ActorId("worldloom.actor.gm"), emptySet()),
+                    input = "根据刚刚完成的判定继续玩家可见叙述。",
+                    systemPrompt = narrationPrompt,
+                    runId = context.runId,
+                ),
+                onTextDelta,
+            )
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                persistTerminal(
+                    running,
+                    GameTurnStatus.CANCELLED,
+                    error = "Post-check narration was cancelled",
+                    worldChanged = true,
+                    deliveredSequence = through,
+                    errorCode = GameTurnErrorCode.CANCELLED,
+                    recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+                )
+            }
+            throw cancelled
+        }
+        when (narration) {
+            is AgentRunResult.Completed -> {
+                val text = sanitizePlayerFacingNarration(narration.text, resolvedPresentation)
+                if (narration.worldChanged || text.isBlank()) {
+                    persistTerminal(
+                        running,
+                        GameTurnStatus.FAILED,
+                        error = "Post-check narration returned an invalid result",
+                        worldChanged = true,
+                        deliveredSequence = through,
+                        errorCode = GameTurnErrorCode.TOOL_FAILURE,
+                        recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+                    )
+                } else {
+                    persistTerminal(
+                        running,
+                        GameTurnStatus.COMPLETED,
+                        output = text,
+                        worldChanged = true,
+                        deliveredSequence = through,
+                        outputKind = GameTurnOutputKind.NARRATION,
+                    )
+                }
+            }
+            is AgentRunResult.AwaitingPlayerCheck -> persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = "Post-check narration requested another check",
+                worldChanged = true,
+                deliveredSequence = through,
+                errorCode = GameTurnErrorCode.TOOL_FAILURE,
+                recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
+            )
+            is AgentRunResult.Failure -> persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = narration.error.message,
+                worldChanged = true,
+                deliveredSequence = through,
+                errorCode = narration.error.code.toGameTurnErrorCode(),
+                recoveryKind = GameTurnRecoveryKind.NARRATION_REQUIRED,
             )
         }
     }
@@ -707,6 +937,13 @@ class GameTurnOrchestrator(
             throw cancelled
         }
         when (result) {
+            is AgentRunResult.AwaitingPlayerCheck -> persistTerminal(
+                running,
+                GameTurnStatus.FAILED,
+                error = "Narration recovery requested an unavailable player check",
+                deliveredSequence = through,
+                errorCode = GameTurnErrorCode.TOOL_FAILURE,
+            )
             is AgentRunResult.Completed -> {
                 val text = sanitizePlayerFacingNarration(result.text, ready.presentation)
                 if (result.worldChanged || text.isBlank()) {
@@ -817,6 +1054,7 @@ class GameTurnOrchestrator(
         },
         errorCode: GameTurnErrorCode? = null,
         recoveryKind: GameTurnRecoveryKind = GameTurnRecoveryKind.NONE,
+        pendingCheck: PendingPlayerCheck? = null,
     ): GmTurnResult {
         val evidenceThrough = deliveredSequence?.takeIf { it > base.acceptedSequence }
         val turn = base.copy(
@@ -831,6 +1069,7 @@ class GameTurnOrchestrator(
             evidenceThroughSequenceInclusive = evidenceThrough,
             errorCode = errorCode,
             recoveryKind = recoveryKind,
+            pendingCheck = pendingCheck,
         )
         return when (turnStore.save(turn, base.revision)) {
             GameTurnStoreResult.Success -> {

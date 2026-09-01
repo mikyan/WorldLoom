@@ -381,6 +381,10 @@ data class SessionAvailableAction(
     val label: String,
     val outcomeIds: List<DefinitionId>,
     val requiresCheck: Boolean,
+    val checkProfileId: DefinitionId? = null,
+    val checkLabel: String? = null,
+    val diceCount: Int? = null,
+    val diceSides: Int? = null,
 )
 
 data class SessionAvailableActivity(

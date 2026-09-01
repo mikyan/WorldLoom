@@ -68,6 +68,8 @@ class HostedDraftSandboxTest {
         assertIs<ActionResult.Success>(created.session.confirmCharacter())
 
         created.controller.send("搜索附近的补给")
+        val pending = assertIs<GameAgentState.AwaitingCheck>(created.controller.state.value)
+        created.controller.rollPendingCheck(pending.turnId)
 
         assertIs<GameAgentState.Completed>(created.controller.state.value)
         val played = assertIs<GameSessionUiState.Ready>(created.session.state.value).presentation
@@ -78,7 +80,11 @@ class HostedDraftSandboxTest {
         assertEquals(beforeReplay, assertIs<GameSessionUiState.Ready>(created.session.state.value).presentation)
         val gmIdentity = AgentIdentity(GM_AGENT_ID, ActorId("worldloom.actor.gm"), emptySet())
         val oldGmSession = assertIs<AgentSessionLoadResult.Success>(
-            created.gmSessionStore.load(gmSessionId(created.directory.runId), gmIdentity, created.directory.runId),
+            created.gmSessionStore.load(
+                AgentSessionId("worldloom.gm.check-resolution.${created.directory.runId.value}"),
+                gmIdentity,
+                created.directory.runId,
+            ),
         ).snapshot
         assertTrue(oldGmSession.revision > 0)
 

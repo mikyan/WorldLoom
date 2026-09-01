@@ -28,6 +28,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.Serializable
 
 val NUMERIC_ADJUST_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.numeric.adjust")
 val RESOLVE_CHECK_TOOL_ID: DefinitionId = DefinitionId("worldloom.tool.check.resolve")
@@ -79,6 +80,29 @@ sealed interface ToolInvocationResult {
         /** True when the primary command committed before a foreground follow-up failed. */
         val worldChanged: Boolean = false,
     ) : ToolInvocationResult
+
+    /** No facts have changed; the player must explicitly start this authoritative check. */
+    data class AwaitingPlayerCheck(val check: PendingPlayerCheck) : ToolInvocationResult
+}
+
+@Serializable
+data class PendingPlayerCheck(
+    val actionId: DefinitionId,
+    val actionLabel: String,
+    val profileId: DefinitionId,
+    val profileLabel: String,
+    val diceCount: Int? = null,
+    val diceSides: Int? = null,
+) {
+    init {
+        require(actionLabel.isNotBlank() && profileLabel.isNotBlank()) { "Pending check labels must not be blank" }
+        require((diceCount == null) == (diceSides == null)) { "Pending check dice needs both count and sides" }
+        require(diceCount == null || diceCount > 0) { "Pending check dice count must be positive" }
+        require(diceSides == null || diceSides > 0) { "Pending check dice sides must be positive" }
+    }
+
+    val diceNotation: String?
+        get() = diceCount?.let { count -> "${count}d${requireNotNull(diceSides)}" }
 }
 
 data class GameTurnFollowUpRequest(
@@ -125,6 +149,13 @@ interface AgentToolGateway {
         identity: AgentIdentity,
         call: ProviderToolCall,
     ): ToolInvocationResult
+
+    suspend fun confirmPlayerCheck(
+        identity: AgentIdentity,
+        check: PendingPlayerCheck,
+    ): ToolInvocationResult = ToolInvocationResult.Failure(
+        ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Player-confirmed checks are unavailable"),
+    )
 }
 
 class DefaultAgentToolGateway(
@@ -180,6 +211,26 @@ class DefaultAgentToolGateway(
             ?: return ToolInvocationResult.Failure(
                 ToolGatewayError(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Active Run context is unavailable"),
             )
+        if (call.name == PERFORM_ACTION_TOOL_ID.value) {
+            val actionId = DefinitionId(call.requireString("actionId"))
+            val action = context.availableActions.first { it.actionId == actionId }
+            if (action.requiresCheck) {
+                val profileId = action.checkProfileId
+                    ?: return ToolInvocationResult.Failure(
+                        ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, "Checked action has no CheckProfile"),
+                    )
+                return ToolInvocationResult.AwaitingPlayerCheck(
+                    PendingPlayerCheck(
+                        actionId = action.actionId,
+                        actionLabel = action.label,
+                        profileId = profileId,
+                        profileLabel = action.checkLabel ?: profileId.value,
+                        diceCount = action.diceCount,
+                        diceSides = action.diceSides,
+                    ),
+                )
+            }
+        }
         val command = when (call.name) {
             NUMERIC_ADJUST_TOOL_ID.value -> GameSessionCommand.AdjustNumericComponent(
                 entityId = EntityId(call.requireString("entityId")),
@@ -274,6 +325,51 @@ class DefaultAgentToolGateway(
                 ToolGatewayError(ToolGatewayErrorCode.TOOL_NOT_REGISTERED, "Tool is not registered: ${call.name}"),
             )
         }
+        return executeCommand(identity, context, before, command)
+    }
+
+    override suspend fun confirmPlayerCheck(
+        identity: AgentIdentity,
+        check: PendingPlayerCheck,
+    ): ToolInvocationResult {
+        if (CommandPermission.APPLY_ACTION_OUTCOME !in identity.permissions ||
+            CommandPermission.RESOLVE_CHECK !in identity.permissions
+        ) {
+            return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.PERMISSION_DENIED, "Actor is not permitted to resolve this action"),
+            )
+        }
+        val before = session.state.value as? GameSessionUiState.Ready
+            ?: return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Active Run presentation is unavailable"),
+            )
+        val context = session.commandContext()
+            ?: return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.SESSION_NOT_LOADED, "Active Run context is unavailable"),
+            )
+        val action = context.availableActions.firstOrNull { it.actionId == check.actionId }
+            ?: return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, "Action is no longer available"),
+            )
+        if (!action.requiresCheck || action.checkProfileId != check.profileId) {
+            return ToolInvocationResult.Failure(
+                ToolGatewayError(ToolGatewayErrorCode.COMMAND_REJECTED, "Action check no longer matches the pending request"),
+            )
+        }
+        return executeCommand(
+            identity = identity,
+            context = context,
+            before = before,
+            command = GameSessionCommand.PerformAvailableAction(check.actionId),
+        )
+    }
+
+    private suspend fun executeCommand(
+        identity: AgentIdentity,
+        context: SessionCommandContext,
+        before: GameSessionUiState.Ready,
+        command: GameSessionCommand,
+    ): ToolInvocationResult {
         return when (
             val result = session.execute(
                 command,
@@ -434,7 +530,6 @@ private data class StandardAgentTool(
                     )
                     "outcomeId" -> parameter.copy(
                         allowedValues = context.availableActions
-                            .filter { !it.requiresCheck }
                             .flatMap { it.outcomeIds }
                             .map { it.value }
                             .distinct()
@@ -572,12 +667,12 @@ private object StandardAgentTools {
         StandardAgentTool(
             definition = ProviderToolDefinition(
                 name = PERFORM_ACTION_TOOL_ID.value,
-                description = "Perform one action available in the current scene and commit its configured outcome.",
+                description = "Choose one action available in the current scene. A checked action pauses for the player to roll before any facts are committed.",
                 parameters = listOf(
                     stringParameter("actionId", "Action identifier exposed by the current scene."),
                     ProviderToolParameter(
                         name = "outcomeId",
-                        description = "Configured outcome for a choice without a CheckProfile; omit for checked actions.",
+                        description = "Configured outcome for a choice without a CheckProfile; ignored when the action requires a player-confirmed check.",
                         type = ProviderToolValueType.STRING,
                         required = false,
                     ),
@@ -877,7 +972,6 @@ private fun validateIdentifiers(
                 val action = context.availableActions.firstOrNull { it.actionId == actionId }
                     ?: return "Tool action is not available in the current scene"
                 val outcomeId = call.optionalString("outcomeId")?.let(::DefinitionId)
-                if (action.requiresCheck && outcomeId != null) return "Checked actions derive their outcome from the audit record"
                 if (!action.requiresCheck && outcomeId != null && outcomeId !in action.outcomeIds) {
                     return "Tool outcome is not configured for the selected action"
                 }

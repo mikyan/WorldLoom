@@ -13,6 +13,7 @@ internal data class GameChatMessage(
     val speaker: String,
     val kind: GameChatSpeakerKind,
     val content: String,
+    val avatarAssetId: String? = null,
     val audienceLabel: String? = null,
     val private: Boolean = false,
 )
@@ -57,6 +58,7 @@ internal fun buildGameChatMessages(
                 speaker = npc.displayName,
                 kind = GameChatSpeakerKind.NPC,
                 content = npc.publicIntroduction ?: "${npc.displayName} 已在本幕登场。",
+                avatarAssetId = npc.avatarAssetId,
             )
         }
     }
@@ -64,10 +66,16 @@ internal fun buildGameChatMessages(
     presentation.timeline.mapNotNull { event ->
         event.chatMessage?.let { event.sequence to it }
     }.forEach { (sequence, chat) ->
+        val npc = presentation.characters.firstOrNull { character ->
+            chat.speakerKind == PresentedChatSpeakerKind.NPC &&
+                (character.entityId.value == chat.speakerId ||
+                    character.id.value == chat.speakerId ||
+                    character.displayName == chat.speakerName)
+        }
         messages += GameChatMessage(
             id = "event-$sequence",
             order = sequence * ORDER_SCALE + EVENT_OFFSET,
-            speaker = chat.speakerName ?: when (chat.speakerKind) {
+            speaker = chat.speakerName ?: npc?.displayName ?: when (chat.speakerKind) {
                 PresentedChatSpeakerKind.PLAYER -> "你"
                 PresentedChatSpeakerKind.NPC -> "角色"
             },
@@ -76,6 +84,7 @@ internal fun buildGameChatMessages(
                 PresentedChatSpeakerKind.NPC -> GameChatSpeakerKind.NPC
             },
             content = chat.content,
+            avatarAssetId = npc?.avatarAssetId,
             audienceLabel = if (chat.audience == NpcDialogueAudience.PRIVATE) {
                 buildString {
                     append("# ")
@@ -87,6 +96,25 @@ internal fun buildGameChatMessages(
             } else null,
             private = chat.audience == NpcDialogueAudience.PRIVATE,
         )
+    }
+
+    presentation.timeline.forEach { event ->
+        event.randomRecord?.let { random ->
+            messages += GameChatMessage(
+                id = "check-${random.recordId}",
+                order = event.sequence * ORDER_SCALE + EVENT_OFFSET,
+                speaker = "判定",
+                kind = GameChatSpeakerKind.SYSTEM,
+                content = buildString {
+                    append("掷骰 ")
+                    append(random.results.joinToString(" + "))
+                    append(" = ")
+                    append(random.total)
+                    append(" · ")
+                    append(event.summary)
+                },
+            )
+        }
     }
 
     history.items.forEach { turn ->

@@ -2,8 +2,12 @@ package io.worldloom.ui.game
 
 import io.worldloom.agent.runtime.GameAgentHistoryState
 import io.worldloom.application.GamePresentation
+import io.worldloom.application.PresentedChatMessage
+import io.worldloom.application.PresentedChatSpeakerKind
+import io.worldloom.application.PresentedEvent
 import io.worldloom.application.PresentedNpc
 import io.worldloom.application.PresentedOpening
+import io.worldloom.application.PresentedRandomRecord
 import io.worldloom.definition.DefinitionId
 import io.worldloom.world.EntityId
 import kotlin.test.Test
@@ -20,6 +24,7 @@ class GameChatModelTest {
                         EntityId("guide"),
                         "向导",
                         "向导熟悉这片山谷。",
+                        avatarAssetId = "worldloom.avatar.test-guide",
                     ),
                 ),
             ),
@@ -30,6 +35,36 @@ class GameChatModelTest {
         assertEquals("游戏目标\n找到失踪的队伍。", messages[1].content)
         assertEquals("第一幕 · 雾谷 · 山口\n雾覆盖了唯一的道路。", messages[2].content)
         assertEquals(GameChatSpeakerKind.NPC, messages.last().kind)
+        assertEquals("worldloom.avatar.test-guide", messages.last().avatarAssetId)
+    }
+
+    @Test
+    fun npcTimelineMessagesResolveTheStableCharacterAvatar() {
+        val guide = PresentedNpc(
+            DefinitionId("test.npc.guide"),
+            EntityId("guide"),
+            "向导",
+            avatarAssetId = "worldloom.avatar.test-guide",
+        )
+        val current = presentation(emptyList()).copy(
+            characters = listOf(guide),
+            timeline = listOf(
+                PresentedEvent(
+                    sequence = 1,
+                    summary = "向导回应",
+                    chatMessage = PresentedChatMessage(
+                        speakerKind = PresentedChatSpeakerKind.NPC,
+                        speakerId = guide.entityId.value,
+                        content = "跟紧我。",
+                    ),
+                ),
+            ),
+        )
+
+        val message = buildGameChatMessages(current, GameAgentHistoryState()).last()
+
+        assertEquals("向导", message.speaker)
+        assertEquals("worldloom.avatar.test-guide", message.avatarAssetId)
     }
 
     @Test
@@ -55,6 +90,29 @@ class GameChatModelTest {
         )
 
         assertEquals(emptyList(), messages)
+    }
+
+    @Test
+    fun auditedDiceResultAppearsAsAPlayerFacingSystemMessage() {
+        val current = presentation(emptyList()).copy(
+            timeline = listOf(
+                PresentedEvent(
+                    sequence = 7,
+                    summary = "求生检定: 10 · 完整成功",
+                    randomRecord = PresentedRandomRecord(
+                        recordId = "random.7",
+                        results = listOf(4, 6),
+                        total = 10,
+                        outcomeId = DefinitionId("test.outcome.success"),
+                    ),
+                ),
+            ),
+        )
+
+        val roll = buildGameChatMessages(current, GameAgentHistoryState()).last()
+
+        assertEquals(GameChatSpeakerKind.SYSTEM, roll.kind)
+        assertEquals("掷骰 4 + 6 = 10 · 求生检定: 10 · 完整成功", roll.content)
     }
 
     @Test

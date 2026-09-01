@@ -102,5 +102,12 @@ sealed interface AgentRunResult {
         val worldChanged: Boolean,
     ) : AgentRunResult
 
+    data class AwaitingPlayerCheck(
+        val check: PendingPlayerCheck,
+        val steps: Int,
+        val toolCalls: Int,
+        val usage: ProviderUsage,
+    ) : AgentRunResult
+
     data class Failure(val error: AgentRunError) : AgentRunResult
 }

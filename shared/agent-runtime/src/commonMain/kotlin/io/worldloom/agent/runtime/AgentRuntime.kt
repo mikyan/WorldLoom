@@ -231,6 +231,23 @@ class AgentRuntime(
                         archivedConversation += toolMessage
                     }
 
+                    is ToolInvocationResult.AwaitingPlayerCheck -> {
+                        if (turn.toolCalls.size != 1 || worldChanged) {
+                            return failure(
+                                AgentRunErrorCode.INVALID_PROVIDER_RESPONSE,
+                                "A player-confirmed check must be the only tool call in its step",
+                                worldChanged,
+                            )
+                        }
+                        toolCallCount += 1
+                        return AgentRunResult.AwaitingPlayerCheck(
+                            check = invocation.check,
+                            steps = steps,
+                            toolCalls = toolCallCount,
+                            usage = usage,
+                        )
+                    }
+
                     is ToolInvocationResult.Failure -> return failure(
                         AgentRunErrorCode.TOOL_REJECTED,
                         invocation.error.message,

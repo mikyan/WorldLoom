@@ -155,6 +155,13 @@ class NpcAgent(
             )
         ) {
             is AgentRunResult.Failure -> NpcAgentResult.Failed(profile.agentId, result.error)
+            is AgentRunResult.AwaitingPlayerCheck -> NpcAgentResult.Failed(
+                profile.agentId,
+                AgentRunError(
+                    AgentRunErrorCode.INVALID_PROVIDER_RESPONSE,
+                    "NPC turns cannot request a player-confirmed check",
+                ),
+            )
             is AgentRunResult.Completed -> {
                 val previousSequence = memoryStore.turns(profile.agentId).lastOrNull()?.sequence ?: 0
                 val turnSequence = previousSequence + 1

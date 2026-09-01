@@ -8,7 +8,9 @@ import io.worldloom.agent.runtime.GameTurnOutputKind
 import io.worldloom.agent.runtime.GameTurnStatus
 import io.worldloom.agent.runtime.GameTurnStoreResult
 import io.worldloom.agent.runtime.CURRENT_GM_TURN_SCHEMA_VERSION
+import io.worldloom.agent.runtime.PendingPlayerCheck
 import io.worldloom.agent.runtime.TurnId
+import io.worldloom.definition.DefinitionId
 import io.worldloom.persistence.db.WorldloomDatabase
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.runTest
@@ -20,6 +22,41 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqlDelightGameTurnStoreTest {
+    @Test
+    fun pendingPlayerCheckSurvivesStoreRecreation() = runTest {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val runId = RunId("run.pending-check")
+        val turnId = TurnId("turn.pending-check.1")
+        database.worldloomQueries.insertRun(runId.value, "contract.pending-check", 1)
+        val pending = GameTurn(
+            runId = runId,
+            turnId = turnId,
+            input = "检查服务门",
+            status = GameTurnStatus.AWAITING_PLAYER,
+            revision = 2,
+            acceptedSequence = 9,
+            deliveredSequence = 9,
+            outputKind = GameTurnOutputKind.CHECK_REQUEST,
+            pendingCheck = PendingPlayerCheck(
+                actionId = DefinitionId("war.action.inspect-service-door"),
+                actionLabel = "检查药房服务门",
+                profileId = DefinitionId("war.check.survive"),
+                profileLabel = "生存判定",
+                diceCount = 2,
+                diceSides = 6,
+            ),
+        )
+
+        assertIs<GameTurnStoreResult.Success>(SqlDelightGameTurnStore(database).save(pending, null))
+        assertEquals(
+            pending,
+            SqlDelightGameTurnStore(WorldloomDatabase(driver)).load(runId, turnId),
+        )
+        driver.close()
+    }
+
     @Test
     fun gmTurnSurvivesRecreationAndRejectsStaleRevision() = runTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)

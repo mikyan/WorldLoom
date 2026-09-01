@@ -54,6 +54,7 @@ internal object WorldloomDimensions {
     val HudPanelWidth = 292.dp
     val HudPanelMediumWidth = 252.dp
     val AvatarSize = 40.dp
+    val ChatAvatarSize = 38.dp
     val AvatarControlWidth = 56.dp
     val StatusBadgeSize = 22.dp
     val ChoiceMarkSize = 12.dp

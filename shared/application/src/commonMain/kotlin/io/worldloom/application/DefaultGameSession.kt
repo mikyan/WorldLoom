@@ -2329,11 +2329,16 @@ class DefaultGameSession(
         return scene.actionIds.mapNotNull(contract::action).filter { action ->
             actionUnlocked(action, currentState)
         }.map { action ->
+            val checkProfile = action.checkProfileId?.let(definition::checkProfile)
             SessionAvailableAction(
                 actionId = action.id,
                 label = action.label ?: action.id.value,
                 outcomeIds = action.resolutions.map(PlayableActionResolution::outcomeId),
                 requiresCheck = action.checkProfileId != null,
+                checkProfileId = checkProfile?.id,
+                checkLabel = checkProfile?.label,
+                diceCount = checkProfile?.dice?.count,
+                diceSides = checkProfile?.dice?.sides,
             )
         }
     }

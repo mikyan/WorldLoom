@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
@@ -42,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -577,10 +580,12 @@ private fun GameConversation(
     val history = controller?.history?.collectAsState()?.value
         ?: io.worldloom.agent.runtime.GameAgentHistoryState()
     val messages = remember(presentation, history) { buildGameChatMessages(presentation, history) }
+    val pendingTurn = history.items.lastOrNull { it.pendingCheck != null }
+    val scope = rememberCoroutineScope()
     val hasPlayedMessages = history.items.isNotEmpty() || presentation.timeline.any { it.chatMessage != null }
     LaunchedEffect(controller, runKey) { controller?.recoverInterruptedHistory() }
     LaunchedEffect(messages.size, (agentState as? GameAgentState.Running)?.partialText) {
-        val extra = if (agentState is GameAgentState.Running) 1 else 0
+        val extra = (if (pendingTurn != null) 1 else 0) + (if (agentState is GameAgentState.Running) 1 else 0)
         if (messages.isNotEmpty() && (hasPlayedMessages || extra > 0)) {
             listState.scrollToItem(messages.lastIndex + extra)
         }
@@ -597,6 +602,17 @@ private fun GameConversation(
             verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
         ) {
             items(messages, key = GameChatMessage::id) { ChatBubble(it, reduceMotion = reduceMotion) }
+            pendingTurn?.let { turn ->
+                val pending = requireNotNull(turn.pendingCheck)
+                item("pending-check-${turn.turnId.value}") {
+                    PendingCheckCard(
+                        check = pending,
+                        rolling = agentState is GameAgentState.Running,
+                        enabled = interactive && controller != null && agentState !is GameAgentState.Running,
+                        onRoll = { scope.launch { controller?.rollPendingCheck(turn.turnId) } },
+                    )
+                }
+            }
             notice?.let { message ->
                 item("notice-${message.code}") {
                     WorldloomStatusBanner(message.message, WorldloomStatusTone.ERROR)
@@ -621,7 +637,7 @@ private fun GameConversation(
         Spacer(Modifier.height(WorldloomSpacing.Sm))
         SceneSuggestions(
             presentation = presentation,
-            enabled = interactive && controller != null && agentState !is GameAgentState.Running,
+            enabled = interactive && controller != null && agentState !is GameAgentState.Running && pendingTurn == null,
             onSuggestionSelected = onComposerDraftChanged,
         )
         Spacer(Modifier.height(WorldloomSpacing.Sm))
@@ -629,7 +645,7 @@ private fun GameConversation(
             controller = controller,
             characters = presentation.characters,
             historyKey = historyKey,
-            enabled = interactive && agentState !is GameAgentState.Running,
+            enabled = interactive && agentState !is GameAgentState.Running && pendingTurn == null,
             onNpcBusyChanged = onNpcBusyChanged,
             input = composerDraft,
             onInputChanged = onComposerDraftChanged,
@@ -640,17 +656,73 @@ private fun GameConversation(
 }
 
 @Composable
+private fun PendingCheckCard(
+    check: io.worldloom.agent.runtime.PendingPlayerCheck,
+    rolling: Boolean,
+    enabled: Boolean,
+    onRoll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Top,
+    ) {
+        ChatMessageAvatar(
+            GameChatMessage(
+                id = "pending-check-avatar",
+                order = Long.MAX_VALUE,
+                speaker = "PM",
+                kind = GameChatSpeakerKind.PM,
+                content = "",
+            ),
+            PmAccent,
+        )
+        Spacer(Modifier.width(WorldloomSpacing.Sm))
+        Column(
+            modifier = Modifier.fillMaxWidth(0.78f)
+                .background(WorldloomPalette.SurfaceRaised.copy(alpha = 0.94f), RoundedCornerShape(16.dp))
+                .border(1.dp, PmAccent.copy(alpha = 0.58f), RoundedCornerShape(16.dp))
+                .padding(WorldloomSpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
+        ) {
+            Text("需要判定", color = PmAccent, fontWeight = FontWeight.Bold)
+            Text(check.actionLabel, color = WorldloomPalette.TextPrimary)
+            Text(
+                listOfNotNull(check.profileLabel, check.diceNotation).joinToString(" · "),
+                color = MutedText,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
+            )
+            Text(
+                "点击后由规则引擎掷骰并记录结果，再继续故事。",
+                color = MutedText,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
+            )
+            WorldloomPrimaryButton(
+                label = if (rolling) "结算中…" else check.diceNotation?.let { "掷骰 · $it" } ?: "进行判定",
+                onClick = onRoll,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ChatBubble(
     message: GameChatMessage,
     typing: Boolean = false,
     reduceMotion: Boolean = false,
 ) {
+    if (message.kind == GameChatSpeakerKind.SYSTEM) {
+        SystemChatBubble(message)
+        return
+    }
     val player = message.kind == GameChatSpeakerKind.PLAYER
     val bubbleColor = when (message.kind) {
         GameChatSpeakerKind.PM -> WorldloomPalette.SurfaceRaised.copy(alpha = 0.88f)
         GameChatSpeakerKind.PLAYER -> PlayerBubble
-        GameChatSpeakerKind.NPC -> WorldloomPalette.NarrativeNpc.copy(alpha = 0.18f)
-        GameChatSpeakerKind.SYSTEM -> WorldloomPalette.Info.copy(alpha = 0.16f)
+        GameChatSpeakerKind.NPC -> WorldloomPalette.NarrativeNpc.copy(alpha = 0.2f)
+        GameChatSpeakerKind.SYSTEM -> Color.Transparent
     }
     val accent = when (message.kind) {
         GameChatSpeakerKind.PM -> PmAccent
@@ -658,52 +730,136 @@ private fun ChatBubble(
         GameChatSpeakerKind.NPC -> NpcAccent
         GameChatSpeakerKind.SYSTEM -> WorldloomPalette.Info
     }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (player) Arrangement.End else Arrangement.Start,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(if (player) 0.76f else 0.86f)
-                .background(bubbleColor, androidx.compose.material.MaterialTheme.shapes.medium)
-                .border(1.dp, accent.copy(alpha = 0.28f), androidx.compose.material.MaterialTheme.shapes.medium)
-                .padding(horizontal = WorldloomSpacing.Md, vertical = WorldloomSpacing.Sm),
-            verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs),
+    val bubbleShape = if (player) {
+        RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+    } else {
+        RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val bubbleMaxWidth = maxWidth * if (player) 0.72f else 0.78f
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (player) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    message.speaker,
-                    color = accent,
-                    style = androidx.compose.material.MaterialTheme.typography.subtitle1,
-                    fontWeight = FontWeight.Bold,
-                )
-                message.audienceLabel?.let { label ->
-                    Spacer(Modifier.width(WorldloomSpacing.Sm))
+            if (!player) {
+                ChatMessageAvatar(message, accent)
+                Spacer(Modifier.width(WorldloomSpacing.Sm))
+            }
+            Column(
+                modifier = Modifier.widthIn(max = bubbleMaxWidth),
+                horizontalAlignment = if (player) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        label,
-                        color = if (message.private) PmAccent else MutedText,
-                        style = androidx.compose.material.MaterialTheme.typography.caption,
-                        modifier = Modifier.background(
-                            if (message.private) PmAccent.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.07f),
-                            androidx.compose.material.MaterialTheme.shapes.small,
-                        ).padding(horizontal = WorldloomSpacing.Sm, vertical = WorldloomSpacing.Xs),
-                    )
-                }
-                if (typing && !reduceMotion) {
-                    Spacer(Modifier.width(WorldloomSpacing.Sm))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(WorldloomDimensions.TypingIndicatorSize),
-                        strokeWidth = 1.5.dp,
+                        message.speaker,
                         color = accent,
+                        style = androidx.compose.material.MaterialTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
                     )
-                } else if (typing) {
-                    Spacer(Modifier.width(WorldloomSpacing.Sm))
-                    Text("正在回应", color = accent, style = androidx.compose.material.MaterialTheme.typography.caption)
+                    message.audienceLabel?.let { label ->
+                        Spacer(Modifier.width(WorldloomSpacing.Sm))
+                        Text(
+                            label,
+                            color = if (message.private) PmAccent else MutedText,
+                            style = androidx.compose.material.MaterialTheme.typography.caption,
+                            modifier = Modifier.background(
+                                if (message.private) PmAccent.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.07f),
+                                RoundedCornerShape(50),
+                            ).padding(horizontal = WorldloomSpacing.Sm, vertical = WorldloomSpacing.Xs),
+                        )
+                    }
+                    if (typing && !reduceMotion) {
+                        Spacer(Modifier.width(WorldloomSpacing.Sm))
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(WorldloomDimensions.TypingIndicatorSize),
+                            strokeWidth = 1.5.dp,
+                            color = accent,
+                        )
+                    } else if (typing) {
+                        Spacer(Modifier.width(WorldloomSpacing.Sm))
+                        Text("正在回应", color = accent, style = androidx.compose.material.MaterialTheme.typography.caption)
+                    }
                 }
+                Box(
+                    modifier = Modifier.clip(bubbleShape)
+                        .background(bubbleColor)
+                        .border(1.dp, accent.copy(alpha = 0.3f), bubbleShape)
+                        .padding(horizontal = WorldloomSpacing.Md, vertical = WorldloomSpacing.Sm),
+                ) {
+                    Text(
+                        message.content,
+                        color = WorldloomPalette.TextPrimary,
+                        style = androidx.compose.material.MaterialTheme.typography.body2,
+                    )
+                }
+            }
+            if (player) {
+                Spacer(Modifier.width(WorldloomSpacing.Sm))
+                ChatMessageAvatar(message, accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatMessageAvatar(message: GameChatMessage, accent: Color) {
+    val painter = gameplayAvatarPainter(message.avatarAssetId)
+    val fallback = when (message.kind) {
+        GameChatSpeakerKind.PM -> "PM"
+        GameChatSpeakerKind.PLAYER -> "我"
+        GameChatSpeakerKind.NPC -> message.speaker.take(1).uppercase()
+        GameChatSpeakerKind.SYSTEM -> "i"
+    }
+    Box(
+        modifier = Modifier.size(WorldloomDimensions.ChatAvatarSize)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.16f))
+            .border(1.dp, accent.copy(alpha = 0.7f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (painter != null) {
+            Image(
+                painter = painter,
+                contentDescription = "${message.speaker} 头像",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                fallback,
+                color = accent,
+                fontWeight = FontWeight.Black,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SystemChatBubble(message: GameChatMessage) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Row(
+            modifier = Modifier.fillMaxWidth(0.86f)
+                .clip(RoundedCornerShape(50))
+                .background(WorldloomPalette.Info.copy(alpha = 0.12f))
+                .border(1.dp, WorldloomPalette.Info.copy(alpha = 0.24f), RoundedCornerShape(50))
+                .padding(horizontal = WorldloomSpacing.Md, vertical = WorldloomSpacing.Sm),
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.size(18.dp).clip(CircleShape)
+                    .background(WorldloomPalette.Info.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("i", color = WorldloomPalette.Info, fontWeight = FontWeight.Bold)
             }
             Text(
                 message.content,
-                color = WorldloomPalette.TextPrimary,
-                style = androidx.compose.material.MaterialTheme.typography.body2,
+                color = WorldloomPalette.TextSecondary,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
             )
         }
     }
@@ -1228,13 +1384,7 @@ private fun CharacterAvatar(
     reachable: Boolean,
     selected: Boolean,
 ) {
-    val painter = when (gameplayAvatarAsset(avatarAssetId)) {
-        GameplayAvatarAsset.WAR_MARA -> painterResource(Res.drawable.npc_war_mara)
-        GameplayAvatarAsset.WAR_TOMAS -> painterResource(Res.drawable.npc_war_tomas)
-        GameplayAvatarAsset.STATION_LYRA -> painterResource(Res.drawable.npc_station_lyra)
-        GameplayAvatarAsset.STATION_SOREN -> painterResource(Res.drawable.npc_station_soren)
-        GameplayAvatarAsset.GENERIC -> null
-    }
+    val painter = gameplayAvatarPainter(avatarAssetId)
     Box(Modifier.size(WorldloomDimensions.AvatarSize)) {
         Box(
             modifier = Modifier.fillMaxSize().clip(CircleShape)
@@ -1272,6 +1422,15 @@ internal fun gameplayAvatarAsset(assetId: String?): GameplayAvatarAsset = when (
     "worldloom.avatar.station-lyra" -> GameplayAvatarAsset.STATION_LYRA
     "worldloom.avatar.station-soren" -> GameplayAvatarAsset.STATION_SOREN
     else -> GameplayAvatarAsset.GENERIC
+}
+
+@Composable
+private fun gameplayAvatarPainter(assetId: String?): Painter? = when (gameplayAvatarAsset(assetId)) {
+    GameplayAvatarAsset.WAR_MARA -> painterResource(Res.drawable.npc_war_mara)
+    GameplayAvatarAsset.WAR_TOMAS -> painterResource(Res.drawable.npc_war_tomas)
+    GameplayAvatarAsset.STATION_LYRA -> painterResource(Res.drawable.npc_station_lyra)
+    GameplayAvatarAsset.STATION_SOREN -> painterResource(Res.drawable.npc_station_soren)
+    GameplayAvatarAsset.GENERIC -> null
 }
 
 @Composable

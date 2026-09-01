@@ -19,6 +19,7 @@ data class HostedTurnHistoryItem(
     val safeFailureMessage: String?,
     val recoveryKind: GameTurnRecoveryKind,
     val evidence: HostedTurnEvidence?,
+    val pendingCheck: PendingPlayerCheck? = null,
 )
 
 data class HostedTurnHistoryIssue(
@@ -162,6 +163,7 @@ object HostedTurnHistoryProjector {
                 evidence = turn.evidenceFromSequenceExclusive?.let { from ->
                     HostedTurnEvidence(from, requireNotNull(turn.evidenceThroughSequenceInclusive))
                 },
+                pendingCheck = turn.pendingCheck,
             )
         }
         return HostedTurnHistoryResult.Success(

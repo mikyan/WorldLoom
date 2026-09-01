@@ -15,7 +15,7 @@
         "event": 1,
         "saveData": 1,
         "snapshot": 1,
-        "gmTurn": 3,
+        "gmTurn": 4,
         "gmContinuity": 1,
         "runPersistenceEvidence": 1,
         "playableGuidance": 1,
