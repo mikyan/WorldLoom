@@ -91,7 +91,6 @@ internal fun GameplayPage(
     historyKey: String,
     onExit: () -> Unit,
     onReplay: () -> Unit,
-    onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
@@ -135,7 +134,6 @@ internal fun GameplayPage(
                     historyKey,
                     onExit,
                     onReplay,
-                    onAdjust,
                     onCheck,
                     onWait,
                     onNpcBusyChanged,
@@ -157,7 +155,6 @@ internal fun GameplayPage(
                     onPaneChanged = { contextPane = it },
                     onClose = { mapOpen = false },
                     onReplay = onReplay,
-                    onAdjust = onAdjust,
                     onCheck = onCheck,
                     onWait = onWait,
                     onChatPrefix = { composerDraft = it },
@@ -216,7 +213,6 @@ private fun LandscapeGameplay(
     historyKey: String,
     onExit: () -> Unit,
     onReplay: () -> Unit,
-    onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
@@ -271,7 +267,6 @@ private fun LandscapeGameplay(
                 },
             ).fillMaxHeight(),
             onReplay = onReplay,
-            onAdjust = onAdjust,
             onCheck = onCheck,
             onWait = onWait,
             onChatPrefix = onComposerDraftChanged,
@@ -507,7 +502,6 @@ private fun GameContextOverlay(
     onPaneChanged: (GameContextPane) -> Unit,
     onClose: () -> Unit,
     onReplay: () -> Unit,
-    onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
     onChatPrefix: (String) -> Unit,
@@ -539,7 +533,6 @@ private fun GameContextOverlay(
                     interactive = interactive,
                     modifier = Modifier.fillMaxSize(),
                     onReplay = onReplay,
-                    onAdjust = onAdjust,
                     onCheck = onCheck,
                     onWait = onWait,
                     onChatPrefix = onChatPrefix,
@@ -897,7 +890,6 @@ private fun WorldHud(
     interactive: Boolean,
     modifier: Modifier,
     onReplay: () -> Unit,
-    onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
     onChatPrefix: (String) -> Unit,
@@ -957,12 +949,6 @@ private fun WorldHud(
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(field.label, color = MutedText, modifier = Modifier.weight(1f))
                             Text(field.value.toString(), color = WorldloomPalette.TextPrimary, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(WorldloomSpacing.Sm))
-                            WorldloomSecondaryButton(
-                                label = field.adjustmentStep.signedLabel,
-                                onClick = { onAdjust(field.presentationId) },
-                                enabled = interactive,
-                            )
                         }
                     }
                 }
@@ -1346,5 +1332,3 @@ private fun HudSection(title: String, content: @Composable () -> Unit) {
         content()
     }
 }
-
-private val Long.signedLabel: String get() = if (this > 0) "+$this" else toString()

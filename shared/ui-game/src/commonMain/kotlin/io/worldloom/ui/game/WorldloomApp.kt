@@ -219,9 +219,6 @@ fun WorldloomApp(
                                 }
                             },
                             onReplay = { scope.launch { session.replay() } },
-                            onAdjust = { presentationId ->
-                                scope.launch { session.perform(GameSessionAction.AdjustPresentedField(presentationId)) }
-                            },
                             onCheck = { presentationId ->
                                 scope.launch { session.perform(GameSessionAction.ResolvePresentedCheck(presentationId)) }
                             },
@@ -510,7 +507,6 @@ private fun EmptyState(
 private fun ReadyState(
     presentation: GamePresentation,
     notice: SessionError?,
-    onAdjust: (io.worldloom.definition.DefinitionId) -> Unit,
     onCheck: (io.worldloom.definition.DefinitionId) -> Unit,
     onReplay: () -> Unit,
     onAction: (io.worldloom.definition.DefinitionId) -> Unit,
@@ -678,9 +674,6 @@ private fun ReadyState(
                     ) {
                         Text(field.label, color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
                         Text(field.value.toString(), fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                        Button(onClick = { onAdjust(field.presentationId) }, enabled = interactive) {
-                            Text("推进 ${signed(field.adjustmentStep)}")
-                        }
                     }
                 }
             }
@@ -1157,5 +1150,3 @@ private fun hostedTurnStatus(status: GameTurnStatus): String = when (status) {
     GameTurnStatus.CANCELLED -> "已取消"
     GameTurnStatus.FAILED -> "未完成"
 }
-
-private fun signed(value: Long): String = if (value > 0) "+$value" else value.toString()
