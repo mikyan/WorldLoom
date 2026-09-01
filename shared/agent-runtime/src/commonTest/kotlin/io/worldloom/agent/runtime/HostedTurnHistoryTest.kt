@@ -1,5 +1,11 @@
 package io.worldloom.agent.runtime
 
+import io.worldloom.application.GamePresentation
+import io.worldloom.application.GuidancePresentation
+import io.worldloom.application.PresentedAction
+import io.worldloom.application.PresentedScene
+import io.worldloom.definition.DefinitionId
+import io.worldloom.world.EntityId
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -100,6 +106,51 @@ class HostedTurnHistoryTest {
         assertEquals(GameTurnOutputKind.NARRATION, current.outputKind)
         assertEquals(2, current.evidenceFromSequenceExclusive)
         assertEquals(4, current.evidenceThroughSequenceInclusive)
+    }
+
+    @Test
+    fun previouslyStoredNarrationIsSanitizedWhenProjectedForChat() {
+        val runId = RunId("run.old-narration")
+        val page = HostedTurnHistoryPage(
+            items = listOf(
+                HostedTurnHistoryItem(
+                    runId = runId,
+                    turnId = TurnId("run.old-narration.turn.1"),
+                    ordinal = 1,
+                    acceptedSequence = 5,
+                    status = GameTurnStatus.COMPLETED,
+                    playerInput = "继续",
+                    outputKind = GameTurnOutputKind.NARRATION,
+                    publicOutput = "eventType: worldloom.event.action.outcome-applied\n执行 war.action.search-supplies。",
+                    safeFailureMessage = null,
+                    recoveryKind = GameTurnRecoveryKind.NONE,
+                    evidence = null,
+                ),
+            ),
+            issues = emptyList(),
+            hasEarlier = false,
+        )
+        val presentation = GamePresentation(
+            worldId = DefinitionId("contract.war-survival"),
+            title = "灰烬中的车队",
+            lastSequence = 5,
+            fields = emptyList(),
+            checks = emptyList(),
+            timeline = emptyList(),
+            scene = PresentedScene(
+                id = DefinitionId("war.scene.ruins"),
+                label = "钟楼废墟",
+                participantIds = listOf(EntityId("player")),
+                actions = listOf(PresentedAction(DefinitionId("war.action.search-supplies"), "搜查临街药房")),
+            ),
+            guidance = GuidancePresentation(),
+        )
+
+        val output = page.withPlayerFacingNarration(presentation).items.single().publicOutput.orEmpty()
+
+        assertEquals("执行 搜查临街药房。", output)
+        assertFalse(output.contains("eventType"))
+        assertFalse(output.contains("worldloom.event"))
     }
 
     @Test

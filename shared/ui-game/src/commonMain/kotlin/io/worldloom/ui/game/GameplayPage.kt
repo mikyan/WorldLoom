@@ -51,7 +51,9 @@ import io.worldloom.agent.runtime.GameAgentController
 import io.worldloom.agent.runtime.GameAgentState
 import io.worldloom.agent.runtime.NpcDialogueResult
 import io.worldloom.application.GamePresentation
+import io.worldloom.application.GuidanceTargetKind
 import io.worldloom.application.PresentedNpc
+import io.worldloom.application.PresentedGuidanceSuggestion
 import io.worldloom.application.SessionError
 import io.worldloom.definition.DefinitionId
 import io.worldloom.ui.game.generated.resources.Res
@@ -85,12 +87,9 @@ internal fun GameplayPage(
     historyKey: String,
     onExit: () -> Unit,
     onReplay: () -> Unit,
-    onAction: (DefinitionId) -> Unit,
     onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
-    onActivity: (DefinitionId) -> Unit,
-    onTravel: (DefinitionId) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -105,7 +104,6 @@ internal fun GameplayPage(
                 runKey,
                 historyKey,
                 onExit,
-                onAction,
                 onNpcBusyChanged,
             )
         } else {
@@ -118,12 +116,9 @@ internal fun GameplayPage(
                 historyKey,
                 onExit,
                 onReplay,
-                onAction,
                 onAdjust,
                 onCheck,
                 onWait,
-                onActivity,
-                onTravel,
                 onNpcBusyChanged,
             )
         }
@@ -169,12 +164,9 @@ private fun LandscapeGameplay(
     historyKey: String,
     onExit: () -> Unit,
     onReplay: () -> Unit,
-    onAction: (DefinitionId) -> Unit,
     onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
-    onActivity: (DefinitionId) -> Unit,
-    onTravel: (DefinitionId) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
     var composerPrefill by remember { mutableStateOf<ComposerPrefill?>(null) }
@@ -194,10 +186,12 @@ private fun LandscapeGameplay(
                 runKey = runKey,
                 historyKey = historyKey,
                 modifier = Modifier.weight(1f),
-                onAction = onAction,
                 onNpcBusyChanged = onNpcBusyChanged,
                 composerPrefill = composerPrefill,
                 onComposerPrefillConsumed = { composerPrefill = null },
+                onSuggestionSelected = { draft ->
+                    composerPrefill = ComposerPrefill(draft, prefillToken++)
+                },
             )
         }
         WorldHud(
@@ -205,12 +199,9 @@ private fun LandscapeGameplay(
             interactive = interactive,
             modifier = Modifier.width(292.dp).fillMaxHeight(),
             onReplay = onReplay,
-            onAction = onAction,
             onAdjust = onAdjust,
             onCheck = onCheck,
             onWait = onWait,
-            onActivity = onActivity,
-            onTravel = onTravel,
             onChatPrefix = { prefix -> composerPrefill = ComposerPrefill(prefix, prefillToken++) },
         )
     }
@@ -225,7 +216,6 @@ private fun PortraitGameplay(
     runKey: String,
     historyKey: String,
     onExit: () -> Unit,
-    onAction: (DefinitionId) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
     var composerPrefill by remember { mutableStateOf<ComposerPrefill?>(null) }
@@ -256,10 +246,12 @@ private fun PortraitGameplay(
             runKey = runKey,
             historyKey = historyKey,
             modifier = Modifier.weight(1f),
-            onAction = onAction,
             onNpcBusyChanged = onNpcBusyChanged,
             composerPrefill = composerPrefill,
             onComposerPrefillConsumed = { composerPrefill = null },
+            onSuggestionSelected = { draft ->
+                composerPrefill = ComposerPrefill(draft, prefillToken++)
+            },
         )
     }
 }
@@ -317,10 +309,10 @@ private fun GameConversation(
     runKey: String,
     historyKey: String,
     modifier: Modifier,
-    onAction: (DefinitionId) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
     composerPrefill: ComposerPrefill?,
     onComposerPrefillConsumed: () -> Unit,
+    onSuggestionSelected: (String) -> Unit,
 ) {
     val agentState = controller?.state?.collectAsState()?.value ?: GameAgentState.Idle
     val history = controller?.history?.collectAsState()?.value
@@ -370,7 +362,11 @@ private fun GameConversation(
             }
         }
         Spacer(Modifier.height(6.dp))
-        SceneSuggestions(presentation, interactive && agentState !is GameAgentState.Running, onAction)
+        SceneSuggestions(
+            presentation = presentation,
+            enabled = interactive && controller != null && agentState !is GameAgentState.Running,
+            onSuggestionSelected = onSuggestionSelected,
+        )
         Spacer(Modifier.height(6.dp))
         ChatComposer(
             controller = controller,
@@ -438,23 +434,36 @@ private fun ChatBubble(message: GameChatMessage, typing: Boolean = false) {
 private fun SceneSuggestions(
     presentation: GamePresentation,
     enabled: Boolean,
-    onAction: (DefinitionId) -> Unit,
+    onSuggestionSelected: (String) -> Unit,
 ) {
-    val actions = presentation.scene?.actions.orEmpty()
-    if (actions.isEmpty()) return
+    val suggestions = gameplaySuggestions(presentation)
+    if (suggestions.isEmpty()) return
     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         item { Text("可尝试", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp)) }
-        items(actions, key = { it.id.value }) { action ->
+        items(suggestions, key = { "${it.targetKind}:${it.targetId.value}" }) { suggestion ->
             Button(
-                onClick = { onAction(action.id) },
+                onClick = { onSuggestionSelected(suggestion.inputDraft) },
                 enabled = enabled,
                 modifier = Modifier.height(32.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD5464B45), contentColor = Color.White),
-            ) { Text(action.label, fontSize = 11.sp) }
+            ) { Text(suggestion.label, fontSize = 11.sp) }
         }
     }
 }
+
+internal fun gameplaySuggestions(presentation: GamePresentation): List<PresentedGuidanceSuggestion> =
+    presentation.guidance.suggestions
+
+internal fun gameplaySuggestionDraft(
+    presentation: GamePresentation,
+    targetKind: GuidanceTargetKind,
+    targetId: DefinitionId,
+    fallback: String,
+): String = presentation.guidance.suggestions
+    .firstOrNull { it.targetKind == targetKind && it.targetId == targetId }
+    ?.inputDraft
+    ?: fallback
 
 @Composable
 private fun ChatComposer(
@@ -545,12 +554,9 @@ private fun WorldHud(
     interactive: Boolean,
     modifier: Modifier,
     onReplay: () -> Unit,
-    onAction: (DefinitionId) -> Unit,
     onAdjust: (DefinitionId) -> Unit,
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
-    onActivity: (DefinitionId) -> Unit,
-    onTravel: (DefinitionId) -> Unit,
     onChatPrefix: (String) -> Unit,
 ) {
     LazyColumn(
@@ -575,7 +581,20 @@ private fun WorldHud(
                 item {
                     HudSection("行动") {
                         scene.actions.forEach { action ->
-                            Button(modifier = Modifier.fillMaxWidth(), onClick = { onAction(action.id) }, enabled = interactive) {
+                            Button(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    onChatPrefix(
+                                        gameplaySuggestionDraft(
+                                            presentation,
+                                            GuidanceTargetKind.ACTION,
+                                            action.id,
+                                            "我想${action.label}。",
+                                        ),
+                                    )
+                                },
+                                enabled = interactive,
+                            ) {
                                 Text(action.label)
                             }
                         }
@@ -626,12 +645,38 @@ private fun WorldHud(
                         }
                     }
                     presentation.activities.forEach { activity ->
-                        Button(modifier = Modifier.fillMaxWidth(), onClick = { onActivity(activity.id) }, enabled = interactive) {
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                onChatPrefix(
+                                    gameplaySuggestionDraft(
+                                        presentation,
+                                        GuidanceTargetKind.ACTIVITY,
+                                        activity.id,
+                                        "我想先${activity.label}。",
+                                    ),
+                                )
+                            },
+                            enabled = interactive,
+                        ) {
                             Text("${activity.label} · ${activity.durationMinutes} 分钟")
                         }
                     }
                     presentation.travelRoutes.forEach { route ->
-                        Button(modifier = Modifier.fillMaxWidth(), onClick = { onTravel(route.id) }, enabled = interactive) {
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                onChatPrefix(
+                                    gameplaySuggestionDraft(
+                                        presentation,
+                                        GuidanceTargetKind.TRAVEL,
+                                        route.id,
+                                        "我想沿${route.label}前进。",
+                                    ),
+                                )
+                            },
+                            enabled = interactive,
+                        ) {
                             Text("${route.label} · ${route.durationMinutes} 分钟")
                         }
                     }

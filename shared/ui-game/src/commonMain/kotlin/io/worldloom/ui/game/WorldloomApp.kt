@@ -136,9 +136,6 @@ fun WorldloomApp(
                     historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
                     onExit = { showSetup = true },
                     onReplay = { scope.launch { session.replay() } },
-                    onAction = { actionId ->
-                        scope.launch { session.perform(GameSessionAction.PerformAvailableAction(actionId)) }
-                    },
                     onAdjust = { presentationId ->
                         scope.launch { session.perform(GameSessionAction.AdjustPresentedField(presentationId)) }
                     },
@@ -147,12 +144,6 @@ fun WorldloomApp(
                     },
                     onWait = { minutes ->
                         scope.launch { session.perform(GameSessionAction.AdvanceWorldTime(minutes)) }
-                    },
-                    onActivity = { activityId ->
-                        scope.launch { session.perform(GameSessionAction.PerformActivity(activityId)) }
-                    },
-                    onTravel = { routeId ->
-                        scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
                     },
                     onNpcBusyChanged = { npcDialogueBusy = it },
                 )

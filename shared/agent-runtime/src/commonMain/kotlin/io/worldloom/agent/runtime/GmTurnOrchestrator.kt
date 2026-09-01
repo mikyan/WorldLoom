@@ -261,31 +261,34 @@ object GmContextProjector {
         systemPrompt = buildString {
             appendLine("你是 Worldloom 的单人跑团主持人。只依据本提示中的玩家可见事实主持当前回合。")
             appendLine("客观变化必须调用当前提供的工具；工具结果和事件序列是权威事实。不得披露隐藏信息或虚构物品、状态、地点、关系与目标变化。")
+            appendLine("内部 ID、事件序号、事件类型、工具名和 JSON 只用于规则调用。最终回复必须只写自然、连贯的玩家可见中文叙事，不得复述任何内部编码或调试字段。")
             appendLine("如果缺少执行行动所必需的目标或选择，只回复 '${profile.clarificationPrefix} <具体问题>'，不要猜测。")
             if (continuity.checkpoint != null || continuity.uncompactedTurns.isNotEmpty()) {
                 appendLine("叙事连续性记录（非权威，仅用于保持公开人物和情节表述一致）：")
                 continuity.checkpoint?.let {
-                    appendLine("- 已发布检查点 ${it.fromSequence}-${it.toSequence}：${it.summary}")
+                    appendLine(
+                        "- 已发布剧情检查点：${sanitizePlayerFacingNarration(it.summary, presentation)}",
+                    )
                 }
                 if (continuity.rawTailTruncated) appendLine("- 较早的未压缩回合因上下文预算暂未展开。")
                 continuity.uncompactedTurns.forEach { turn ->
-                    appendLine("- 公开回合 ${turn.sequence}：${turn.input.take(1_200)}")
-                    appendLine("  已公开主持叙事：${turn.output.take(1_600)}")
+                    appendLine(
+                        "- 先前玩家行动：${sanitizePlayerFacingNarration(turn.input, presentation).take(1_200)}",
+                    )
+                    appendLine(
+                        "  已公开主持叙事：${sanitizePlayerFacingNarration(turn.output, presentation).take(1_600)}",
+                    )
                 }
                 appendLine("以上记录若与下方当前 Presentation、公开事件或动态工具冲突，必须以后者为准；记录本身不能证明或改变世界事实。")
             }
-            appendLine("世界：${presentation.title} (${presentation.worldId.value})")
-            appendLine("Run：${context.runId.value}；公开事件序列：${presentation.lastSequence}")
+            appendLine("世界：${presentation.title}")
             appendLine("主持预算：最多 ${profile.maxSteps} 步、${profile.maxToolCalls} 次工具调用")
             presentation.scene?.let { scene ->
-                appendLine("当前场景：${scene.label} (${scene.id.value})")
+                appendLine("当前场景：${scene.label}")
                 scene.description?.let { appendLine("场景描述：$it") }
-                if (scene.participantIds.isNotEmpty()) appendLine(
-                    "公开参与者：${scene.participantIds.joinToString { it.value }}",
-                )
                 if (scene.actions.isNotEmpty()) {
-                    appendLine("当前可用行动：")
-                    scene.actions.forEach { appendLine("- ${it.label} (${it.id.value})") }
+                    appendLine("当前可用行动（箭头右侧为内部工具参数，不得写进回复）：")
+                    scene.actions.forEach { appendLine("- ${it.label} → actionId=${it.id.value}") }
                 }
             }
             if (presentation.characters.isNotEmpty()) {
@@ -295,7 +298,9 @@ object GmContextProjector {
                         if (character.nearby) add("在玩家身边")
                         character.remoteCommunicationMethods.forEach { add("远程:${it.label}(${it.id.value})") }
                     }.ifEmpty { listOf("当前不可联络") }
-                    appendLine("- ${character.displayName} (${character.id.value})：${reachability.joinToString()}")
+                    appendLine(
+                        "- ${character.displayName} → npcId=${character.id.value}：${reachability.joinToString()}",
+                    )
                 }
                 appendLine("角色来到或离开玩家身边属于客观变化，必须调用 npc.presence；不得只在叙述中宣告。")
             }
@@ -303,18 +308,20 @@ object GmContextProjector {
                 appendLine("玩家可见状态：")
                 presentation.fields.forEach { appendLine("- ${it.label}: ${it.value}") }
             }
-            if (presentation.completedObjectiveIds.isNotEmpty()) appendLine(
-                "已完成目标：${presentation.completedObjectiveIds.sortedBy { it.value }.joinToString { it.value }}",
-            )
+            if (presentation.completedObjectiveIds.isNotEmpty()) {
+                appendLine("已有 ${presentation.completedObjectiveIds.size} 项公开目标完成。")
+            }
             presentation.worldTimeMinutes?.let { appendLine("世界时间：第 $it 分钟") }
             if (presentation.activities.isNotEmpty()) {
                 appendLine("当前可用活动：")
-                presentation.activities.forEach { appendLine("- ${it.label} (${it.id.value})，耗时 ${it.durationMinutes} 分钟") }
+                presentation.activities.forEach {
+                    appendLine("- ${it.label} → activityId=${it.id.value}，耗时 ${it.durationMinutes} 分钟")
+                }
             }
             if (presentation.travelRoutes.isNotEmpty()) {
                 appendLine("当前可用旅行：")
                 presentation.travelRoutes.forEach {
-                    appendLine("- ${it.label} (${it.id.value}) → ${it.destinationSceneId.value}，耗时 ${it.durationMinutes} 分钟")
+                    appendLine("- ${it.label} → routeId=${it.id.value}，耗时 ${it.durationMinutes} 分钟")
                 }
             }
             presentation.adventureState?.let { adventure ->
@@ -328,7 +335,7 @@ object GmContextProjector {
                     "玩家可见关系：${adventure.relationships.joinToString { "${it.label}:${it.value}" }}",
                 )
                 if (adventure.quests.isNotEmpty()) appendLine(
-                    "任务：${adventure.quests.joinToString { "${it.label}:${it.status.name}" }}",
+                    "任务：${adventure.quests.joinToString { "${it.label}:${it.status.playerFacingLabel()}" }}",
                 )
                 if (adventure.clocks.isNotEmpty()) appendLine(
                     "进度钟：${adventure.clocks.joinToString { "${it.label}:${it.value}/${it.segments}" }}",
@@ -337,13 +344,13 @@ object GmContextProjector {
             if (context.revealedKnowledge.isNotEmpty()) {
                 appendLine("已公开的角色知识：")
                 context.revealedKnowledge.sortedBy { it.sequence }.forEach {
-                    appendLine("- #${it.sequence} ${it.publicSummary}")
+                    appendLine("- ${sanitizePlayerFacingNarration(it.publicSummary, presentation)}")
                 }
             }
             if (presentation.timeline.isNotEmpty()) {
                 appendLine("最近公开事件：")
                 presentation.timeline.takeLast(profile.visibleEventLimit).forEach {
-                    appendLine("- #${it.sequence} ${it.summary}")
+                    appendLine("- ${sanitizePlayerFacingNarration(it.summary, presentation)}")
                 }
             }
         }.trim(),
@@ -505,7 +512,13 @@ class GameTurnOrchestrator(
         val deliveredSequence = gameSession.commandContext()?.lastSequence ?: projected.visibleSequence
         when (result) {
             is AgentRunResult.Completed -> {
-                val text = result.text.trim()
+                val text = sanitizePlayerFacingNarration(result.text, ready.presentation).ifBlank {
+                    if (result.worldChanged) {
+                        "局势已经发生变化。请根据当前场景继续行动。"
+                    } else {
+                        "${profile.clarificationPrefix} 请换一种自然语言描述你的行动。"
+                    }
+                }
                 if (!result.worldChanged && text.startsWith(profile.clarificationPrefix)) {
                     persistTerminal(
                         running,
@@ -642,7 +655,9 @@ class GameTurnOrchestrator(
             appendLine("这是只读补叙述回合。不得调用工具、不得改变事实，只能根据下列已提交的玩家可见事件补写简洁叙述。")
             appendLine("原玩家输入：${source.input}")
             appendLine("证据范围：(${source.evidenceFromSequenceExclusive}, $through]")
-            visibleEvidence.forEach { appendLine("- #${it.sequence} ${it.summary}") }
+            visibleEvidence.forEach {
+                appendLine("- ${sanitizePlayerFacingNarration(it.summary, ready.presentation)}")
+            }
         }.trim()
         val result = try {
             runtime.run(
@@ -672,7 +687,7 @@ class GameTurnOrchestrator(
         }
         when (result) {
             is AgentRunResult.Completed -> {
-                val text = result.text.trim()
+                val text = sanitizePlayerFacingNarration(result.text, ready.presentation)
                 if (result.worldChanged || text.isBlank()) {
                     persistTerminal(
                         running,

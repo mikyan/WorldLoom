@@ -129,7 +129,10 @@ class DefaultGameAgentController(
                 input = input,
                 onTextDelta = { delta ->
                     partial.append(delta)
-                    mutableState.value = GameAgentState.Running(partial.toString(), turnId)
+                    mutableState.value = GameAgentState.Running(
+                        sanitizePlayerFacingNarration(partial.toString(), ready.presentation),
+                        turnId,
+                    )
                 },
                 requestKind = requestKind,
                 parentTurnId = parentTurnId,
@@ -205,7 +208,7 @@ class DefaultGameAgentController(
         ) {
             is HostedTurnHistoryResult.Success -> GameAgentHistoryState(
                 runId = context.runId,
-                items = projection.page.items,
+                items = projection.page.withPlayerFacingNarration(ready.presentation).items,
                 issues = projection.page.issues,
                 hasEarlier = projection.page.hasEarlier,
             )
@@ -236,7 +239,9 @@ class DefaultGameAgentController(
             )
         ) {
             is HostedTurnHistoryResult.Success -> mutableHistory.value = mutableHistory.value.copy(
-                items = (projection.page.items + mutableHistory.value.items).distinctBy { it.turnId },
+                items = (
+                    projection.page.withPlayerFacingNarration(ready.presentation).items + mutableHistory.value.items
+                ).distinctBy { it.turnId },
                 issues = (projection.page.issues + mutableHistory.value.issues)
                     .distinctBy { it.turnId to it.code },
                 hasEarlier = projection.page.hasEarlier,

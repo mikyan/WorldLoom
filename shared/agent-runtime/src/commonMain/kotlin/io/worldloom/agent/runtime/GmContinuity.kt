@@ -149,12 +149,11 @@ class GmContinuityCoordinator(
         val delivered = deliveredSequence ?: acceptedSequence
         val evidence = publicEvents.filter { it.sequence > acceptedSequence && it.sequence <= delivered }
         val publicInput = buildString {
-            appendLine("公开主持回合 ${turnId.value}")
             appendLine("玩家输入：$input")
             if (evidence.isNotEmpty()) {
-                appendLine("已提交公开事件：")
-                evidence.forEach { event ->
-                    appendLine("- #${event.sequence} ${event.eventType.value}: ${event.publicInput ?: event.eventId}")
+                appendLine("规则引擎已提交 ${evidence.size} 条玩家可见事实变化。")
+                evidence.mapNotNull(SessionCommittedEvent::publicInput).distinct().forEach { publicDialogue ->
+                    appendLine("公开对话：$publicDialogue")
                 }
             }
         }.trim()

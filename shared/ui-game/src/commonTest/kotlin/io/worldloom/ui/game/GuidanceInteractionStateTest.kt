@@ -2,6 +2,7 @@ package io.worldloom.ui.game
 
 import io.worldloom.application.GuidancePresentation
 import io.worldloom.application.GuidanceTargetKind
+import io.worldloom.application.GamePresentation
 import io.worldloom.application.PresentedGuidanceSuggestion
 import io.worldloom.application.PresentedTutorialStep
 import io.worldloom.definition.DefinitionId
@@ -29,6 +30,36 @@ class GuidanceInteractionStateTest {
         assertFalse(reviewing.skipped)
         assertEquals(guidance.tutorials, reviewing.visibleTutorials(guidance))
         assertTrue(reviewing.completedTutorialIds.isEmpty())
+    }
+
+    @Test
+    fun gameplayRecommendationReturnsNaturalLanguageDraftInsteadOfCommandId() {
+        val suggestion = PresentedGuidanceSuggestion(
+            GuidanceTargetKind.ACTION,
+            DefinitionId("war.action.search-supplies"),
+            "搜查临街药房",
+            "我想搜查临街药房。",
+        )
+        val presentation = GamePresentation(
+            worldId = DefinitionId("contract.war-survival"),
+            title = "灰烬中的车队",
+            lastSequence = 5,
+            fields = emptyList(),
+            checks = emptyList(),
+            timeline = emptyList(),
+            guidance = GuidancePresentation(suggestions = listOf(suggestion)),
+        )
+
+        assertEquals(listOf(suggestion), gameplaySuggestions(presentation))
+        assertEquals(
+            "我想搜查临街药房。",
+            gameplaySuggestionDraft(
+                presentation,
+                GuidanceTargetKind.ACTION,
+                DefinitionId("war.action.search-supplies"),
+                "fallback",
+            ),
+        )
     }
 
     private fun tutorial(id: String) = PresentedTutorialStep(

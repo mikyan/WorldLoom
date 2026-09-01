@@ -114,6 +114,36 @@ class GameTurnOrchestratorContractTest {
     }
 
     @Test
+    fun playerFacingNarrationDoesNotExposeInternalEventOrDefinitionCodes() = runTest {
+        val session = playableSession("gm-public-text")
+        val provider = SingleTurnProvider(
+            ProviderResult.Success(
+                ProviderTurn(
+                    "事件编码：worldloom.event.action.outcome-applied\n" +
+                        "根据 #7，war.action.search-supplies 已得到 war.outcome.success。",
+                    usage = ProviderUsage(8, 6),
+                ),
+            ),
+        )
+        val result = assertIs<GmTurnResult.Completed>(
+            GameTurnOrchestrator(
+                AgentRuntime(provider, DefaultAgentToolGateway(session)),
+                session,
+            ).submit(TurnId("player-turn.public-text"), "我观察一下当前局势"),
+        )
+
+        val output = assertNotNull(result.turn.output)
+        assertTrue(output.contains("搜查临街药房"))
+        assertFalse(output.contains("worldloom.event"))
+        assertFalse(output.contains("war.action"))
+        assertFalse(output.contains("war.outcome"))
+        assertFalse(output.contains("#7"))
+        val prompt = provider.requests.single().messages.first().content.orEmpty()
+        assertTrue(prompt.contains("不得复述任何内部编码"))
+        assertFalse(prompt.substringAfter("最近公开事件：").contains("war.scene"))
+    }
+
+    @Test
     fun providerFailureAfterToolCommitPersistsRecoverablePartialTurn() = runTest {
         val session = playableSession("gm-partial")
         val provider = ActionThenFailProvider()
@@ -221,7 +251,8 @@ class GameTurnOrchestratorContractTest {
         assertIs<GmTurnResult.Completed>(
             orchestrator.submit(TurnId("gm-continuity.8"), "压缩期间继续行动"),
         )
-        assertTrue(provider.systemPrompts.last().contains("公开回合 1"))
+        assertTrue(provider.systemPrompts.last().contains("先前玩家行动"))
+        assertFalse(provider.systemPrompts.last().contains("公开回合 1"))
         releaseCompaction.complete(Unit)
         advanceUntilIdle()
         assertNotNull(gmMemory.latestCheckpoint(GM_AGENT_ID))
@@ -239,10 +270,11 @@ class GameTurnOrchestratorContractTest {
         )
 
         val prompt = resumedProvider.systemPrompts.single()
-        assertTrue(prompt.contains("已发布检查点"))
+        assertTrue(prompt.contains("已发布剧情检查点"))
         assertTrue(prompt.contains("公开叙事 8"))
         assertTrue(prompt.contains("必须以后者为准"))
         assertTrue(prompt.contains("钟楼废墟"))
+        assertFalse(prompt.contains("worldloom.event"))
         assertFalse(prompt.contains("NPC_PRIVATE_SECRET_MUST_NOT_REACH_GM"))
         assertFalse(prompt.contains("OTHER_RUN_SECRET_MUST_NOT_REACH_GM"))
         assertTrue(gmMemory.memories(GM_AGENT_ID).none { it.content.contains("NPC_PRIVATE_SECRET") })
