@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
+import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -72,6 +73,7 @@ internal fun HomeExperiencePage(
     reduceMotion: Boolean,
     transitioning: Boolean,
     errorMessage: String?,
+    onDismissError: () -> Unit,
     onPaneChanged: (HomePane) -> Unit,
     onDreamIndexChanged: (Int) -> Unit,
     onEnterDream: (WorldCatalogEntry) -> Unit,
@@ -155,11 +157,29 @@ internal fun HomeExperiencePage(
 
             errorMessage?.let { message ->
                 Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(18.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(
+                            start = 18.dp,
+                            end = 18.dp,
+                            bottom = if (pane == HomePane.DREAMS) 76.dp else 18.dp,
+                        ),
                     color = MaterialTheme.colors.error.copy(alpha = 0.92f),
                     shape = RoundedCornerShape(6.dp),
                 ) {
-                    Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            message,
+                            modifier = Modifier.weight(1f).padding(vertical = 6.dp),
+                            color = MaterialTheme.colors.onError,
+                        )
+                        TextButton(onClick = onDismissError) {
+                            Text("关闭", color = MaterialTheme.colors.onError)
+                        }
+                    }
                 }
             }
         }

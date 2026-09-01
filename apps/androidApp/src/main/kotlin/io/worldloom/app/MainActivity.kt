@@ -15,6 +15,7 @@ import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
 import io.worldloom.application.WorldPackageSource
 import io.worldloom.application.SaveCoordinator
+import io.worldloom.application.SequentialSessionIdSource
 import io.worldloom.ui.game.WorldloomApp
 import io.worldloom.platform.credentials.AndroidKeystoreCredentialVault
 import io.worldloom.platform.credentials.CredentialConfiguration
@@ -39,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import java.util.UUID
 
 private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
         val session = DefaultGameSession(
             catalog = loadContractWorldCatalog(),
             eventStore = eventStore,
+            idSource = SequentialSessionIdSource("android.${UUID.randomUUID()}"),
             characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
             behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
         )

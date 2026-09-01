@@ -144,26 +144,38 @@ fun WorldloomApp(
         enteringDream = true
         homeError = null
         if (!reduceMotion) delay(220)
-        val loaded = when (entry) {
+        val failureMessage = when (entry) {
             is PendingDreamEntry.NewDream -> if (saveCoordinator == null) {
-                session.load(entry.world.id) is LoadResult.Success
+                when (val result = session.load(entry.world.id)) {
+                    LoadResult.Success -> null
+                    is LoadResult.Failure -> "梦境无法展开：${result.error.homeMessage()}"
+                }
             } else {
-                saveCoordinator.create(entry.world.id) is io.worldloom.application.SaveOperationResult.Success
+                when (val result = saveCoordinator.create(entry.world.id)) {
+                    is io.worldloom.application.SaveOperationResult.Success -> null
+                    is io.worldloom.application.SaveOperationResult.Failure -> result.error.message
+                }
             }
 
-            PendingDreamEntry.QuickContinue -> saveCoordinator?.quickContinue() is
-                io.worldloom.application.SaveOperationResult.Success
+            PendingDreamEntry.QuickContinue -> when (val result = saveCoordinator?.quickContinue()) {
+                is io.worldloom.application.SaveOperationResult.Success -> null
+                is io.worldloom.application.SaveOperationResult.Failure -> result.error.message
+                null -> "当前平台没有可用的存档目录。"
+            }
 
-            is PendingDreamEntry.Continue -> saveCoordinator?.continueRun(entry.runId) is
-                io.worldloom.application.SaveOperationResult.Success
+            is PendingDreamEntry.Continue -> when (val result = saveCoordinator?.continueRun(entry.runId)) {
+                is io.worldloom.application.SaveOperationResult.Success -> null
+                is io.worldloom.application.SaveOperationResult.Failure -> result.error.message
+                null -> "当前平台没有可用的存档目录。"
+            }
         }
-        if (loaded) {
+        if (failureMessage == null) {
             agentController?.reset()
             if (!reduceMotion) delay(520)
             showGameplay = true
             homePane = HomePane.MENU
         } else {
-            homeError = "这个梦境暂时无法展开，请检查存档或世界内容。"
+            homeError = failureMessage
         }
         enteringDream = false
     }
@@ -281,6 +293,7 @@ fun WorldloomApp(
                         reduceMotion = reduceMotion,
                         transitioning = enteringDream,
                         errorMessage = homeError,
+                        onDismissError = { homeError = null },
                         onPaneChanged = { pane ->
                             homeError = null
                             homePane = pane

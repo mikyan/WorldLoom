@@ -13,6 +13,7 @@ import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
 import io.worldloom.application.WorldPackageSource
 import io.worldloom.application.SaveCoordinator
+import io.worldloom.application.SequentialSessionIdSource
 import io.worldloom.ui.game.WorldloomApp
 import io.worldloom.persistence.DesktopPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
@@ -39,6 +40,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.UUID
 
 private val CONTRACT_WORLD_DIRECTORIES = listOf("war-survival", "station-ai")
 
@@ -50,6 +52,7 @@ fun main() {
     val session = DefaultGameSession(
         catalog,
         eventStore = eventStore,
+        idSource = SequentialSessionIdSource("desktop.${UUID.randomUUID()}"),
         characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
         behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
     )

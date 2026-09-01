@@ -11,6 +11,7 @@ import io.worldloom.application.StaticWorldCatalog
 import io.worldloom.application.StaticWorldCatalogResult
 import io.worldloom.application.WorldPackageSource
 import io.worldloom.application.SaveCoordinator
+import io.worldloom.application.SequentialSessionIdSource
 import platform.UIKit.UIViewController
 import io.worldloom.persistence.IosPersistenceDriverFactory
 import io.worldloom.persistence.SqlDelightEventStore
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import platform.Foundation.NSUUID
 
 fun MainViewController(
     manifestSources: List<String>,
@@ -73,6 +75,7 @@ fun MainViewController(
     val session = DefaultGameSession(
         catalog,
         eventStore = eventStore,
+        idSource = SequentialSessionIdSource("ios.${NSUUID().UUIDString}"),
         characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
         behaviorWorkStore = SqlDelightBehaviorWorkStore(database),
     )

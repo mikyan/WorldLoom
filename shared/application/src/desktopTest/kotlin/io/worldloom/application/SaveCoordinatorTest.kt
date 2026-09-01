@@ -17,6 +17,45 @@ import kotlin.test.assertTrue
 
 class SaveCoordinatorTest {
     @Test
+    fun distinctApplicationInstancesCanCreateRunsInTheSamePersistentStore() = runTest {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val database = WorldloomDatabase(driver)
+        val catalog = catalog()
+        val store = SqlDelightRunDirectoryStore(database)
+        val worldId = DefinitionId("contract.war-survival")
+
+        val firstSession = DefaultGameSession(
+            catalog = catalog,
+            eventStore = SqlDelightEventStore(database),
+            idSource = SequentialSessionIdSource("desktop.instance-a"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+        )
+        val firstRun = assertNotNull(
+            assertIs<SaveOperationResult.Success>(SaveCoordinator(firstSession, store).create(worldId)).runId,
+        )
+        assertIs<ActionResult.Success>(firstSession.confirmCharacter())
+
+        val restartedSession = DefaultGameSession(
+            catalog = catalog,
+            eventStore = SqlDelightEventStore(database),
+            idSource = SequentialSessionIdSource("desktop.instance-b"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(database),
+        )
+        val restartedCoordinator = SaveCoordinator(restartedSession, store)
+        assertIs<SaveOperationResult.Success>(restartedCoordinator.continueRun(firstRun))
+        val restartedRun = assertNotNull(
+            assertIs<SaveOperationResult.Success>(restartedCoordinator.create(worldId)).runId,
+        )
+
+        assertTrue(firstRun != restartedRun)
+        assertEquals(2, store.list().size)
+        driver.close()
+    }
+
+    @Test
     fun createsListsRenamesArchivesAndContinuesMultipleRuns() = runTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         WorldloomDatabase.Schema.create(driver).value
