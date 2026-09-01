@@ -7,6 +7,10 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+compose.resources {
+    packageOfResClass = "io.worldloom.app.desktop.generated.resources"
+}
+
 kotlin {
     compilerOptions {
         allWarningsAsErrors = true
@@ -22,6 +26,7 @@ dependencies {
     implementation(projects.shared.providerOpenai)
     implementation(projects.platform.secureVault)
     implementation(libs.ktor.client.core)
+    implementation(libs.compose.components.resources)
     implementation(compose.desktop.currentOs)
 }
 
@@ -46,7 +51,14 @@ compose.desktop {
             packageVersion = "0.0.5"
             description = "AI-hosted single-player digital tabletop RPG"
             vendor = "Worldloom"
+            linux {
+                iconFile.set(project.file("src/main/composeResources/drawable/worldloom.png"))
+            }
+            macOS {
+                iconFile.set(project.file("src/main/resources/worldloom.icns"))
+            }
             windows {
+                iconFile.set(project.file("src/main/resources/worldloom.ico"))
                 shortcut = true
                 menu = true
                 menuGroup = "Worldloom"

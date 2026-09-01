@@ -4,6 +4,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
+import io.worldloom.app.desktop.generated.resources.Res
+import io.worldloom.app.desktop.generated.resources.worldloom
 import io.worldloom.agent.runtime.AgentRuntime
 import io.worldloom.agent.runtime.DefaultAgentToolGateway
 import io.worldloom.agent.runtime.DefaultGameAgentController
@@ -38,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import org.jetbrains.compose.resources.painterResource
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.UUID
@@ -96,6 +99,7 @@ fun main() {
     application {
         Window(
             title = "Worldloom / 织境",
+            icon = painterResource(Res.drawable.worldloom),
             state = WindowState(width = 1280.dp, height = 800.dp),
             onCloseRequest = {
                 agentBackgroundScope.cancel()
