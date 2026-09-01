@@ -2,7 +2,9 @@ package io.worldloom.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import io.ktor.client.HttpClient
 import io.worldloom.agent.runtime.AgentRuntime
 import io.worldloom.agent.runtime.DefaultAgentToolGateway
@@ -46,6 +48,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         val driver = AndroidPersistenceDriverFactory(applicationContext).create()
         val database = WorldloomDatabase(driver)
         val eventStore = SqlDelightEventStore(database)

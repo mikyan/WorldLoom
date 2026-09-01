@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -92,35 +93,37 @@ internal fun GameplayPage(
     onWait: (Long) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val portrait = maxHeight > maxWidth
+    Box(Modifier.fillMaxSize()) {
         GameBackdrop(presentation.scene?.backgroundAssetId ?: presentation.opening?.backgroundAssetId)
-        if (portrait) {
-            PortraitGameplay(
-                presentation,
-                notice,
-                agentController,
-                interactive,
-                runKey,
-                historyKey,
-                onExit,
-                onNpcBusyChanged,
-            )
-        } else {
-            LandscapeGameplay(
-                presentation,
-                notice,
-                agentController,
-                interactive,
-                runKey,
-                historyKey,
-                onExit,
-                onReplay,
-                onAdjust,
-                onCheck,
-                onWait,
-                onNpcBusyChanged,
-            )
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+            val portrait = maxHeight > maxWidth
+            if (portrait) {
+                PortraitGameplay(
+                    presentation,
+                    notice,
+                    agentController,
+                    interactive,
+                    runKey,
+                    historyKey,
+                    onExit,
+                    onNpcBusyChanged,
+                )
+            } else {
+                LandscapeGameplay(
+                    presentation,
+                    notice,
+                    agentController,
+                    interactive,
+                    runKey,
+                    historyKey,
+                    onExit,
+                    onReplay,
+                    onAdjust,
+                    onCheck,
+                    onWait,
+                    onNpcBusyChanged,
+                )
+            }
         }
     }
 }
