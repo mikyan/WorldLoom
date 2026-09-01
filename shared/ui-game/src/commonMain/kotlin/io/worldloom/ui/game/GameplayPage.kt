@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -24,9 +25,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
@@ -48,7 +46,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.worldloom.agent.runtime.GameAgentController
 import io.worldloom.agent.runtime.GameAgentState
 import io.worldloom.agent.runtime.NpcDialogueResult
@@ -69,16 +66,19 @@ import io.worldloom.ui.game.generated.resources.npc_war_tomas
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
-private val GlassColor = Color(0xD6171B1D)
-private val GlassStrong = Color(0xEE111518)
-private val FineBorder = Color(0x38E8D7AE)
-private val PmAccent = Color(0xFFE2BD72)
-private val NpcAccent = Color(0xFF80B8B3)
-private val PlayerBubble = Color(0xDD6E5329)
-private val MutedText = Color(0xFFB9B7B0)
+private val GlassColor = WorldloomPalette.Surface.copy(alpha = 0.84f)
+private val GlassStrong = WorldloomPalette.SurfaceStrong.copy(alpha = 0.94f)
+private val FineBorder = WorldloomPalette.BorderSubtle
+private val PmAccent = WorldloomPalette.BrandPrimary
+private val NpcAccent = WorldloomPalette.NarrativeNpc
+private val PlayerBubble = WorldloomPalette.BrandPrimaryVariant.copy(alpha = 0.86f)
+private val MutedText = WorldloomPalette.TextSecondary
 private const val PM_MEMBER_ID = "worldloom.member.pm"
 
 private enum class GuidanceStrength(val label: String) { NEWCOMER("新手"), STANDARD("标准"), IMMERSIVE("沉浸") }
+private enum class GameContextPane { MAP, HUD }
+internal enum class GameplayBackdropAsset { WAR_RUINS, STATION_CORE, GENERIC }
+internal enum class GameplayAvatarAsset { WAR_MARA, WAR_TOMAS, STATION_LYRA, STATION_SOREN, GENERIC }
 
 @Composable
 internal fun GameplayPage(
@@ -86,6 +86,7 @@ internal fun GameplayPage(
     notice: SessionError?,
     agentController: GameAgentController?,
     interactive: Boolean,
+    reduceMotion: Boolean,
     runKey: String,
     historyKey: String,
     onExit: () -> Unit,
@@ -96,14 +97,15 @@ internal fun GameplayPage(
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
     var mapOpen by remember(runKey) { mutableStateOf(false) }
+    var contextPane by remember(runKey) { mutableStateOf(GameContextPane.MAP) }
     var composerDraft by remember(runKey) { mutableStateOf("") }
     var sendOrdinal by remember(historyKey) { mutableIntStateOf(0) }
     val conversationListState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
         GameBackdrop(presentation.scene?.backgroundAssetId ?: presentation.opening?.backgroundAssetId)
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-            val portrait = maxHeight > maxWidth
-            if (portrait) {
+            val window = classifyWorldloomWindow(maxWidth, maxHeight)
+            if (window.widthClass == WorldloomWidthClass.COMPACT) {
                 PortraitGameplay(
                     presentation,
                     notice,
@@ -120,9 +122,11 @@ internal fun GameplayPage(
                     sendOrdinal,
                     { sendOrdinal += 1 },
                     conversationListState,
+                    reduceMotion,
                 )
             } else {
                 LandscapeGameplay(
+                    window,
                     presentation,
                     notice,
                     agentController,
@@ -142,20 +146,25 @@ internal fun GameplayPage(
                     sendOrdinal,
                     { sendOrdinal += 1 },
                     conversationListState,
+                    reduceMotion,
                 )
             }
-        }
-        if (mapOpen) {
-            BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-                if (maxHeight > maxWidth) {
-                    Box(Modifier.fillMaxSize().background(Color(0xF20B0E10)).padding(10.dp)) {
-                        SceneMapPanel(
-                            presentation = presentation,
-                            modifier = Modifier.fillMaxSize(),
-                            onClose = { mapOpen = false },
-                        )
-                    }
-                }
+            if (mapOpen && !gameplayUsesInlineMap(window)) {
+                GameContextOverlay(
+                    presentation = presentation,
+                    interactive = interactive,
+                    pane = contextPane,
+                    onPaneChanged = { contextPane = it },
+                    onClose = { mapOpen = false },
+                    onReplay = onReplay,
+                    onAdjust = onAdjust,
+                    onCheck = onCheck,
+                    onWait = onWait,
+                    onChatPrefix = { composerDraft = it },
+                    modifier = Modifier.fillMaxSize()
+                        .background(WorldloomPalette.Scrim)
+                        .padding(window.pagePadding),
+                )
             }
         }
     }
@@ -163,12 +172,12 @@ internal fun GameplayPage(
 
 @Composable
 private fun GameBackdrop(assetId: String?) {
-    val painter = when (assetId) {
-        "worldloom.background.war-ruins" -> painterResource(Res.drawable.gameplay_war_ruins)
-        "worldloom.background.station-core" -> painterResource(Res.drawable.gameplay_station_core)
-        else -> null
+    val painter = when (gameplayBackdropAsset(assetId)) {
+        GameplayBackdropAsset.WAR_RUINS -> painterResource(Res.drawable.gameplay_war_ruins)
+        GameplayBackdropAsset.STATION_CORE -> painterResource(Res.drawable.gameplay_station_core)
+        GameplayBackdropAsset.GENERIC -> null
     }
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0E10))) {
+    Box(Modifier.fillMaxSize().background(WorldloomPalette.Canvas)) {
         painter?.let {
             Image(
                 painter = it,
@@ -181,17 +190,24 @@ private fun GameBackdrop(assetId: String?) {
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    0f to Color(0x8A050708),
-                    0.48f to Color(0x52050708),
-                    1f to Color(0xE8050708),
+                    0f to WorldloomPalette.Canvas.copy(alpha = 0.54f),
+                    0.48f to WorldloomPalette.Canvas.copy(alpha = 0.32f),
+                    1f to WorldloomPalette.Canvas.copy(alpha = 0.91f),
                 ),
             ),
         )
     }
 }
 
+internal fun gameplayBackdropAsset(assetId: String?): GameplayBackdropAsset = when (assetId) {
+    "worldloom.background.war-ruins" -> GameplayBackdropAsset.WAR_RUINS
+    "worldloom.background.station-core" -> GameplayBackdropAsset.STATION_CORE
+    else -> GameplayBackdropAsset.GENERIC
+}
+
 @Composable
 private fun LandscapeGameplay(
+    window: WorldloomWindowSize,
     presentation: GamePresentation,
     notice: SessionError?,
     controller: GameAgentController?,
@@ -211,21 +227,22 @@ private fun LandscapeGameplay(
     sendOrdinal: Int,
     onSendOrdinalConsumed: () -> Unit,
     conversationListState: LazyListState,
+    reduceMotion: Boolean,
 ) {
     Row(
-        modifier = Modifier.fillMaxSize().padding(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize().padding(if (window.short) WorldloomSpacing.Sm else WorldloomSpacing.Lg),
+        horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
     ) {
-        if (mapOpen) {
+        if (mapOpen && gameplayUsesInlineMap(window)) {
             SceneMapPanel(
                 presentation = presentation,
-                modifier = Modifier.width(300.dp).fillMaxHeight(),
+                modifier = Modifier.width(WorldloomDimensions.MapPanelWidth).fillMaxHeight(),
                 onClose = { onMapOpenChanged(false) },
             )
         }
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
             GameTopBar(presentation, onExit, onMap = { onMapOpenChanged(!mapOpen) })
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(WorldloomSpacing.Sm))
             GameConversation(
                 presentation = presentation,
                 notice = notice,
@@ -240,12 +257,19 @@ private fun LandscapeGameplay(
                 sendOrdinal = sendOrdinal,
                 onSendOrdinalConsumed = onSendOrdinalConsumed,
                 listState = conversationListState,
+                reduceMotion = reduceMotion,
             )
         }
         WorldHud(
             presentation = presentation,
             interactive = interactive,
-            modifier = Modifier.width(292.dp).fillMaxHeight(),
+            modifier = Modifier.width(
+                if (window.widthClass == WorldloomWidthClass.EXPANDED) {
+                    WorldloomDimensions.HudPanelWidth
+                } else {
+                    WorldloomDimensions.HudPanelMediumWidth
+                },
+            ).fillMaxHeight(),
             onReplay = onReplay,
             onAdjust = onAdjust,
             onCheck = onCheck,
@@ -254,6 +278,9 @@ private fun LandscapeGameplay(
         )
     }
 }
+
+internal fun gameplayUsesInlineMap(window: WorldloomWindowSize): Boolean =
+    window.widthClass == WorldloomWidthClass.EXPANDED
 
 @Composable
 private fun PortraitGameplay(
@@ -272,25 +299,28 @@ private fun PortraitGameplay(
     sendOrdinal: Int,
     onSendOrdinalConsumed: () -> Unit,
     conversationListState: LazyListState,
+    reduceMotion: Boolean,
 ) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 8.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(WorldloomSpacing.Sm)) {
         GameTopBar(presentation, onExit, compact = true, onMap = { onMapOpenChanged(!mapOpen) })
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(WorldloomSpacing.Sm))
         presentation.opening?.objective?.let { objective ->
             Text(
                 text = "目标 · $objective",
-                modifier = Modifier.fillMaxWidth().background(GlassColor, RoundedCornerShape(10.dp)).padding(8.dp),
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth()
+                    .background(GlassColor, androidx.compose.material.MaterialTheme.shapes.medium)
+                    .padding(WorldloomSpacing.Sm),
+                color = WorldloomPalette.TextPrimary,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
                 maxLines = 2,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(WorldloomSpacing.Sm))
         }
         CharacterMemberPanel(
             presentation.characters,
             onChatPrefix = onComposerDraftChanged,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(WorldloomSpacing.Sm))
         GameConversation(
             presentation = presentation,
             notice = notice,
@@ -305,6 +335,7 @@ private fun PortraitGameplay(
             sendOrdinal = sendOrdinal,
             onSendOrdinalConsumed = onSendOrdinalConsumed,
             listState = conversationListState,
+            reduceMotion = reduceMotion,
         )
     }
 }
@@ -319,10 +350,12 @@ private fun GameTopBar(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
     ) {
         Box(
-            modifier = Modifier.size(if (compact) 30.dp else 36.dp)
+            modifier = Modifier.size(
+                if (compact) WorldloomDimensions.GameMarkCompactSize else WorldloomDimensions.GameMarkSize,
+            )
                 .clip(CircleShape)
                 .background(PmAccent.copy(alpha = 0.2f))
                 .border(1.dp, PmAccent.copy(alpha = 0.65f), CircleShape),
@@ -333,9 +366,12 @@ private fun GameTopBar(
         Column(Modifier.weight(1f)) {
             Text(
                 presentation.title,
-                color = Color.White,
-                fontSize = if (compact) 16.sp else 20.sp,
-                fontWeight = FontWeight.Bold,
+                color = WorldloomPalette.TextPrimary,
+                style = if (compact) {
+                    androidx.compose.material.MaterialTheme.typography.h3
+                } else {
+                    androidx.compose.material.MaterialTheme.typography.h2
+                },
                 maxLines = 1,
             )
             Text(
@@ -343,25 +379,21 @@ private fun GameTopBar(
                     val exits = presentation.exploration.knownExitCount
                     "${it.label} · ${exits} 个已知去处"
                 } ?: "故事进行中",
-                color = Color.White.copy(alpha = 0.62f),
-                fontSize = 11.sp,
+                color = WorldloomPalette.TextSecondary,
+                style = androidx.compose.material.MaterialTheme.typography.caption,
                 maxLines = 1,
             )
         }
         if (presentation.exploration.situation != null) {
-            Button(
+            WorldloomSecondaryButton(
+                label = if (compact) "场景" else "地图与档案",
                 onClick = onMap,
-                modifier = Modifier.height(34.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 11.dp, vertical = 0.dp),
-                colors = ButtonDefaults.buttonColors(backgroundColor = PmAccent.copy(alpha = 0.2f), contentColor = PmAccent),
-            ) { Text(if (compact) "地图" else "地图与目标", fontSize = 12.sp) }
+            )
         }
-        Button(
+        WorldloomSecondaryButton(
+            label = if (compact) "退出" else "世界与存档",
             onClick = onExit,
-            modifier = Modifier.height(34.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-            colors = ButtonDefaults.buttonColors(backgroundColor = GlassStrong, contentColor = Color.White),
-        ) { Text(if (compact) "退出" else "世界与存档", fontSize = 12.sp) }
+        )
     }
 }
 
@@ -370,71 +402,148 @@ private fun SceneMapPanel(
     presentation: GamePresentation,
     modifier: Modifier,
     onClose: () -> Unit,
+    showClose: Boolean = true,
 ) {
     val exploration = presentation.exploration
-    Column(
-        modifier = modifier.background(GlassStrong, RoundedCornerShape(16.dp))
-            .border(1.dp, FineBorder, RoundedCornerShape(16.dp)).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    WorldloomPanel(modifier = modifier, strong = true, padding = WorldloomSpacing.Md) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("场景与地图", color = PmAccent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(presentation.scene?.label ?: "当前位置", color = MutedText, fontSize = 11.sp)
+                Text("场景与地图", color = PmAccent, style = androidx.compose.material.MaterialTheme.typography.h3)
+                Text(
+                    presentation.scene?.label ?: "当前位置",
+                    color = MutedText,
+                    style = androidx.compose.material.MaterialTheme.typography.caption,
+                )
             }
-            Button(
-                onClick = onClose,
-                modifier = Modifier.height(36.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD5464B45), contentColor = Color.White),
-            ) { Text("关闭", fontSize = 12.sp) }
+            if (showClose) WorldloomSecondaryButton("关闭", onClose)
         }
         exploration.situation?.let { situation ->
             Column(
-                Modifier.fillMaxWidth().background(PmAccent.copy(alpha = 0.09f), RoundedCornerShape(10.dp)).padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                Modifier.fillMaxWidth()
+                    .background(PmAccent.copy(alpha = 0.09f), androidx.compose.material.MaterialTheme.shapes.small)
+                    .padding(WorldloomSpacing.Md),
+                verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs),
             ) {
-                Text("当前目标", color = PmAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(situation.objective, color = Color.White, fontSize = 13.sp)
-                Text("压力 · ${situation.pressure}", color = Color(0xFFFFBE8A), fontSize = 12.sp)
-                Text(situation.question, color = Color.White.copy(alpha = 0.76f), fontSize = 12.sp)
+                Text("当前目标", color = PmAccent, style = androidx.compose.material.MaterialTheme.typography.subtitle1)
+                Text(situation.objective, color = WorldloomPalette.TextPrimary)
+                Text("压力 · ${situation.pressure}", color = WorldloomPalette.Warning)
+                Text(situation.question, color = WorldloomPalette.TextSecondary)
             }
         }
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
             if (exploration.nodes.isNotEmpty()) {
-                item("map-heading") { Text("已知地点", color = MutedText, fontSize = 11.sp) }
+                item("map-heading") {
+                    Text("已知地点", color = MutedText, style = androidx.compose.material.MaterialTheme.typography.subtitle1)
+                }
                 items(exploration.nodes, key = { it.id.value }) { node ->
                     val accent = explorationLevelColor(node.level)
                     Row(
-                        Modifier.fillMaxWidth().background(accent.copy(alpha = 0.12f), RoundedCornerShape(9.dp))
-                            .border(1.dp, accent.copy(alpha = 0.42f), RoundedCornerShape(9.dp)).padding(9.dp),
+                        Modifier.fillMaxWidth()
+                            .background(accent.copy(alpha = 0.12f), androidx.compose.material.MaterialTheme.shapes.small)
+                            .border(1.dp, accent.copy(alpha = 0.42f), androidx.compose.material.MaterialTheme.shapes.small)
+                            .padding(WorldloomSpacing.Sm),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
                     ) {
-                        Box(Modifier.size(10.dp).background(accent, CircleShape))
+                        Box(Modifier.size(WorldloomDimensions.StatusDotSize).background(accent, CircleShape))
                         Column(Modifier.weight(1f)) {
-                            Text((if (node.current) "当前位置 · " else "") + node.label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(node.description, color = MutedText, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                (if (node.current) "当前位置 · " else "") + node.label,
+                                color = WorldloomPalette.TextPrimary,
+                                style = androidx.compose.material.MaterialTheme.typography.body2,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                node.description,
+                                color = MutedText,
+                                style = androidx.compose.material.MaterialTheme.typography.caption,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
-                        Text(explorationLevelLabel(node.level), color = accent, fontSize = 10.sp)
+                        Text(
+                            explorationLevelLabel(node.level),
+                            color = accent,
+                            style = androidx.compose.material.MaterialTheme.typography.caption,
+                        )
                     }
                 }
             }
             if (exploration.connections.isNotEmpty()) {
-                item("route-heading") { Text("已知路线", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp)) }
+                item("route-heading") {
+                    Text("已知路线", color = MutedText, style = androidx.compose.material.MaterialTheme.typography.subtitle1)
+                }
                 items(exploration.connections, key = { it.id.value }) { route ->
-                    Column(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp)).padding(9.dp)) {
-                        Text(route.label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(WorldloomPalette.SurfaceRaised.copy(alpha = 0.52f), androidx.compose.material.MaterialTheme.shapes.small)
+                            .padding(WorldloomSpacing.Sm),
+                    ) {
+                        Text(route.label, color = WorldloomPalette.TextPrimary, fontWeight = FontWeight.SemiBold)
                         val detail = listOfNotNull(route.directionSummary, route.travelMinutes?.let { "约 $it 分钟" }, route.riskSummary).joinToString(" · ")
-                        if (detail.isNotBlank()) Text(detail, color = MutedText, fontSize = 11.sp)
+                        if (detail.isNotBlank()) {
+                            Text(detail, color = MutedText, style = androidx.compose.material.MaterialTheme.typography.caption)
+                        }
                     }
                 }
             }
             if (exploration.affordances.isNotEmpty()) {
-                item("affordance-heading") { Text("眼前可互动", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp)) }
-                items(exploration.affordances, key = { it.id.value }) { affordance ->
-                    Text("• ${affordance.label} · ${affordance.description}", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp)
+                item("affordance-heading") {
+                    Text("眼前可互动", color = MutedText, style = androidx.compose.material.MaterialTheme.typography.subtitle1)
                 }
+                items(exploration.affordances, key = { it.id.value }) { affordance ->
+                    Text("• ${affordance.label} · ${affordance.description}", color = WorldloomPalette.TextPrimary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameContextOverlay(
+    presentation: GamePresentation,
+    interactive: Boolean,
+    pane: GameContextPane,
+    onPaneChanged: (GameContextPane) -> Unit,
+    onClose: () -> Unit,
+    onReplay: () -> Unit,
+    onAdjust: (DefinitionId) -> Unit,
+    onCheck: (DefinitionId) -> Unit,
+    onWait: (Long) -> Unit,
+    onChatPrefix: (String) -> Unit,
+    modifier: Modifier,
+) {
+    WorldloomPanel(modifier = modifier, strong = true, padding = WorldloomSpacing.Sm) {
+        WorldloomSectionHeading(
+            title = "场景信息",
+            subtitle = "地图与任务档案保持同一局状态。",
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
+        ) {
+            item { WorldloomSecondaryButton("地图", { onPaneChanged(GameContextPane.MAP) }) }
+            item { WorldloomSecondaryButton("任务档案", { onPaneChanged(GameContextPane.HUD) }) }
+            item { WorldloomSecondaryButton("关闭", onClose) }
+        }
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            when (pane) {
+                GameContextPane.MAP -> SceneMapPanel(
+                    presentation = presentation,
+                    modifier = Modifier.fillMaxSize(),
+                    onClose = onClose,
+                    showClose = false,
+                )
+                GameContextPane.HUD -> WorldHud(
+                    presentation = presentation,
+                    interactive = interactive,
+                    modifier = Modifier.fillMaxSize(),
+                    onReplay = onReplay,
+                    onAdjust = onAdjust,
+                    onCheck = onCheck,
+                    onWait = onWait,
+                    onChatPrefix = onChatPrefix,
+                )
             }
         }
     }
@@ -450,8 +559,8 @@ private fun explorationLevelLabel(level: ExplorationKnowledgeLevel): String = wh
 private fun explorationLevelColor(level: ExplorationKnowledgeLevel): Color = when (level) {
     ExplorationKnowledgeLevel.VISITED -> PmAccent
     ExplorationKnowledgeLevel.DISCOVERED -> NpcAccent
-    ExplorationKnowledgeLevel.RUMORED -> Color(0xFFAAA4C8)
-    ExplorationKnowledgeLevel.BLOCKED -> Color(0xFFE47D6D)
+    ExplorationKnowledgeLevel.RUMORED -> WorldloomPalette.Info
+    ExplorationKnowledgeLevel.BLOCKED -> WorldloomPalette.Error
 }
 
 @Composable
@@ -469,6 +578,7 @@ private fun GameConversation(
     sendOrdinal: Int,
     onSendOrdinalConsumed: () -> Unit,
     listState: LazyListState,
+    reduceMotion: Boolean,
 ) {
     val agentState = controller?.state?.collectAsState()?.value ?: GameAgentState.Idle
     val history = controller?.history?.collectAsState()?.value
@@ -484,21 +594,19 @@ private fun GameConversation(
     }
 
     Column(
-        modifier = modifier.background(GlassColor, RoundedCornerShape(16.dp))
-            .border(1.dp, FineBorder, RoundedCornerShape(16.dp))
-            .padding(9.dp),
+        modifier = modifier.background(GlassColor, androidx.compose.material.MaterialTheme.shapes.large)
+            .border(1.dp, FineBorder, androidx.compose.material.MaterialTheme.shapes.large)
+            .padding(WorldloomSpacing.Sm),
     ) {
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
         ) {
-            items(messages, key = GameChatMessage::id) { ChatBubble(it) }
+            items(messages, key = GameChatMessage::id) { ChatBubble(it, reduceMotion = reduceMotion) }
             notice?.let { message ->
                 item("notice-${message.code}") {
-                    ChatBubble(
-                        GameChatMessage("notice", Long.MAX_VALUE, "系统", GameChatSpeakerKind.SYSTEM, message.message),
-                    )
+                    WorldloomStatusBanner(message.message, WorldloomStatusTone.ERROR)
                 }
             }
             if (agentState is GameAgentState.Running) {
@@ -512,17 +620,18 @@ private fun GameConversation(
                             content = agentState.partialText.ifBlank { "正在编织下一段故事…" },
                         ),
                         typing = true,
+                        reduceMotion = reduceMotion,
                     )
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(WorldloomSpacing.Sm))
         SceneSuggestions(
             presentation = presentation,
             enabled = interactive && controller != null && agentState !is GameAgentState.Running,
             onSuggestionSelected = onComposerDraftChanged,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(WorldloomSpacing.Sm))
         ChatComposer(
             controller = controller,
             characters = presentation.characters,
@@ -538,19 +647,23 @@ private fun GameConversation(
 }
 
 @Composable
-private fun ChatBubble(message: GameChatMessage, typing: Boolean = false) {
+private fun ChatBubble(
+    message: GameChatMessage,
+    typing: Boolean = false,
+    reduceMotion: Boolean = false,
+) {
     val player = message.kind == GameChatSpeakerKind.PLAYER
     val bubbleColor = when (message.kind) {
-        GameChatSpeakerKind.PM -> Color(0xE2262927)
+        GameChatSpeakerKind.PM -> WorldloomPalette.SurfaceRaised.copy(alpha = 0.88f)
         GameChatSpeakerKind.PLAYER -> PlayerBubble
-        GameChatSpeakerKind.NPC -> Color(0xE21E3031)
-        GameChatSpeakerKind.SYSTEM -> Color(0xC52B2A2C)
+        GameChatSpeakerKind.NPC -> WorldloomPalette.NarrativeNpc.copy(alpha = 0.18f)
+        GameChatSpeakerKind.SYSTEM -> WorldloomPalette.Info.copy(alpha = 0.16f)
     }
     val accent = when (message.kind) {
         GameChatSpeakerKind.PM -> PmAccent
-        GameChatSpeakerKind.PLAYER -> Color(0xFFFFE4AF)
+        GameChatSpeakerKind.PLAYER -> WorldloomPalette.NarrativePlayer
         GameChatSpeakerKind.NPC -> NpcAccent
-        GameChatSpeakerKind.SYSTEM -> Color(0xFFB7AEB3)
+        GameChatSpeakerKind.SYSTEM -> WorldloomPalette.Info
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -558,31 +671,47 @@ private fun ChatBubble(message: GameChatMessage, typing: Boolean = false) {
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(if (player) 0.76f else 0.86f)
-                .background(bubbleColor, RoundedCornerShape(13.dp))
-                .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(13.dp))
-                .padding(horizontal = 11.dp, vertical = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+                .background(bubbleColor, androidx.compose.material.MaterialTheme.shapes.medium)
+                .border(1.dp, accent.copy(alpha = 0.28f), androidx.compose.material.MaterialTheme.shapes.medium)
+                .padding(horizontal = WorldloomSpacing.Md, vertical = WorldloomSpacing.Sm),
+            verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(message.speaker, color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    message.speaker,
+                    color = accent,
+                    style = androidx.compose.material.MaterialTheme.typography.subtitle1,
+                    fontWeight = FontWeight.Bold,
+                )
                 message.audienceLabel?.let { label ->
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(WorldloomSpacing.Sm))
                     Text(
                         label,
                         color = if (message.private) PmAccent else MutedText,
-                        fontSize = 10.sp,
+                        style = androidx.compose.material.MaterialTheme.typography.caption,
                         modifier = Modifier.background(
                             if (message.private) PmAccent.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.07f),
-                            RoundedCornerShape(8.dp),
-                        ).padding(horizontal = 7.dp, vertical = 2.dp),
+                            androidx.compose.material.MaterialTheme.shapes.small,
+                        ).padding(horizontal = WorldloomSpacing.Sm, vertical = WorldloomSpacing.Xs),
                     )
                 }
-                if (typing) {
-                    Spacer(Modifier.width(8.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = accent)
+                if (typing && !reduceMotion) {
+                    Spacer(Modifier.width(WorldloomSpacing.Sm))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(WorldloomDimensions.TypingIndicatorSize),
+                        strokeWidth = 1.5.dp,
+                        color = accent,
+                    )
+                } else if (typing) {
+                    Spacer(Modifier.width(WorldloomSpacing.Sm))
+                    Text("正在回应", color = accent, style = androidx.compose.material.MaterialTheme.typography.caption)
                 }
             }
-            Text(message.content, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, lineHeight = 19.sp)
+            Text(
+                message.content,
+                color = WorldloomPalette.TextPrimary,
+                style = androidx.compose.material.MaterialTheme.typography.body2,
+            )
         }
     }
 }
@@ -603,9 +732,10 @@ private fun SceneSuggestions(
     }
     val hint = presentation.guidance.hints.firstOrNull()?.suggestion
     if (authored.isEmpty() && hint == null) return
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
         item {
-            Button(
+            WorldloomSecondaryButton(
+                label = "引导 · ${strength.label}",
                 onClick = {
                     strength = when (strength) {
                         GuidanceStrength.NEWCOMER -> GuidanceStrength.STANDARD
@@ -613,38 +743,29 @@ private fun SceneSuggestions(
                         GuidanceStrength.IMMERSIVE -> GuidanceStrength.NEWCOMER
                     }
                 },
-                modifier = Modifier.height(32.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xB92B302E), contentColor = MutedText),
-            ) { Text("引导·${strength.label}", fontSize = 10.sp) }
+            )
         }
         items(suggestions, key = { "${it.targetKind}:${it.targetId.value}" }) { suggestion ->
-            Button(
+            WorldloomSecondaryButton(
+                label = suggestion.label,
                 onClick = { onSuggestionSelected(suggestion.inputDraft) },
                 enabled = enabled,
-                modifier = Modifier.height(32.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD5464B45), contentColor = Color.White),
-            ) { Text(suggestion.label, fontSize = 11.sp) }
+            )
         }
         if (hint != null) {
             item("request-hint") {
-                Button(
+                WorldloomSecondaryButton(
+                    label = if (hintRequested) "收起提示" else "需要提示",
                     onClick = { hintRequested = !hintRequested },
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.buttonColors(backgroundColor = PmAccent.copy(alpha = 0.18f), contentColor = PmAccent),
-                ) { Text(if (hintRequested) "收起提示" else "需要提示", fontSize = 11.sp) }
+                )
             }
             if (hintRequested) {
                 item("hint-draft-${hint.targetId.value}") {
-                    Button(
+                    WorldloomSecondaryButton(
+                        label = hint.label,
                         onClick = { onSuggestionSelected(hint.inputDraft) },
                         enabled = enabled,
-                        modifier = Modifier.height(32.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD65B4D36), contentColor = Color.White),
-                    ) { Text(hint.label, fontSize = 11.sp) }
+                    )
                 }
             }
         }
@@ -652,7 +773,15 @@ private fun SceneSuggestions(
     if (strength == GuidanceStrength.NEWCOMER) {
         suggestions.firstOrNull()?.let { suggestion ->
             val detail = listOfNotNull(suggestion.rationale, suggestion.tradeoff).joinToString(" · ")
-            if (detail.isNotBlank()) Text(detail, color = MutedText, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    color = MutedText,
+                    style = androidx.compose.material.MaterialTheme.typography.caption,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -685,27 +814,31 @@ private fun ChatComposer(
     val scope = rememberCoroutineScope()
     var sendingNpc by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
+    var statusTone by remember { mutableStateOf(WorldloomStatusTone.INFO) }
     val canInput = enabled && controller != null && !sendingNpc
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
         OutlinedTextField(
             value = input,
             onValueChange = { if (it.length <= 2_000) onInputChanged(it) },
             modifier = Modifier.weight(1f),
-            label = { Text("行动 / @公开 / #私聊", fontSize = 12.sp) },
+            label = { Text("行动 / @公开 / #私聊") },
             enabled = canInput,
             maxLines = 2,
         )
-        Button(
+        WorldloomPrimaryButton(
+            label = if (sendingNpc) "发送中" else "发送",
             enabled = canInput && input.isNotBlank(),
-            modifier = Modifier.height(40.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 13.dp, vertical = 0.dp),
             onClick = {
                 val submitted = input.trim()
                 status = null
                 when (val parsed = parseChatInput(submitted, characters)) {
-                    is ParsedChatInput.Invalid -> status = parsed.message
+                    is ParsedChatInput.Invalid -> {
+                        status = parsed.message
+                        statusTone = WorldloomStatusTone.WARNING
+                    }
                     is ParsedChatInput.ToPm -> {
                         onInputChanged("")
+                        statusTone = WorldloomStatusTone.INFO
                         scope.launch { controller?.send(parsed.content) }
                     }
                     is ParsedChatInput.ToNpc -> {
@@ -725,9 +858,18 @@ private fun ChatComposer(
                                         parsed.communicationMethodId,
                                     )
                                 ) {
-                                    is NpcDialogueResult.Committed -> if (result.worldChanged) "消息已送达" else "消息已处理"
-                                    is NpcDialogueResult.Failed -> result.message
-                                    null -> "主持服务不可用"
+                                    is NpcDialogueResult.Committed -> {
+                                        statusTone = WorldloomStatusTone.SUCCESS
+                                        if (result.worldChanged) "消息已送达。" else "消息已处理。"
+                                    }
+                                    is NpcDialogueResult.Failed -> {
+                                        statusTone = WorldloomStatusTone.ERROR
+                                        result.message
+                                    }
+                                    null -> {
+                                        statusTone = WorldloomStatusTone.ERROR
+                                        "主持服务不可用。"
+                                    }
                                 }
                             } finally {
                                 sendingNpc = false
@@ -737,13 +879,15 @@ private fun ChatComposer(
                     }
                 }
             },
-            colors = ButtonDefaults.buttonColors(backgroundColor = PmAccent, contentColor = Color(0xFF20170A)),
-        ) { Text(if (sendingNpc) "…" else "发送") }
+        )
     }
     if (controller == null) {
-        Text("请先在世界与服务页面配置主持模型。", color = MutedText, fontSize = 11.sp)
+        WorldloomStatusBanner(
+            "请先在世界与服务页面配置主持模型。",
+            WorldloomStatusTone.WARNING,
+        )
     } else {
-        status?.let { Text(it, color = MutedText, fontSize = 11.sp) }
+        status?.let { WorldloomStatusBanner(it, statusTone) }
     }
 }
 
@@ -759,28 +903,29 @@ private fun WorldHud(
     onChatPrefix: (String) -> Unit,
 ) {
     LazyColumn(
-        modifier = modifier.background(GlassColor, RoundedCornerShape(16.dp))
-            .border(1.dp, FineBorder, RoundedCornerShape(16.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.background(GlassColor, androidx.compose.material.MaterialTheme.shapes.large)
+            .border(1.dp, FineBorder, androidx.compose.material.MaterialTheme.shapes.large)
+            .padding(WorldloomSpacing.Md),
+        verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
     ) {
         item {
-            Text("任务档案", color = PmAccent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("任务档案", color = PmAccent, style = androidx.compose.material.MaterialTheme.typography.h3)
             presentation.opening?.let {
-                Text(it.objective, color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp, lineHeight = 17.sp)
+                Text(it.objective, color = WorldloomPalette.TextPrimary)
             }
         }
         presentation.scene?.let { scene ->
             item {
                 HudSection("当前场景 · ${scene.label}") {
-                    scene.description?.let { Text(it, color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp) }
+                    scene.description?.let { Text(it, color = WorldloomPalette.TextSecondary) }
                 }
             }
             if (scene.actions.isNotEmpty()) {
                 item {
                     HudSection("行动") {
                         scene.actions.forEach { action ->
-                            Button(
+                            WorldloomSecondaryButton(
+                                label = action.label,
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = {
                                     onChatPrefix(
@@ -793,9 +938,7 @@ private fun WorldHud(
                                     )
                                 },
                                 enabled = interactive,
-                            ) {
-                                Text(action.label)
-                            }
+                            )
                         }
                     }
                 }
@@ -813,11 +956,13 @@ private fun WorldHud(
                     presentation.fields.forEach { field ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(field.label, color = MutedText, modifier = Modifier.weight(1f))
-                            Text(field.value.toString(), color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(6.dp))
-                            Button(onClick = { onAdjust(field.presentationId) }, enabled = interactive) {
-                                Text(field.adjustmentStep.signedLabel)
-                            }
+                            Text(field.value.toString(), color = WorldloomPalette.TextPrimary, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(WorldloomSpacing.Sm))
+                            WorldloomSecondaryButton(
+                                label = field.adjustmentStep.signedLabel,
+                                onClick = { onAdjust(field.presentationId) },
+                                enabled = interactive,
+                            )
                         }
                     }
                 }
@@ -827,9 +972,12 @@ private fun WorldHud(
             item {
                 HudSection("判定") {
                     presentation.checks.forEach { check ->
-                        Button(modifier = Modifier.fillMaxWidth(), onClick = { onCheck(check.presentationId) }, enabled = interactive) {
-                            Text(check.label)
-                        }
+                        WorldloomSecondaryButton(
+                            label = check.label,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onCheck(check.presentationId) },
+                            enabled = interactive,
+                        )
                     }
                 }
             }
@@ -840,11 +988,12 @@ private fun WorldHud(
                     presentation.worldTimeMinutes?.let {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("第 $it 分钟", modifier = Modifier.weight(1f), color = MutedText)
-                            Button(onClick = { onWait(60) }, enabled = interactive) { Text("等待") }
+                            WorldloomSecondaryButton("等待", { onWait(60) }, enabled = interactive)
                         }
                     }
                     presentation.activities.forEach { activity ->
-                        Button(
+                        WorldloomSecondaryButton(
+                            label = "${activity.label} · ${activity.durationMinutes} 分钟",
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 onChatPrefix(
@@ -857,12 +1006,11 @@ private fun WorldHud(
                                 )
                             },
                             enabled = interactive,
-                        ) {
-                            Text("${activity.label} · ${activity.durationMinutes} 分钟")
-                        }
+                        )
                     }
                     presentation.travelRoutes.forEach { route ->
-                        Button(
+                        WorldloomSecondaryButton(
+                            label = "${route.label} · ${route.durationMinutes} 分钟",
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 onChatPrefix(
@@ -875,9 +1023,7 @@ private fun WorldHud(
                                 )
                             },
                             enabled = interactive,
-                        ) {
-                            Text("${route.label} · ${route.durationMinutes} 分钟")
-                        }
+                        )
                     }
                 }
             }
@@ -886,25 +1032,35 @@ private fun WorldHud(
             item {
                 HudSection("世界状态") {
                     adventure.quests.forEach { quest ->
-                        Text("${quest.label} · ${quest.stageLabel ?: quest.status.name}", color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp)
+                        Text(
+                            "${quest.label} · ${quest.stageLabel ?: questStatusLabel(quest.status)}",
+                            color = WorldloomPalette.TextSecondary,
+                        )
                     }
                     adventure.conditions.forEach { condition ->
-                        Text("${condition.label} · ${condition.stacks}", color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp)
+                        Text("${condition.label} · ${condition.stacks}", color = WorldloomPalette.TextSecondary)
                     }
                 }
             }
         }
         presentation.endingSummary?.let { summary ->
-            item { HudSection("结局") { Text(summary, color = Color.White.copy(alpha = 0.86f)) } }
+            item { HudSection("结局") { Text(summary, color = WorldloomPalette.TextPrimary) } }
         }
         item {
-            Button(
+            WorldloomSecondaryButton(
+                label = "回放校验 · ${presentation.lastSequence} 个事件",
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onReplay,
-                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD537403E), contentColor = Color.White),
-            ) { Text("回放校验 · #${presentation.lastSequence}") }
+            )
         }
     }
+}
+
+internal fun questStatusLabel(status: io.worldloom.rules.QuestStatus): String = when (status) {
+    io.worldloom.rules.QuestStatus.NOT_STARTED -> "尚未开始"
+    io.worldloom.rules.QuestStatus.ACTIVE -> "进行中"
+    io.worldloom.rules.QuestStatus.COMPLETED -> "已完成"
+    io.worldloom.rules.QuestStatus.FAILED -> "已失败"
 }
 
 @Composable
@@ -918,11 +1074,17 @@ private fun CharacterMemberPanel(
     val visibleCharacters = if (nearbyOnly) characters.filter(PresentedNpc::nearby) else characters
     val selectedCharacter = visibleCharacters.firstOrNull { it.id.value == selectedId }
     Column(
-        modifier = modifier.fillMaxWidth().background(GlassStrong, RoundedCornerShape(12.dp)).padding(9.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.fillMaxWidth()
+            .background(GlassStrong, androidx.compose.material.MaterialTheme.shapes.medium)
+            .padding(WorldloomSpacing.Sm),
+        verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("群聊成员", color = PmAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            Text(
+                "群聊成员",
+                color = PmAccent,
+                style = androidx.compose.material.MaterialTheme.typography.subtitle1,
+            )
             Spacer(Modifier.weight(1f))
             CharacterRosterTab(
                 label = "身边 ${visibleNearbyCount(characters)}",
@@ -932,7 +1094,7 @@ private fun CharacterMemberPanel(
                     selectedId = null
                 },
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(WorldloomSpacing.Xs))
             CharacterRosterTab(
                 label = "全部 ${characters.size}",
                 selected = !nearbyOnly,
@@ -942,7 +1104,7 @@ private fun CharacterMemberPanel(
                 },
             )
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs)) {
             if (nearbyOnly) {
                 item(PM_MEMBER_ID) {
                     CharacterMember(
@@ -968,7 +1130,14 @@ private fun CharacterMemberPanel(
                 )
             }
             if (!nearbyOnly && visibleCharacters.isEmpty()) {
-                item { Text("暂无角色", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(12.dp)) }
+                item {
+                    Text(
+                        "暂无角色",
+                        color = MutedText,
+                        style = androidx.compose.material.MaterialTheme.typography.caption,
+                        modifier = Modifier.padding(WorldloomSpacing.Md),
+                    )
+                }
             }
         }
         when {
@@ -999,7 +1168,11 @@ private fun CharacterMemberPanel(
                     onPrivate = { onChatPrefix("#${character.displayName} ") },
                 )
             }
-            else -> Text("点击头像查看人物介绍", color = MutedText.copy(alpha = 0.78f), fontSize = 9.sp)
+            else -> Text(
+                "点击头像查看人物介绍",
+                color = MutedText.copy(alpha = 0.78f),
+                style = androidx.compose.material.MaterialTheme.typography.caption,
+            )
         }
     }
 }
@@ -1011,14 +1184,24 @@ private fun CharacterRosterTab(
     onClick: () -> Unit,
 ) {
     Box(
-        modifier = Modifier.clip(RoundedCornerShape(9.dp))
-            .background(if (selected) PmAccent.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.045f))
-            .border(1.dp, if (selected) PmAccent.copy(alpha = 0.5f) else FineBorder, RoundedCornerShape(9.dp))
+        modifier = Modifier.heightIn(min = WorldloomDimensions.DesktopTouchTarget)
+            .clip(androidx.compose.material.MaterialTheme.shapes.small)
+            .background(if (selected) PmAccent.copy(alpha = 0.2f) else WorldloomPalette.SurfaceRaised.copy(alpha = 0.48f))
+            .border(
+                1.dp,
+                if (selected) PmAccent.copy(alpha = 0.5f) else FineBorder,
+                androidx.compose.material.MaterialTheme.shapes.small,
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = WorldloomSpacing.Sm, vertical = WorldloomSpacing.Xs),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (selected) PmAccent else MutedText, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            label,
+            color = if (selected) PmAccent else MutedText,
+            style = androidx.compose.material.MaterialTheme.typography.caption,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -1031,17 +1214,20 @@ private fun CharacterMember(
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.width(54.dp).clip(RoundedCornerShape(9.dp)).clickable(onClick = onClick)
+        modifier = Modifier.width(WorldloomDimensions.AvatarControlWidth)
+            .heightIn(min = WorldloomDimensions.TouchTarget)
+            .clip(androidx.compose.material.MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
             .background(if (selected) PmAccent.copy(alpha = 0.09f) else Color.Transparent)
-            .padding(vertical = 3.dp),
+            .padding(vertical = WorldloomSpacing.Xs),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         CharacterAvatar(name, avatarAssetId, reachable, selected)
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(WorldloomSpacing.Xs))
         Text(
             name,
-            color = if (selected) PmAccent else Color.White,
-            fontSize = 10.sp,
+            color = if (selected) PmAccent else WorldloomPalette.TextPrimary,
+            style = androidx.compose.material.MaterialTheme.typography.caption,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1056,14 +1242,14 @@ private fun CharacterAvatar(
     reachable: Boolean,
     selected: Boolean,
 ) {
-    val painter = when (avatarAssetId) {
-        "worldloom.avatar.war-mara" -> painterResource(Res.drawable.npc_war_mara)
-        "worldloom.avatar.war-tomas" -> painterResource(Res.drawable.npc_war_tomas)
-        "worldloom.avatar.station-lyra" -> painterResource(Res.drawable.npc_station_lyra)
-        "worldloom.avatar.station-soren" -> painterResource(Res.drawable.npc_station_soren)
-        else -> null
+    val painter = when (gameplayAvatarAsset(avatarAssetId)) {
+        GameplayAvatarAsset.WAR_MARA -> painterResource(Res.drawable.npc_war_mara)
+        GameplayAvatarAsset.WAR_TOMAS -> painterResource(Res.drawable.npc_war_tomas)
+        GameplayAvatarAsset.STATION_LYRA -> painterResource(Res.drawable.npc_station_lyra)
+        GameplayAvatarAsset.STATION_SOREN -> painterResource(Res.drawable.npc_station_soren)
+        GameplayAvatarAsset.GENERIC -> null
     }
-    Box(Modifier.size(40.dp)) {
+    Box(Modifier.size(WorldloomDimensions.AvatarSize)) {
         Box(
             modifier = Modifier.fillMaxSize().clip(CircleShape)
                 .background(if (name == "PM") PmAccent.copy(alpha = 0.18f) else NpcAccent.copy(alpha = 0.14f))
@@ -1082,16 +1268,24 @@ private fun CharacterAvatar(
                     name.take(1).uppercase(),
                     color = if (name == "PM") PmAccent else NpcAccent,
                     fontWeight = FontWeight.Black,
-                    fontSize = 12.sp,
+                    style = androidx.compose.material.MaterialTheme.typography.subtitle1,
                 )
             }
         }
         Box(
-            Modifier.align(Alignment.BottomEnd).size(10.dp).clip(CircleShape)
-                .background(if (reachable) NpcAccent else Color(0xFF626769))
+            Modifier.align(Alignment.BottomEnd).size(WorldloomDimensions.StatusDotSize).clip(CircleShape)
+                .background(if (reachable) NpcAccent else WorldloomPalette.TextMuted)
                 .border(2.dp, GlassStrong, CircleShape),
         )
     }
+}
+
+internal fun gameplayAvatarAsset(assetId: String?): GameplayAvatarAsset = when (assetId) {
+    "worldloom.avatar.war-mara" -> GameplayAvatarAsset.WAR_MARA
+    "worldloom.avatar.war-tomas" -> GameplayAvatarAsset.WAR_TOMAS
+    "worldloom.avatar.station-lyra" -> GameplayAvatarAsset.STATION_LYRA
+    "worldloom.avatar.station-soren" -> GameplayAvatarAsset.STATION_SOREN
+    else -> GameplayAvatarAsset.GENERIC
 }
 
 @Composable
@@ -1105,44 +1299,50 @@ private fun CharacterMemberProfile(
     onPrivate: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.045f), RoundedCornerShape(9.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(WorldloomPalette.SurfaceRaised.copy(alpha = 0.48f), androidx.compose.material.MaterialTheme.shapes.small)
+            .padding(WorldloomSpacing.Sm),
+        verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Xs),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
             Column(Modifier.weight(1f)) {
-                Text(name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(status, color = if (canPrivate) NpcAccent else MutedText, fontSize = 9.sp, maxLines = 1)
+                Text(
+                    name,
+                    color = WorldloomPalette.TextPrimary,
+                    style = androidx.compose.material.MaterialTheme.typography.body2,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Text(
+                    status,
+                    color = if (canPrivate) NpcAccent else MutedText,
+                    style = androidx.compose.material.MaterialTheme.typography.caption,
+                    maxLines = 1,
+                )
             }
             if (canPublic) RosterActionButton("@ 对话", onPublic)
             if (canPrivate) RosterActionButton("# 私聊", onPrivate)
         }
-        Text(introduction, color = Color.White.copy(alpha = 0.76f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 3)
+        Text(
+            introduction,
+            color = WorldloomPalette.TextSecondary,
+            style = androidx.compose.material.MaterialTheme.typography.caption,
+            maxLines = 3,
+        )
     }
 }
 
 @Composable
 private fun RosterActionButton(label: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.height(28.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        colors = ButtonDefaults.buttonColors(
-            backgroundColor = if (label.startsWith("#")) PmAccent.copy(alpha = 0.82f) else NpcAccent.copy(alpha = 0.75f),
-            contentColor = Color(0xFF111718),
-        ),
-    ) { Text(label, fontSize = 9.sp, fontWeight = FontWeight.Black) }
+    WorldloomSecondaryButton(label = label, onClick = onClick)
 }
 
 private fun visibleNearbyCount(characters: List<PresentedNpc>): Int = characters.count(PresentedNpc::nearby)
 
 @Composable
 private fun HudSection(title: String, content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().background(GlassStrong, RoundedCornerShape(12.dp)).padding(9.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(title, color = PmAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    WorldloomPanel(modifier = Modifier.fillMaxWidth(), strong = true, padding = WorldloomSpacing.Sm) {
+        Text(title, color = PmAccent, style = androidx.compose.material.MaterialTheme.typography.subtitle1)
         content()
     }
 }

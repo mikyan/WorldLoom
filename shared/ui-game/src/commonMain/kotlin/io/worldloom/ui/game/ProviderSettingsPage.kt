@@ -4,12 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
-import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
@@ -24,10 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.platform.credentials.CredentialConfigurationState
 import io.worldloom.provider.api.ProviderConfiguration
@@ -61,67 +55,61 @@ internal fun ProviderSettingsPage(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Lg),
     ) {
-        Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("订阅与模型", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "每个订阅源独立保存密钥。选择内置来源后只需填写 API Key；自定义来源可填写 OpenAI-compatible 地址。",
-                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
-                        )
-                    }
-                    Button(onClick = onBack) { Text("返回") }
-                }
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
+        ) {
+            WorldloomSectionHeading(
+                title = "订阅与模型",
+                subtitle = "密钥由平台保险箱独立保存；世界内容与存档无法读取它。",
+                modifier = Modifier.weight(1f),
+            )
+            WorldloomSecondaryButton("返回", onBack)
         }
 
         if (sources.isEmpty() || credentialConfigurations.isEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-                Text(
-                    "当前平台没有可用的订阅源配置。",
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    color = MaterialTheme.colors.error,
-                )
-            }
+            WorldloomStatusBanner(
+                message = "当前平台没有可用的订阅源配置。",
+                tone = WorldloomStatusTone.ERROR,
+            )
             return@Column
         }
 
+        WorldloomSectionHeading(
+            title = "服务来源",
+            subtitle = "先选择要编辑的来源，再保存并启用。",
+        )
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
         ) {
             items(sources, key = { it.configurationId.value }) { source ->
                 val editing = source.configurationId == editingSourceId
                 val selected = source.configurationId == selectedConfigurationId
-                Button(
-                    onClick = { editingSourceId = source.configurationId },
+                WorldloomChoiceCard(
+                    title = source.displayName,
+                    subtitle = if (selected) "当前正在使用" else source.description,
+                    selected = editing,
                     enabled = !loading,
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = if (editing) {
-                            MaterialTheme.colors.primary
-                        } else {
-                            MaterialTheme.colors.secondary
-                        },
+                    modifier = Modifier.widthIn(
+                        min = WorldloomDimensions.SelectorCardMinWidth,
+                        max = WorldloomDimensions.SelectorCardMaxWidth,
                     ),
-                ) {
-                    Text(if (selected) "${source.displayName} · 正在使用" else source.displayName)
-                }
+                    onClick = { editingSourceId = source.configurationId },
+                )
             }
+        }
+
+        if (loading) {
+            WorldloomStatusBanner("正在读取订阅配置…", WorldloomStatusTone.INFO)
         }
 
         val source = sources.firstOrNull { it.configurationId == editingSourceId }
         val credentialConfiguration = source?.let { credentialConfigurations[it.configurationId] }
-        if (source != null && credentialConfiguration != null) {
+        if (!loading && source != null && credentialConfiguration != null) {
             key(source.configurationId.value) {
                 ProviderSourceEditor(
                     center = center,
@@ -143,6 +131,11 @@ internal fun ProviderSettingsPage(
     }
 }
 
+private data class ProviderEditorFeedback(
+    val message: String,
+    val tone: WorldloomStatusTone,
+)
+
 @Composable
 private fun ProviderSourceEditor(
     center: ProviderConfigurationCenter,
@@ -163,8 +156,13 @@ private fun ProviderSourceEditor(
     }
     var discoveredModels by remember(source.configurationId) { mutableStateOf(emptyList<String>()) }
     var modelFilter by remember(source.configurationId) { mutableStateOf("") }
-    var status by remember(source.configurationId) {
-        mutableStateOf(if (selected) "当前正在使用此订阅源" else "尚未启用")
+    var feedback by remember(source.configurationId) {
+        mutableStateOf(
+            ProviderEditorFeedback(
+                message = if (selected) "当前正在使用此订阅源。" else "保存后将启用此订阅源。",
+                tone = if (selected) WorldloomStatusTone.SUCCESS else WorldloomStatusTone.INFO,
+            ),
+        )
     }
     var loading by remember(source.configurationId) { mutableStateOf(false) }
 
@@ -172,9 +170,9 @@ private fun ProviderSourceEditor(
         credentialConfiguration.refresh()
     }
 
-    fun saveThen(block: suspend (ProviderConfiguration) -> Unit) {
+    fun saveThen(block: suspend (ProviderConfiguration) -> ProviderEditorFeedback) {
         if (credential.isBlank() && credentialState !is CredentialConfigurationState.Configured) {
-            status = "请输入 API Key"
+            feedback = ProviderEditorFeedback("请输入 API Key。", WorldloomStatusTone.WARNING)
             return
         }
         loading = true
@@ -183,16 +181,19 @@ private fun ProviderSourceEditor(
         scope.launch {
             try {
                 if (submittedCredential.isNotBlank() && !credentialConfiguration.configure(submittedCredential)) {
-                    status = "API Key 保存失败"
+                    feedback = ProviderEditorFeedback("API Key 保存失败。", WorldloomStatusTone.ERROR)
                     return@launch
                 }
                 val updated = source.configurationWithSelection(storedConfiguration, baseUrl, modelId)
                 center.upsert(updated)
                 center.select(updated.id)
                 onSaved(updated)
-                block(updated)
+                feedback = block(updated)
             } catch (error: IllegalArgumentException) {
-                status = error.message ?: "订阅源配置无效"
+                feedback = ProviderEditorFeedback(
+                    error.message ?: "订阅源配置无效。",
+                    WorldloomStatusTone.ERROR,
+                )
             } finally {
                 loading = false
             }
@@ -212,166 +213,195 @@ private fun ProviderSourceEditor(
                 center.upsert(updated)
                 center.select(updated.id)
                 onSaved(updated)
-                status = "已切换到模型 $selectedModel"
+                feedback = ProviderEditorFeedback(
+                    "已切换到模型 $selectedModel。",
+                    WorldloomStatusTone.SUCCESS,
+                )
             } catch (error: IllegalArgumentException) {
-                status = error.message ?: "模型配置无效"
+                feedback = ProviderEditorFeedback(
+                    error.message ?: "模型配置无效。",
+                    WorldloomStatusTone.ERROR,
+                )
             } finally {
                 loading = false
             }
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    WorldloomPanel(modifier = Modifier.fillMaxWidth(), strong = true) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
         ) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(source.displayName, color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        source.description,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
-                        fontSize = 12.sp,
-                    )
-                }
-                Text(
-                    credentialStatus(credentialState),
-                    color = if (credentialState is CredentialConfigurationState.Failed) {
-                        MaterialTheme.colors.error
-                    } else {
-                        MaterialTheme.colors.onSurface.copy(alpha = 0.62f)
-                    },
-                    fontSize = 12.sp,
-                )
-            }
+            WorldloomSectionHeading(
+                title = source.displayName,
+                subtitle = source.description,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                credentialStatus(credentialState),
+                color = if (credentialState is CredentialConfigurationState.Failed) {
+                    WorldloomPalette.Error
+                } else {
+                    WorldloomPalette.TextSecondary
+                },
+                style = MaterialTheme.typography.caption,
+            )
+        }
 
-            if (source.customEndpoint) {
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("OpenAI-compatible Base URL") },
-                    singleLine = true,
-                    enabled = !loading,
-                )
-            } else {
-                Text("服务地址：${source.baseUrl}", color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
-            }
-
+        if (source.customEndpoint) {
             OutlinedTextField(
-                value = modelId,
-                onValueChange = { modelId = it },
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Model ID（可从服务端模型列表选择）") },
+                label = { Text("兼容服务地址") },
                 singleLine = true,
                 enabled = !loading,
             )
+        } else {
+            Text("服务地址由内置来源管理。", color = WorldloomPalette.TextSecondary)
+        }
 
-            OutlinedTextField(
-                value = credential,
-                onValueChange = { credential = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = {
-                    Text(
-                        if (credentialState is CredentialConfigurationState.Configured) {
-                            "API Key（留空则保留已保存密钥）"
-                        } else {
-                            "API Key"
+        OutlinedTextField(
+            value = modelId,
+            onValueChange = { modelId = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("模型") },
+            singleLine = true,
+            enabled = !loading,
+        )
+
+        OutlinedTextField(
+            value = credential,
+            onValueChange = { credential = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = {
+                Text(
+                    if (credentialState is CredentialConfigurationState.Configured) {
+                        "API Key（留空则保留现有密钥）"
+                    } else {
+                        "API Key"
+                    },
+                )
+            },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            enabled = !loading && credentialState !is CredentialConfigurationState.Loading,
+        )
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
+        ) {
+            item {
+                WorldloomPrimaryButton(
+                    label = if (loading) "正在保存…" else "保存并启用",
+                    enabled = !loading,
+                    onClick = {
+                        saveThen { updated ->
+                            ProviderEditorFeedback("已启用 ${updated.displayName}。", WorldloomStatusTone.SUCCESS)
+                        }
+                    },
+                )
+            }
+            item {
+                WorldloomSecondaryButton(
+                    label = "保存并测试",
+                    enabled = !loading,
+                    onClick = {
+                        saveThen { updated ->
+                            when (val result = center.test(updated.id)) {
+                                is ProviderConnectionTestResult.Connected ->
+                                    ProviderEditorFeedback("连接成功。", WorldloomStatusTone.SUCCESS)
+                                is ProviderConnectionTestResult.Failed ->
+                                    ProviderEditorFeedback(result.message, WorldloomStatusTone.ERROR)
+                            }
+                        }
+                    },
+                )
+            }
+            item {
+                WorldloomSecondaryButton(
+                    label = "获取模型列表",
+                    enabled = !loading,
+                    onClick = {
+                        saveThen { updated ->
+                            when (val result = center.discoverModels(updated.id)) {
+                                is ProviderModelDiscoveryResult.Success -> {
+                                    discoveredModels = result.models.map { it.id }
+                                    modelFilter = ""
+                                    if (modelId in discoveredModels || discoveredModels.isEmpty()) {
+                                        ProviderEditorFeedback(
+                                            "已获取 ${discoveredModels.size} 个模型。",
+                                            WorldloomStatusTone.SUCCESS,
+                                        )
+                                    } else {
+                                        ProviderEditorFeedback(
+                                            "已获取 ${discoveredModels.size} 个模型；请重新选择当前模型。",
+                                            WorldloomStatusTone.WARNING,
+                                        )
+                                    }
+                                }
+                                is ProviderModelDiscoveryResult.Failure ->
+                                    ProviderEditorFeedback(result.message, WorldloomStatusTone.ERROR)
+                            }
+                        }
+                    },
+                )
+            }
+            if (credentialState is CredentialConfigurationState.Configured) {
+                item {
+                    WorldloomDangerButton(
+                        label = "删除密钥",
+                        enabled = !loading,
+                        onClick = {
+                            loading = true
+                            scope.launch {
+                                val cleared = credentialConfiguration.clear()
+                                feedback = if (cleared) {
+                                    ProviderEditorFeedback("已删除此订阅源的 API Key。", WorldloomStatusTone.SUCCESS)
+                                } else {
+                                    ProviderEditorFeedback("API Key 删除失败。", WorldloomStatusTone.ERROR)
+                                }
+                                loading = false
+                            }
                         },
                     )
-                },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                enabled = !loading && credentialState !is CredentialConfigurationState.Loading,
-            )
-
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    Button(
-                        enabled = !loading,
-                        onClick = {
-                            saveThen { updated -> status = "已启用 ${updated.displayName}" }
-                        },
-                    ) { Text("保存并启用") }
-                }
-                item {
-                    Button(
-                        enabled = !loading,
-                        onClick = {
-                            saveThen { updated ->
-                                status = when (val result = center.test(updated.id)) {
-                                    is ProviderConnectionTestResult.Connected -> "连接成功"
-                                    is ProviderConnectionTestResult.Failed -> result.message
-                                }
-                            }
-                        },
-                    ) { Text("保存并测试") }
-                }
-                item {
-                    Button(
-                        enabled = !loading,
-                        onClick = {
-                            saveThen { updated ->
-                                when (val result = center.discoverModels(updated.id)) {
-                                    is ProviderModelDiscoveryResult.Success -> {
-                                        discoveredModels = result.models.map { it.id }
-                                        modelFilter = ""
-                                        status = if (modelId in discoveredModels || discoveredModels.isEmpty()) {
-                                            "从 Models API 获取到 ${discoveredModels.size} 个模型"
-                                        } else {
-                                            "获取到 ${discoveredModels.size} 个模型；当前 Model ID 不在列表中，请重新选择"
-                                        }
-                                    }
-                                    is ProviderModelDiscoveryResult.Failure -> status = result.message
-                                }
-                            }
-                        },
-                    ) { Text("获取模型列表") }
-                }
-                if (credentialState is CredentialConfigurationState.Configured) {
-                    item {
-                        Button(
-                            enabled = !loading,
-                            onClick = {
-                                loading = true
-                                scope.launch {
-                                    val cleared = credentialConfiguration.clear()
-                                    status = if (cleared) "已删除此订阅源的 API Key" else "API Key 删除失败"
-                                    loading = false
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
-                        ) { Text("删除密钥") }
-                    }
                 }
             }
+        }
 
-            Text(status, color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f), fontSize = 12.sp)
-            if (discoveredModels.isNotEmpty()) {
-                OutlinedTextField(
-                    value = modelFilter,
-                    onValueChange = { modelFilter = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("筛选模型") },
-                    singleLine = true,
-                    enabled = !loading,
-                )
-                val visibleModels = discoveredModels
-                    .filter { model -> modelFilter.isBlank() || model.contains(modelFilter, ignoreCase = true) }
-                    .take(MAX_VISIBLE_MODELS)
-                Text(
-                    "显示 ${visibleModels.size} / ${discoveredModels.size}，点击后立即启用",
-                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.62f),
-                    fontSize = 12.sp,
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(visibleModels, key = { it }) { model ->
-                        Button(onClick = { activateModel(model) }, enabled = !loading) { Text(model) }
-                    }
+        WorldloomStatusBanner(feedback.message, feedback.tone)
+        if (discoveredModels.isNotEmpty()) {
+            OutlinedTextField(
+                value = modelFilter,
+                onValueChange = { modelFilter = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("筛选模型") },
+                singleLine = true,
+                enabled = !loading,
+            )
+            val visibleModels = discoveredModels
+                .filter { model -> modelFilter.isBlank() || model.contains(modelFilter, ignoreCase = true) }
+                .take(MAX_VISIBLE_MODELS)
+            Text(
+                "显示 ${visibleModels.size} / ${discoveredModels.size}，选择后立即启用。",
+                color = WorldloomPalette.TextSecondary,
+                style = MaterialTheme.typography.caption,
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
+                items(visibleModels, key = { it }) { model ->
+                    WorldloomChoiceCard(
+                        title = model,
+                        selected = model == modelId,
+                        enabled = !loading,
+                        modifier = Modifier.widthIn(
+                            min = WorldloomDimensions.DenseSelectorCardMinWidth,
+                            max = WorldloomDimensions.SelectorCardMaxWidth,
+                        ),
+                        onClick = { activateModel(model) },
+                    )
                 }
             }
         }

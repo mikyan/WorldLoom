@@ -58,6 +58,7 @@ class InMemoryCharacterCreationDraftStore : CharacterCreationDraftStore {
 data class CharacterCreationFieldPresentation(
     val componentId: DefinitionId,
     val fieldId: DefinitionId,
+    val label: String,
     val value: TypedValue,
     val minimumInteger: Long?,
     val maximumInteger: Long?,
@@ -68,6 +69,7 @@ data class CharacterCreationOptionPresentation(val id: DefinitionId, val label: 
 data class CharacterCreationPresentation(
     val runId: RunId,
     val worldId: DefinitionId,
+    val worldTitle: String,
     val profileId: DefinitionId,
     val playerEntityId: String,
     val modes: List<CharacterCreationMode>,
@@ -94,10 +96,12 @@ sealed interface CharacterCreationCandidateResult {
 /** Coordinates one pinned profile and its topic-neutral Definition boundary. */
 class CharacterCreationCoordinator(
     private val worldId: DefinitionId,
+    private val worldTitle: String,
     private val profile: ValidatedCharacterCreationProfile,
     private val playerEntityId: String,
     private val initialSceneId: DefinitionId,
     private val initialSceneParticipantIds: List<EntityId> = emptyList(),
+    private val fieldLabels: Map<Pair<DefinitionId, DefinitionId>, String> = emptyMap(),
 ) {
     fun commandPolicy(): CharacterCreationCommandPolicy = CharacterCreationCommandPolicy(
         profileId = profile.source.id,
@@ -160,16 +164,18 @@ class CharacterCreationCoordinator(
         return CharacterCreationPresentation(
             runId = draft.runId,
             worldId = worldId,
+            worldTitle = worldTitle,
             profileId = profile.source.id,
             playerEntityId = playerEntityId,
             modes = profile.source.modes.sortedBy(CharacterCreationMode::ordinal),
             selectedMode = draft.request.mode,
             options = options(draft.request.mode).map { CharacterCreationOptionPresentation(it.id, it.label) },
             selectedOptionId = draft.request.optionId,
-            fields = profile.source.fields.map { rule ->
+            fields = profile.source.fields.mapIndexed { index, rule ->
                 CharacterCreationFieldPresentation(
                     componentId = rule.componentId,
                     fieldId = rule.fieldId,
+                    label = fieldLabels[rule.componentId to rule.fieldId] ?: "属性 ${index + 1}",
                     value = values[rule.componentId to rule.fieldId] ?: rule.defaultValue,
                     minimumInteger = rule.minimumInteger,
                     maximumInteger = rule.maximumInteger,

@@ -529,19 +529,10 @@ private fun DreamInlineButton(
     onClick: () -> Unit,
     secondary: Boolean = false,
 ) {
-    Surface(
-        modifier = Modifier.height(43.dp).clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick),
-        color = if (secondary) DreamInk.copy(alpha = 0.80f) else DreamGold,
-        shape = RoundedCornerShape(4.dp),
-        border = BorderStroke(1.dp, DreamGoldMuted),
-    ) {
-        Box(Modifier.padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                color = if (secondary) Color.White else Color(0xFF21140A),
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+    if (secondary) {
+        WorldloomSecondaryButton(label = label, onClick = onClick)
+    } else {
+        WorldloomPrimaryButton(label = label, onClick = onClick)
     }
 }
 

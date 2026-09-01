@@ -40,6 +40,35 @@ class GameChatModelTest {
         assertEquals(emptyList(), messages.filter { it.kind == GameChatSpeakerKind.NPC })
     }
 
+    @Test
+    fun emptyPresentationProducesAnEmptyConversation() {
+        val messages = buildGameChatMessages(
+            GamePresentation(
+                worldId = DefinitionId("test.empty-world"),
+                title = "空世界",
+                lastSequence = 0,
+                fields = emptyList(),
+                checks = emptyList(),
+                timeline = emptyList(),
+            ),
+            GameAgentHistoryState(),
+        )
+
+        assertEquals(emptyList(), messages)
+    }
+
+    @Test
+    fun `long authored text remains available to the scrollable conversation`() {
+        val premise = "很久以前，".repeat(180)
+        val longPresentation = presentation(emptyList()).copy(
+            opening = presentation(emptyList()).opening?.copy(premise = premise),
+        )
+
+        val messages = buildGameChatMessages(longPresentation, GameAgentHistoryState())
+
+        assertEquals(premise, messages.first().content)
+    }
+
     private fun presentation(npcs: List<PresentedNpc>) = GamePresentation(
         worldId = DefinitionId("test.world"),
         title = "雾谷",

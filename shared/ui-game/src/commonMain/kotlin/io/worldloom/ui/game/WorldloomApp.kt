@@ -27,7 +27,6 @@ import androidx.compose.material.LinearProgressIndicator
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
-import androidx.compose.material.darkColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,7 +37,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,8 +48,6 @@ import io.worldloom.agent.runtime.HostedTurnHistoryItem
 import io.worldloom.agent.runtime.NpcDialogueResult
 import io.worldloom.application.GamePresentation
 import io.worldloom.application.GuidancePresentation
-import io.worldloom.application.CharacterCreationPresentation
-import io.worldloom.application.request
 import io.worldloom.application.GameSession
 import io.worldloom.application.GameSessionAction
 import io.worldloom.application.GameSessionUiState
@@ -64,12 +60,9 @@ import io.worldloom.application.ReplayInspector
 import io.worldloom.application.TimelinePageResult
 import io.worldloom.application.PublicReplayResult
 import io.worldloom.application.WorldCatalogEntry
-import io.worldloom.content.schema.CharacterCreationMode
-import io.worldloom.content.schema.CharacterValueAssignment
 import io.worldloom.content.generation.RecognitionCandidatePresentation
 import io.worldloom.content.generation.RecognitionWorkspacePresentation
 import io.worldloom.rules.AdventureStatePresentation
-import io.worldloom.definition.IntegerValue
 import io.worldloom.platform.credentials.CredentialConfiguration
 import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
@@ -77,20 +70,6 @@ import io.worldloom.provider.openai.OpenAiSubscriptionSource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private val WorldloomColors = darkColors(
-    primary = Color(0xFFD6B56E),
-    primaryVariant = Color(0xFFA9843A),
-    secondary = Color(0xFF8FA79A),
-    background = Color(0xFF121513),
-    surface = Color(0xFF1C211E),
-    error = Color(0xFFD98282),
-    onPrimary = Color(0xFF211B0F),
-    onSecondary = Color(0xFF111713),
-    onBackground = Color(0xFFE7E4DA),
-    onSurface = Color(0xFFE7E4DA),
-    onError = Color(0xFF241010),
-)
 
 @Composable
 fun WorldloomApp(
@@ -218,7 +197,7 @@ fun WorldloomApp(
         }
     }
 
-    MaterialTheme(colors = WorldloomColors) {
+    WorldloomTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
             if (showGameplay) {
                 when (val current = state) {
@@ -230,6 +209,7 @@ fun WorldloomApp(
                             notice = gameplayNotice,
                             agentController = agentController.takeIf { gameplayInteractive },
                             interactive = gameplayInteractive,
+                            reduceMotion = reduceMotion,
                             runKey = session.currentRunId?.value.orEmpty(),
                             historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
                             onExit = {
@@ -252,15 +232,11 @@ fun WorldloomApp(
                         )
                     }
 
-                    is GameSessionUiState.CharacterCreation -> Box(
-                        Modifier.fillMaxSize().safeDrawingPadding().padding(20.dp),
-                    ) {
-                        CharacterCreationState(
-                            presentation = current.presentation,
-                            onUpdate = { request -> scope.launch { session.updateCharacter(request) } },
-                            onConfirm = { scope.launch { session.confirmCharacter() } },
-                        )
-                    }
+                    is GameSessionUiState.CharacterCreation -> CharacterCreationPage(
+                        presentation = current.presentation,
+                        onUpdate = { request -> scope.launch { session.updateCharacter(request) } },
+                        onConfirm = { scope.launch { session.confirmCharacter() } },
+                    )
 
                     is GameSessionUiState.Loading -> LoadingState(reduceMotion)
                     is GameSessionUiState.Failed -> Box(
@@ -361,69 +337,109 @@ private fun SaveLibraryPanel(
     val scope = rememberCoroutineScope()
     LaunchedEffect(coordinator) { coordinator.refresh() }
     when (val library = state) {
-        SaveLibraryState.Loading -> Text("正在读取存档…")
-        is SaveLibraryState.Failed -> EmptyState(library.message, isError = true)
+        SaveLibraryState.Loading -> WorldloomStatusBanner("正在读取存档…", WorldloomStatusTone.INFO)
+        is SaveLibraryState.Failed -> WorldloomStatusBanner(library.message, WorldloomStatusTone.ERROR)
         is SaveLibraryState.Ready -> {
-            if (library.runs.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("继续游戏", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    WorldloomSectionHeading(
+                        title = "存档",
+                        subtitle = "继续、整理或修复本地梦境记录。",
+                        modifier = Modifier.weight(1f),
+                    )
                     library.quickContinueRunId?.let {
-                        Button(onClick = onQuickContinueRequested) { Text("快速继续最近一局") }
+                        WorldloomPrimaryButton("快速继续", onQuickContinueRequested)
                     }
-                    library.operationError?.let { Text(it.message, color = MaterialTheme.colors.error) }
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                }
+                library.operationError?.let {
+                    WorldloomStatusBanner(it.message, WorldloomStatusTone.ERROR)
+                }
+                if (library.runs.isEmpty()) {
+                    WorldloomStatusBanner("还没有可以继续的梦境。", WorldloomStatusTone.INFO)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm),
+                    ) {
                         items(library.runs, key = { it.runId.value }) { run ->
                             var name by remember(run.runId) { mutableStateOf(run.displayName) }
-                            Card(backgroundColor = MaterialTheme.colors.surface) {
-                                Column(
-                                    modifier = Modifier.width(280.dp).padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                            WorldloomPanel(modifier = Modifier.fillMaxWidth(), strong = !run.archived) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Md),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     OutlinedTextField(
                                         value = name,
                                         onValueChange = { name = it },
+                                        modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         label = { Text("存档名称") },
                                     )
-                                    Text("${run.lifecycle.name} · #${run.lastSequence} · 内容 v${run.worldContentVersion}")
                                     Text(
-                                        when (run.saveStatus) {
-                                            RunSaveStatus.SAVED -> buildString {
-                                                append("自动存档已保存 · 事件 #${run.lastPersistedEventSequence}")
-                                                run.lastPersistedTurnId?.let { append(" · 回合 $it") }
-                                            }
-                                            RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING ->
-                                                "事实已保存，目录待修复 · 当前事件 #${run.lastSequence}"
-                                        },
-                                        color = if (run.saveStatus == RunSaveStatus.SAVED) {
-                                            MaterialTheme.colors.onSurface.copy(alpha = 0.62f)
+                                        if (run.archived) "已归档" else runLifecycleLabel(run.lifecycle),
+                                        color = if (run.archived) {
+                                            WorldloomPalette.TextMuted
                                         } else {
-                                            MaterialTheme.colors.error
+                                            WorldloomPalette.BrandPrimary
                                         },
-                                        fontSize = 12.sp,
+                                        style = MaterialTheme.typography.subtitle1,
                                     )
-                                    if (run.savedAtEpochMillis > 0) {
-                                        Text(
-                                            "持久化时间戳 ${run.savedAtEpochMillis}",
-                                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.48f),
-                                            fontSize = 11.sp,
+                                }
+                                Text(
+                                    "${run.lastSequence} 个事件 · 内容版本 ${run.worldContentVersion}",
+                                    color = WorldloomPalette.TextSecondary,
+                                    style = MaterialTheme.typography.body2,
+                                )
+                                when (run.saveStatus) {
+                                    RunSaveStatus.SAVED -> WorldloomStatusBanner(
+                                        message = "自动存档已保存至事件 ${run.lastPersistedEventSequence}。",
+                                        tone = WorldloomStatusTone.SUCCESS,
+                                    )
+                                    RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING -> WorldloomStatusBanner(
+                                        message = "世界事实已保存，但存档目录需要修复。",
+                                        tone = WorldloomStatusTone.WARNING,
+                                    )
+                                }
+                                run.diagnostic?.let {
+                                    WorldloomStatusBanner(it, WorldloomStatusTone.ERROR)
+                                }
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(WorldloomSpacing.Sm)) {
+                                    item {
+                                        WorldloomPrimaryButton(
+                                            label = if (run.lifecycle == io.worldloom.world.RunLifecycle.COMPLETED) {
+                                                "查看结局"
+                                            } else {
+                                                "继续"
+                                            },
+                                            onClick = { onContinueRequested(run.runId) },
                                         )
                                     }
-                                    run.diagnostic?.let { Text(it, color = MaterialTheme.colors.error, fontSize = 12.sp) }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Button(onClick = { onContinueRequested(run.runId) }) {
-                                            Text(if (run.lifecycle.name == "COMPLETED") "查看" else "继续")
-                                        }
-                                        Button(onClick = { scope.launch { coordinator.rename(run.runId, name) } }) {
-                                            Text("重命名")
-                                        }
-                                        Button(onClick = { scope.launch { coordinator.archive(run.runId, !run.archived) } }) {
-                                            Text(if (run.archived) "恢复" else "归档")
-                                        }
+                                    item {
+                                        WorldloomSecondaryButton(
+                                            label = "保存名称",
+                                            onClick = { scope.launch { coordinator.rename(run.runId, name) } },
+                                        )
+                                    }
+                                    item {
+                                        WorldloomSecondaryButton(
+                                            label = if (run.archived) "恢复到列表" else "归档",
+                                            onClick = { scope.launch { coordinator.archive(run.runId, !run.archived) } },
+                                        )
                                     }
                                     if (run.saveStatus == RunSaveStatus.FACTS_SAVED_DIRECTORY_PENDING) {
-                                        Button(onClick = { scope.launch { coordinator.repairDirectory(run.runId) } }) {
-                                            Text("修复目录证据")
+                                        item {
+                                            WorldloomSecondaryButton(
+                                                label = "修复存档目录",
+                                                onClick = { scope.launch { coordinator.repairDirectory(run.runId) } },
+                                            )
                                         }
                                     }
                                 }
@@ -436,110 +452,12 @@ private fun SaveLibraryPanel(
     }
 }
 
-@Composable
-private fun CharacterCreationState(
-    presentation: CharacterCreationPresentation,
-    onUpdate: (io.worldloom.content.schema.CharacterCreationRequest) -> Unit,
-    onConfirm: () -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text("创建角色", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                "${presentation.profileId} · 确认后进入主持人回合",
-                color = MaterialTheme.colors.onSurface.copy(alpha = 0.58f),
-            )
-        }
-        presentation.notice?.let { notice -> item { EmptyState(notice.message, isError = true) } }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(presentation.modes, key = { it.name }) { mode ->
-                    Button(
-                        onClick = { onUpdate(presentation.request(mode = mode, optionId = null)) },
-                        colors = ButtonDefaults.buttonColors(
-                            backgroundColor = if (mode == presentation.selectedMode) {
-                                MaterialTheme.colors.primary
-                            } else {
-                                MaterialTheme.colors.secondary
-                            },
-                        ),
-                    ) { Text(modeLabel(mode)) }
-                }
-            }
-        }
-        if (presentation.options.isNotEmpty()) {
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(presentation.options, key = { it.id.value }) { option ->
-                        Button(
-                            onClick = { onUpdate(presentation.request(optionId = option.id)) },
-                        ) { Text(option.label) }
-                    }
-                }
-            }
-        }
-        items(presentation.fields, key = { "${it.componentId}:${it.fieldId}" }) { field ->
-            Card(modifier = Modifier.fillMaxWidth(), backgroundColor = MaterialTheme.colors.surface) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(field.fieldId.value, fontWeight = FontWeight.SemiBold)
-                        Text(field.value.toString(), color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f))
-                    }
-                    if (presentation.selectedMode == CharacterCreationMode.POINT_BUY && field.value is IntegerValue) {
-                        Button(onClick = { onUpdate(presentation.withInteger(field.fieldId, -1)) }) { Text("−") }
-                        Button(onClick = { onUpdate(presentation.withInteger(field.fieldId, 1)) }) { Text("+") }
-                    }
-                }
-            }
-        }
-        if (presentation.selectedMode == CharacterCreationMode.NARRATIVE) {
-            item {
-                OutlinedTextField(
-                    value = presentation.narrativeBackground,
-                    onValueChange = { onUpdate(presentation.request(narrativeBackground = it)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("角色背景") },
-                )
-            }
-        }
-        item {
-            val budget = presentation.pointBuyBudget
-            if (budget != null) Text("点数：${presentation.pointsSpent} / $budget")
-            presentation.problems.firstOrNull()?.let { Text(it.message, color = MaterialTheme.colors.error) }
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onConfirm, enabled = presentation.problems.isEmpty()) { Text("确认角色并开始游戏") }
-        }
-    }
-}
-
-private fun CharacterCreationPresentation.withInteger(
-    fieldId: io.worldloom.definition.DefinitionId,
-    delta: Long,
-): io.worldloom.content.schema.CharacterCreationRequest {
-    val values = fields.map { field ->
-        val current = field.value
-        val value = if (field.fieldId == fieldId && current is IntegerValue) {
-            IntegerValue((current.value + delta).coerceIn(field.minimumInteger ?: Long.MIN_VALUE, field.maximumInteger ?: Long.MAX_VALUE))
-        } else {
-            current
-        }
-        CharacterValueAssignment(field.componentId, field.fieldId, value)
-    }
-    return request(values = values)
-}
-
-private fun modeLabel(mode: CharacterCreationMode): String = when (mode) {
-    CharacterCreationMode.FIXED -> "固定角色"
-    CharacterCreationMode.TEMPLATE -> "角色模板"
-    CharacterCreationMode.POINT_BUY -> "点数分配"
-    CharacterCreationMode.NARRATIVE -> "叙事背景"
+internal fun runLifecycleLabel(lifecycle: io.worldloom.world.RunLifecycle): String = when (lifecycle) {
+    io.worldloom.world.RunLifecycle.CREATED -> "等待创建角色"
+    io.worldloom.world.RunLifecycle.CHARACTER_CREATION -> "正在创建角色"
+    io.worldloom.world.RunLifecycle.ACTIVE -> "旅程进行中"
+    io.worldloom.world.RunLifecycle.COMPLETED -> "旅程已完成"
+    io.worldloom.world.RunLifecycle.ABANDONED -> "旅程已结束"
 }
 
 @Composable

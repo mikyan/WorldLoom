@@ -198,11 +198,13 @@ class DefaultGameSession(
             if (characterProfile != null && configuredPlayerId != null) {
                 val coordinator = CharacterCreationCoordinator(
                     worldId = definition.source.id,
+                    worldTitle = definition.source.title,
                     profile = characterProfile,
                     playerEntityId = configuredPlayerId,
                     initialSceneId = playable.source.initialSceneId,
                     initialSceneParticipantIds = playable.scene(playable.source.initialSceneId)
                         ?.participantEntityIds.orEmpty().map(::EntityId),
+                    fieldLabels = characterFieldLabels(definition, configuredPlayerId),
                 )
                 val draft = coordinator.createDraft(runId, idSource.nextCommandId())
                 characterDraftStore.save(draft)
@@ -396,12 +398,14 @@ class DefaultGameSession(
                     SessionError(SessionErrorCode.PERSISTENCE_REJECTED, "In-progress character creation has no player ID"),
                 )
                 val coordinator = CharacterCreationCoordinator(
-                    definition.source.id,
-                    profile,
-                    playerId,
-                    playable.source.initialSceneId,
-                    playable.scene(playable.source.initialSceneId)
+                    worldId = definition.source.id,
+                    worldTitle = definition.source.title,
+                    profile = profile,
+                    playerEntityId = playerId,
+                    initialSceneId = playable.source.initialSceneId,
+                    initialSceneParticipantIds = playable.scene(playable.source.initialSceneId)
                         ?.participantEntityIds.orEmpty().map(::EntityId),
+                    fieldLabels = characterFieldLabels(definition, playerId),
                 )
                 val draft = try {
                     characterDraftStore.load(runId)
@@ -2298,6 +2302,14 @@ class DefaultGameSession(
         }
         return SessionReplayResult.Failure(error)
     }
+
+    private fun characterFieldLabels(
+        definition: ValidatedWorldDefinition,
+        playerEntityId: String,
+    ): Map<Pair<DefinitionId, DefinitionId>, String> = definition.source.presentation
+        .asSequence()
+        .filter { it.entityId == playerEntityId }
+        .associate { (it.componentId to it.fieldId) to it.label }
 
     private data class LoadedSession(
         val definition: ValidatedWorldDefinition,

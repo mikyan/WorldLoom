@@ -138,6 +138,11 @@ class ContractGameSessionTest {
                 CharacterCreationMode.POINT_BUY
             }
             assertEquals(expectedMode, creation.presentation.selectedMode)
+            assertEquals(entry.title, creation.presentation.worldTitle)
+            assertEquals(
+                if (expectedMode == CharacterCreationMode.FIXED) "身体状况" else "能源储备",
+                creation.presentation.fields.single().label,
+            )
             assertIs<ActionResult.Success>(session.confirmCharacter())
             val loaded = assertIs<GameSessionUiState.Ready>(session.state.value)
             val check = loaded.presentation.checks.single()
