@@ -1,6 +1,6 @@
 {
     "schema": "worldloom.release-manifest/v1",
-    "release": "0.0.4",
+    "release": "0.0.5",
     "channel": "alpha",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
