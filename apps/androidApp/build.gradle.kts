@@ -21,7 +21,7 @@ abstract class VerifyApkAssets : DefaultTask() {
             .listFiles { file -> file.extension == "apk" }
             .orEmpty()
             .toList()
-        check(apks.size == 1) { "Expected one Android debug APK, found ${apks.size}" }
+        check(apks.size == 1) { "Expected one Android APK, found ${apks.size}" }
         ZipFile(apks.single()).use { apk ->
             val missing = requiredAssets.get().filter { path -> apk.getEntry(path) == null }
             check(missing.isEmpty()) {
@@ -48,6 +48,28 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val androidReleaseSigningVariables = listOf(
+    "WORLDLOOM_ANDROID_KEYSTORE_FILE",
+    "WORLDLOOM_ANDROID_KEYSTORE_PASSWORD",
+    "WORLDLOOM_ANDROID_KEY_ALIAS",
+    "WORLDLOOM_ANDROID_KEY_PASSWORD",
+)
+val androidReleaseSigningValues = androidReleaseSigningVariables.associateWith { name ->
+    providers.environmentVariable(name).orNull
+}
+val configuredAndroidReleaseSigningValues = androidReleaseSigningValues.values.count { !it.isNullOrBlank() }
+check(configuredAndroidReleaseSigningValues == 0 || configuredAndroidReleaseSigningValues == androidReleaseSigningVariables.size) {
+    "Android release signing is only partially configured. Provide all of: " +
+        androidReleaseSigningVariables.joinToString()
+}
+val androidReleaseSigningConfigured = configuredAndroidReleaseSigningValues == androidReleaseSigningVariables.size
+val androidReleaseSigningRequired = providers.environmentVariable("WORLDLOOM_REQUIRE_ANDROID_RELEASE_SIGNING")
+    .orNull
+    .toBoolean()
+check(!androidReleaseSigningRequired || androidReleaseSigningConfigured) {
+    "A signed Android release was requested, but the release signing environment is missing"
+}
+
 dependencies {
     implementation(projects.shared.uiGame)
     implementation(projects.shared.persistence)
@@ -70,13 +92,27 @@ android {
         applicationId = "io.worldloom.app"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.0.2"
+        versionCode = 3
+        versionName = "0.0.3"
+    }
+
+    signingConfigs {
+        if (androidReleaseSigningConfigured) {
+            create("release") {
+                storeFile = file(checkNotNull(androidReleaseSigningValues["WORLDLOOM_ANDROID_KEYSTORE_FILE"]))
+                storePassword = androidReleaseSigningValues["WORLDLOOM_ANDROID_KEYSTORE_PASSWORD"]
+                keyAlias = androidReleaseSigningValues["WORLDLOOM_ANDROID_KEY_ALIAS"]
+                keyPassword = androidReleaseSigningValues["WORLDLOOM_ANDROID_KEY_PASSWORD"]
+            }
+        }
     }
 
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (androidReleaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -105,6 +141,25 @@ tasks.register<VerifyApkAssets>("verifyDebugUiAssets") {
     description = "Build the Android debug APK and verify that gameplay Compose resources are packaged."
     dependsOn("assembleDebug")
     apkDirectory.set(layout.buildDirectory.dir("outputs/apk/debug"))
+    requiredAssets.set(
+        listOf(
+            "gameplay_station_core.png",
+            "gameplay_war_ruins.png",
+            "npc_station_lyra.png",
+            "npc_station_soren.png",
+            "npc_war_mara.png",
+            "npc_war_tomas.png",
+        ).map { fileName ->
+            "assets/composeResources/$uiGameResourcePackage/drawable/$fileName"
+        },
+    )
+}
+
+tasks.register<VerifyApkAssets>("verifyReleaseUiAssets") {
+    group = "verification"
+    description = "Build the Android release APK and verify that gameplay Compose resources are packaged."
+    dependsOn("assembleRelease")
+    apkDirectory.set(layout.buildDirectory.dir("outputs/apk/release"))
     requiredAssets.set(
         listOf(
             "gameplay_station_core.png",

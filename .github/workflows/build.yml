@@ -32,13 +32,68 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build installable Android APK
+      - name: Prepare stable Android release signing
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          for name in \
+            ANDROID_RELEASE_KEYSTORE_BASE64 \
+            ANDROID_RELEASE_STORE_PASSWORD \
+            ANDROID_RELEASE_KEY_ALIAS \
+            ANDROID_RELEASE_KEY_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required repository secret: $name" >&2
+              exit 1
+            fi
+          done
+
+          keystore="$RUNNER_TEMP/worldloom-android-release.p12"
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          {
+            echo "WORLDLOOM_ANDROID_KEYSTORE_FILE=$keystore"
+            echo "WORLDLOOM_ANDROID_KEYSTORE_PASSWORD=$ANDROID_RELEASE_STORE_PASSWORD"
+            echo "WORLDLOOM_ANDROID_KEY_ALIAS=$ANDROID_RELEASE_KEY_ALIAS"
+            echo "WORLDLOOM_ANDROID_KEY_PASSWORD=$ANDROID_RELEASE_KEY_PASSWORD"
+            echo "WORLDLOOM_REQUIRE_ANDROID_RELEASE_SIGNING=true"
+          } >> "$GITHUB_ENV"
+      - name: Build Android debug APK
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: ./gradlew :apps:androidApp:verifyDebugUiAssets
+      - name: Build signed Android release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./gradlew :apps:androidApp:verifyReleaseUiAssets
+      - name: Verify Android release certificate
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          apk="$(find apps/androidApp/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$apk"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          apksigner="$build_tools/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$apk"
+          actual="$($apksigner verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          expected="$(tr -d '[:space:]' < release/android-signing-cert.sha256)"
+          if [[ -z "$actual" || "$actual" != "$expected" ]]; then
+            echo "Android release signing certificate does not match the pinned fingerprint" >&2
+            exit 1
+          fi
       - name: Stage Android package
         shell: bash
         run: |
           mkdir -p dist
-          apk="$(find apps/androidApp/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          variant=debug
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            variant=release
+          fi
+          apk="$(find "apps/androidApp/build/outputs/apk/$variant" -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$apk"
           safe_ref="${GITHUB_REF_NAME//\//-}"
           cp "$apk" "dist/Worldloom-Android-${safe_ref}.apk"

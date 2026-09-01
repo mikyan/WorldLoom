@@ -1,6 +1,6 @@
 {
     "schema": "worldloom.release-manifest/v1",
-    "release": "0.0.2",
+    "release": "0.0.3",
     "channel": "alpha",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
@@ -35,6 +35,6 @@
     ],
     "hashes": "build/alpha/artifact-hashes.sha256",
     "candidateGate": "round35CandidateGate",
-    "status": "released",
+    "status": "candidate",
     "iosHandoff": "apps/iosApp/iosApp.xcodeproj"
 }

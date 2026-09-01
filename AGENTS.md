@@ -149,6 +149,7 @@ docs/       # 设计文档和 ADR
 ./gradlew.bat :shared:ui-game:compileKotlinIosSimulatorArm64
 ./gradlew.bat :apps:androidApp:assembleDebug
 ./gradlew.bat :apps:androidApp:verifyDebugUiAssets
+./gradlew.bat :apps:androidApp:verifyReleaseUiAssets
 ./gradlew.bat :apps:desktopApp:run
 ./gradlew.bat alphaGate
 ./gradlew.bat alphaRelease

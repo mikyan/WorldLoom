@@ -712,7 +712,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成三十五轮工程基线并发布 `0.0.2`，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成三十五轮工程基线、发布 `0.0.2` 并进入 `0.0.3` 候选开发，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -992,6 +992,7 @@ Windows 安装需要至少 2 GB 可用空间。Windows 10 已结束常规支持�
 - Agent、网络、存档、长文本生成和上下文压缩不运行在 UI 线程；
 - 50 万字资料导入作为可恢复的后台任务处理，移动端只按需读取文本块、进度和审查结果；
 - Release 构建使用基准配置并在真机测试。
+- Android 标签发行使用仓库外保存的固定签名密钥；CI 必须校验签名证书指纹，缺少材料或指纹变化时中止发布。私钥必须有受控离线备份，不能进入 Git、Artifact 或日志。
 
 若核心玩法演化为实时地图、复杂骨骼、动态光照或大量物理单位，应重新评估 Godot，而不是强行在 Compose 中实现。
 

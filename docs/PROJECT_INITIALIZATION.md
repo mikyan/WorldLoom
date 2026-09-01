@@ -471,7 +471,7 @@ macOS CI 或开发机额外执行 iOS 模拟器编译与测试。本文不把尚
 | Job | 运行环境 | 验证内容 |
 |---|---|---|
 | `common-check` | Windows 或 Linux | KMP 公共单测、序列化与契约测试 |
-| `android-build` | Linux | Android Debug 编译与单元测试 |
+| `android-build` | Linux | 普通提交构建 Android Debug；`v*` 标签使用固定证书构建并校验 Android Release APK |
 | `desktop-build` | Windows | Desktop 编译与测试 |
 | `ios-build` | macOS | iOS Simulator Framework 与测试编译 |
 

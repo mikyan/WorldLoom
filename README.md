@@ -151,6 +151,8 @@ xcodebuild \
   build
 ```
 
+Android 的 GitHub Release 使用固定发行证书；签名材料、一次性配置和 `0.0.1/0.0.2` 迁移说明见 [Android 发行签名](docs/ANDROID_RELEASE_SIGNING.md)。
+
 ## 许可证
 
 WorldLoom 的程序源代码（明确另行标注的第三方代码除外）按照 [Apache License 2.0](LICENSE) 发布，可用于学习、修改和商业发行。

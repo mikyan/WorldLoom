@@ -77,7 +77,7 @@ TXT/EPUB 识别与草稿沙箱已有实验性竖切，但不进入本轮普通�
 ./gradlew.bat alphaRelease
 ```
 
-任务构建未签名 Android Release APK 与当前操作系统 Desktop Release 可运行 Uber JAR，并写出：
+任务在未提供签名环境时构建未签名 Android Release APK，并构建当前操作系统 Desktop Release 可运行 Uber JAR，随后写出：
 
 ```text
 build/alpha/artifact-hashes.sha256
@@ -104,9 +104,12 @@ xcodebuild \
   build
 ```
 
+GitHub Actions 的 `v*` 标签流程与本地候选任务不同：标签发布必须从 repository secrets 装载固定 Android 发行证书，构建 Release APK，并与 `release/android-signing-cert.sha256` 校验一致后才允许创建 Release。配置和密钥备份要求见 [Android 发行签名](ANDROID_RELEASE_SIGNING.md)。
+
 ## 8. 已知限制
 
-- Android Alpha APK 未签名，分发时需要单独的受控签名流程；
+- 本地 `alphaRelease` 在未提供签名环境时仍产出未签名 APK；对外分发只使用 GitHub 标签流程生成的固定签名 APK；
+- 0.0.1 与 0.0.2 使用了两个无法恢复的临时 Debug 证书，迁移到 0.0.3 需要最后卸载一次，之后版本可以覆盖升级；
 - Desktop Alpha 当前产出可运行 Uber JAR；生成 MSI/DMG/DEB 安装包还要求构建机提供带 `jpackage` 的完整 JDK；
 - Windows 不能完成 iOS Xcode 宿主构建、签名或真机测试；
 - 实时 Provider 冒烟需要开发者主动提供自己的 Vault 凭据，本仓库和发布门禁不会读取或保存该密钥；
