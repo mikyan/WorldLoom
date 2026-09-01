@@ -1,6 +1,6 @@
 {
     "schema": "worldloom.release-manifest/v1",
-    "release": "0.0.3",
+    "release": "0.0.4",
     "channel": "alpha",
     "builtInWorlds": [
         {"id": "contract.war-survival", "contentVersion": 1, "default": true},
@@ -30,7 +30,7 @@
     },
     "database": {"schemaVersion": 11, "latestMigration": "10.sqm"},
     "artifacts": [
-        {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": false},
+        {"platform": "android", "task": ":apps:androidApp:assembleRelease", "signed": true},
         {"platform": "desktop-current-os", "task": ":apps:desktopApp:packageReleaseUberJarForCurrentOS"}
     ],
     "hashes": "build/alpha/artifact-hashes.sha256",
