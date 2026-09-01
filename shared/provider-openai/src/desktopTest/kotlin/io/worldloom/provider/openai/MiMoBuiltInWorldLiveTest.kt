@@ -105,7 +105,12 @@ class MiMoBuiltInWorldLiveTest {
             var previousSequence = initialSequence
             prompts.forEachIndexed { index, prompt ->
                 controller.send(prompt)
-                when (val state = controller.state.value) {
+                var state = controller.state.value
+                if (state is GameAgentState.AwaitingCheck) {
+                    controller.rollPendingCheck(state.turnId)
+                    state = controller.state.value
+                }
+                when (state) {
                     is GameAgentState.Completed -> assertTrue(
                         state.text.isNotBlank(),
                         "$directory turn ${index + 1} returned blank narration",
@@ -117,6 +122,7 @@ class MiMoBuiltInWorldLiveTest {
                     is GameAgentState.Failed -> fail(
                         "$directory turn ${index + 1} failed safely: ${state.message}",
                     )
+                    is GameAgentState.AwaitingCheck,
                     GameAgentState.Idle,
                     is GameAgentState.Running,
                     -> fail("$directory turn ${index + 1} did not reach a terminal state: $state")
