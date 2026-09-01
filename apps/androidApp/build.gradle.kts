@@ -143,6 +143,7 @@ tasks.register<VerifyApkAssets>("verifyDebugUiAssets") {
     apkDirectory.set(layout.buildDirectory.dir("outputs/apk/debug"))
     requiredAssets.set(
         listOf(
+            "home_dreamweaver_cave.png",
             "gameplay_station_core.png",
             "gameplay_war_ruins.png",
             "npc_station_lyra.png",
@@ -162,6 +163,7 @@ tasks.register<VerifyApkAssets>("verifyReleaseUiAssets") {
     apkDirectory.set(layout.buildDirectory.dir("outputs/apk/release"))
     requiredAssets.set(
         listOf(
+            "home_dreamweaver_cave.png",
             "gameplay_station_core.png",
             "gameplay_war_ruins.png",
             "npc_station_lyra.png",

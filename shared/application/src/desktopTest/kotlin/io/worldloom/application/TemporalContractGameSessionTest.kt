@@ -126,7 +126,7 @@ class TemporalContractGameSessionTest {
             retried.perform(GameSessionAction.PerformActivity(DefinitionId("war.activity.search"))),
         )
         assertEquals(SessionErrorCode.EVENT_STORE_REJECTED, rejected.error.code)
-        assertEquals(5, ready(retried).presentation.lastSequence)
+        assertEquals(6, ready(retried).presentation.lastSequence)
         assertIs<ActionResult.Success>(
             retried.perform(GameSessionAction.PerformActivity(DefinitionId("war.activity.search"))),
         )
@@ -161,7 +161,7 @@ class TemporalContractGameSessionTest {
 
         assertEquals(SessionErrorCode.COMMAND_REJECTED, failure.error.code)
         assertEquals(0, ready(session).presentation.worldTimeMinutes)
-        assertEquals(5, store.read(RunId("invalid-time.run.1")).size)
+        assertEquals(6, store.read(RunId("invalid-time.run.1")).size)
     }
 
     private fun TestScope.session(directory: String, store: EventStore, prefix: String): DefaultGameSession {

@@ -37,6 +37,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
+import io.worldloom.rules.ExplorationKnowledgeRevealedEvent
 import io.worldloom.behavior.runtime.BehaviorWorkItem
 import io.worldloom.agent.runtime.NpcWorkItem
 
@@ -54,6 +55,7 @@ object PersistenceCodec {
     private val json = Json {
         serializersModule = SerializersModule {
             polymorphic(GameEventPayload::class) {
+                subclass(ExplorationKnowledgeRevealedEvent::class)
                 subclass(NumericComponentAdjustedEvent::class)
                 subclass(CheckResolvedEvent::class)
                 subclass(RunLifecycleChangedEvent::class)

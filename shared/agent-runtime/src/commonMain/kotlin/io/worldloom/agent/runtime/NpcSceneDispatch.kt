@@ -142,6 +142,10 @@ class NpcContextProjector(
             if (visibleFields.isNotEmpty()) appendLine(
                 "可感知状态：${visibleFields.joinToString { "${it.label}:${it.value}" }}",
             )
+            if (!remoteCommunication && ready.presentation.exploration.affordances.isNotEmpty()) {
+                appendLine("同场公开可见对象：")
+                ready.presentation.exploration.affordances.forEach { appendLine("- ${it.label}：${it.description}") }
+            }
             val privateKnowledge = configured.privateKnowledge + configured.knowledge.map { it.privateText }
             if (privateKnowledge.isNotEmpty()) {
                 appendLine("仅你知道的背景：")

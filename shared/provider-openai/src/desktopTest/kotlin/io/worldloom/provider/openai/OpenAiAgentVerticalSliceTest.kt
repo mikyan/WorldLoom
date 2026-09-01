@@ -73,7 +73,7 @@ class OpenAiAgentVerticalSliceTest {
         assertEquals("能源已降低。", agentState.text)
         val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
         assertEquals(60, ready.presentation.fields.single().value)
-        assertEquals(6, ready.presentation.lastSequence)
+        assertEquals(7, ready.presentation.lastSequence)
         assertTrue(ready.presentation.timeline.isNotEmpty())
         assertEquals(2, requests.size)
         assertTrue(requests[1].contains("\"role\":\"tool\""))

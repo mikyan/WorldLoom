@@ -130,10 +130,10 @@ class PersistentGameSessionTest {
         val restored = assertIs<GameSessionUiState.CharacterCreation>(resumed.state.value).presentation
         assertEquals(IntegerValue(75), restored.fields.single().value)
         assertIs<ActionResult.Success>(resumed.confirmCharacter())
-        assertEquals(5, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
-        assertEquals(5, resumedStore.read(runId).size)
+        assertEquals(6, assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation.lastSequence)
+        assertEquals(6, resumedStore.read(runId).size)
         assertIs<ActionResult.Success>(resumed.confirmCharacter())
-        assertEquals(5, resumedStore.read(runId).size)
+        assertEquals(6, resumedStore.read(runId).size)
         assertEquals(null, drafts.load(runId))
 
         val afterCommitRestart = DefaultGameSession(
@@ -145,7 +145,7 @@ class PersistentGameSessionTest {
         )
         assertIs<LoadResult.Success>(afterCommitRestart.resume(worldId, runId))
         assertIs<ActionResult.Success>(afterCommitRestart.confirmCharacter())
-        assertEquals(5, resumedStore.read(runId).size)
+        assertEquals(6, resumedStore.read(runId).size)
         driver.close()
     }
 
@@ -199,6 +199,14 @@ class PersistentGameSessionTest {
                 assertIs<GameSessionUiState.Ready>(session.state.value)
                     .presentation.adventureState,
             ).clocks.single { it.id == clockId }.value
+            val expectedPresentation = assertIs<GameSessionUiState.Ready>(session.state.value).presentation
+            val runId = RunId("$prefix.run.1")
+            database.worldloomQueries.upsertSnapshot(
+                run_id = runId.value,
+                sequence = expectedPresentation.lastSequence,
+                state_schema_version = 1,
+                state_json = "{invalid",
+            )
 
             val resumed = DefaultGameSession(
                 catalog,
@@ -208,10 +216,11 @@ class PersistentGameSessionTest {
                 snapshotInterval = 1,
                 characterDraftStore = SqlDelightCharacterCreationDraftStore(WorldloomDatabase(driver)),
             )
-            assertIs<LoadResult.Success>(resumed.resume(entry.id, RunId("$prefix.run.1")))
+            assertIs<LoadResult.Success>(resumed.resume(entry.id, runId))
             val presentation = assertIs<GameSessionUiState.Ready>(resumed.state.value).presentation
-            assertEquals(7, presentation.lastSequence)
+            assertEquals(8, presentation.lastSequence)
             assertEquals(expectedClock, assertNotNull(presentation.adventureState).clocks.single { it.id == clockId }.value)
+            assertEquals(expectedPresentation.exploration, presentation.exploration)
         }
         driver.close()
     }
@@ -252,7 +261,7 @@ class PersistentGameSessionTest {
         )
         assertIs<LoadResult.Success>(resumedSession.resume(worldId, runId))
         val resumed = assertIs<GameSessionUiState.Ready>(resumedSession.state.value)
-        assertEquals(6, resumed.presentation.lastSequence)
+        assertEquals(7, resumed.presentation.lastSequence)
         assertIs<ActionResult.Success>(
             resumedSession.perform(
                 GameSessionAction.ResolvePresentedCheck(resumed.presentation.checks.single().presentationId),
@@ -271,7 +280,7 @@ class PersistentGameSessionTest {
 
         assertEquals(2, records.map { it.id }.toSet().size)
         assertEquals(expected, records.map { it.results })
-        assertEquals(7, assertIs<GameSessionUiState.Ready>(resumedSession.state.value).presentation.lastSequence)
+        assertEquals(8, assertIs<GameSessionUiState.Ready>(resumedSession.state.value).presentation.lastSequence)
         driver.close()
     }
 

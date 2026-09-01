@@ -82,10 +82,19 @@ import io.worldloom.rules.AdvanceProgressClockCommand
 import io.worldloom.rules.AdvanceQuestCommand
 import io.worldloom.rules.ChangeInventoryCommand
 import io.worldloom.rules.UpdateConditionCommand
+import io.worldloom.rules.ExplorationCommandValidationResult
+import io.worldloom.rules.ExplorationCommandValidator
+import io.worldloom.rules.ExplorationEventReducer
+import io.worldloom.rules.ExplorationKnowledgeChange
+import io.worldloom.rules.ExplorationRevealPolicy
+import io.worldloom.rules.ExplorationRuleEngine
+import io.worldloom.rules.ExplorationState
+import io.worldloom.rules.RevealExplorationKnowledgeCommand
 import io.worldloom.rules.module.api.RegisteredWorldModules
 import io.worldloom.world.packageformat.ValidatedPlayableWorldContract
 import io.worldloom.world.packageformat.PlayableActionResolution
 import io.worldloom.world.packageformat.PlayableNpcCapability
+import io.worldloom.world.packageformat.PlayableExplorationReveal
 import io.worldloom.behavior.runtime.BEHAVIOR_WORK_ORDER
 import io.worldloom.behavior.runtime.BehaviorCommandIdSource
 import io.worldloom.behavior.runtime.BehaviorCommandSink
@@ -130,7 +139,7 @@ class DefaultGameSession(
     private val mutableState = MutableStateFlow<GameSessionUiState>(GameSessionUiState.Idle)
     private var loaded: LoadedSession? = null
     private val reducer: EventReducer = EventReducerChain(
-        listOf(StateReducer, CheckEventReducer, TemporalEventReducer, AdventureEventReducer),
+        listOf(StateReducer, CheckEventReducer, TemporalEventReducer, AdventureEventReducer, ExplorationEventReducer),
     )
 
     override val availableWorlds: List<WorldCatalogEntry> = catalog.entries
@@ -170,8 +179,9 @@ class DefaultGameSession(
             }
             val temporalInitialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
                 ?: baseInitialState
-            val initialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
+            val adventureInitialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
                 ?: temporalInitialState
+            val initialState = if (playable?.source?.exploration != null) ExplorationState.initialize(adventureInitialState) else adventureInitialState
             if (eventStore is DurableEventStore) {
                 when (
                     val initialized = eventStore.initialize(
@@ -335,11 +345,13 @@ class DefaultGameSession(
             }
             val temporalInitialState = playable?.source?.temporal?.let { TemporalState.initialize(baseInitialState, it) }
                 ?: baseInitialState
-            val initialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
+            val adventureInitialState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalInitialState, it) }
                 ?: temporalInitialState
+            val initialState = if (playable?.source?.exploration != null) ExplorationState.initialize(adventureInitialState) else adventureInitialState
             val replayBase = (persistedSnapshot ?: initialState).let { state ->
                 val temporalState = playable?.source?.temporal?.let { TemporalState.initialize(state, it) } ?: state
-                playable?.source?.adventureState?.let { AdventureState.initialize(temporalState, it) } ?: temporalState
+                val adventureState = playable?.source?.adventureState?.let { AdventureState.initialize(temporalState, it) } ?: temporalState
+                if (playable?.source?.exploration != null) ExplorationState.initialize(adventureState) else adventureState
             }
             var currentState = when (
                 val replay = EventReplayer.replay(
@@ -608,13 +620,29 @@ class DefaultGameSession(
                 )
             }
             val eventIds = List(WorldEngine.requiredEventCount(validated)) { idSource.nextEventId() }
-            val events = WorldEngine.handle(validated, eventIds)
-            val nextState = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
+            val events = WorldEngine.handle(validated, eventIds).toMutableList()
+            var nextState = when (val reduction = reduceAll(session.currentState, session.definition, events)) {
                 is StateReductionResult.Success -> reduction.state
                 is StateReductionResult.Failure -> return@withContext characterFailure(
                     session,
                     SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
                 )
+            }
+            val initialReveals = session.playableContract?.source?.exploration?.sceneFrames
+                .orEmpty().firstOrNull { it.sceneId == nextState.currentSceneId }?.initialReveals.orEmpty()
+            when (val exploration = buildExplorationReveal(
+                session = session,
+                state = nextState,
+                causeId = nextState.currentSceneId ?: session.playableContract?.source?.initialSceneId,
+                reveals = initialReveals,
+                actorId = actorId,
+                correlationId = candidate.command.correlationId,
+            )) {
+                is ExplorationBuildResult.Success -> {
+                    nextState = exploration.state
+                    exploration.event?.let(events::add)
+                }
+                is ExplorationBuildResult.Failure -> return@withContext characterFailure(session, exploration.error)
             }
             when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
                 is EventAppendResult.Success -> Unit
@@ -1210,6 +1238,20 @@ class DefaultGameSession(
                 )
             }
             events += event
+            when (val exploration = buildExplorationReveal(
+                session = session,
+                state = candidate,
+                causeId = knowledge.id,
+                reveals = knowledge.explorationReveals,
+                actorId = authorization.actorId,
+                correlationId = revealEnvelope.correlationId ?: revealEnvelope.commandId.value,
+            )) {
+                is ExplorationBuildResult.Success -> {
+                    candidate = exploration.state
+                    exploration.event?.let(events::add)
+                }
+                is ExplorationBuildResult.Failure -> return failAction(exploration.error)
+            }
         }
         when (val append = eventStore.append(session.currentState.runId, session.currentState.lastSequence, events)) {
             is EventAppendResult.Success -> Unit
@@ -1502,6 +1544,24 @@ class DefaultGameSession(
             )
         }
         events += progressionEvents
+        val sceneEntryReveals = progression.nextSceneId?.let { nextSceneId ->
+            contract.source.exploration?.sceneFrames.orEmpty()
+                .firstOrNull { it.sceneId == nextSceneId }?.initialReveals
+        }.orEmpty()
+        when (val exploration = buildExplorationReveal(
+            session = session,
+            state = candidateState,
+            causeId = action.id,
+            reveals = progression.explorationReveals + sceneEntryReveals,
+            actorId = authorization.actorId,
+            correlationId = progressionCommand.correlationId ?: progressionCommand.commandId.value,
+        )) {
+            is ExplorationBuildResult.Success -> {
+                candidateState = exploration.state
+                exploration.event?.let(events::add)
+            }
+            is ExplorationBuildResult.Failure -> return failAction(exploration.error)
+        }
         when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
             is EventAppendResult.Success -> Unit
             is EventAppendResult.Failure -> {
@@ -1665,6 +1725,29 @@ class DefaultGameSession(
             )
         }
         events += temporalEvents
+        if (candidateState.currentSceneId != baseState.currentSceneId) {
+            val sceneReveals = session.playableContract?.source?.exploration?.sceneFrames.orEmpty()
+                .firstOrNull { it.sceneId == candidateState.currentSceneId }?.initialReveals.orEmpty()
+            val causeId = when (request) {
+                is GameSessionCommand.Travel -> request.routeId
+                is GameSessionCommand.PerformActivity -> request.activityId
+                is GameSessionCommand.AdvanceWorldTime -> request.reasonId
+            }
+            when (val exploration = buildExplorationReveal(
+                session = session,
+                state = candidateState,
+                causeId = causeId,
+                reveals = sceneReveals,
+                actorId = authorization.actorId,
+                correlationId = envelope.correlationId ?: envelope.commandId.value,
+            )) {
+                is ExplorationBuildResult.Success -> {
+                    candidateState = exploration.state
+                    exploration.event?.let(events::add)
+                }
+                is ExplorationBuildResult.Failure -> return failAction(exploration.error)
+            }
+        }
         when (val append = eventStore.append(baseState.runId, baseState.lastSequence, events)) {
             is EventAppendResult.Success -> Unit
             is EventAppendResult.Failure -> {
@@ -2045,6 +2128,59 @@ class DefaultGameSession(
         )
     }
 
+    private fun buildExplorationReveal(
+        session: LoadedSession,
+        state: GameState,
+        causeId: DefinitionId?,
+        reveals: List<PlayableExplorationReveal>,
+        actorId: ActorId,
+        correlationId: String?,
+    ): ExplorationBuildResult {
+        if (session.playableContract?.source?.exploration == null || reveals.isEmpty()) {
+            return ExplorationBuildResult.Success(state, null)
+        }
+        val normalized = reveals
+            .distinctBy { it.id }
+            .map { ExplorationKnowledgeChange(it.kind, it.id, it.level) }
+            .filter { ExplorationState.canUpgrade(ExplorationState.level(state, it.id), it.level) }
+        if (normalized.isEmpty()) return ExplorationBuildResult.Success(state, null)
+        val stableCause = causeId ?: return ExplorationBuildResult.Failure(
+            SessionError(SessionErrorCode.COMMAND_REJECTED, "Exploration reveal has no authoritative cause"),
+        )
+        val envelope = CommandEnvelope(
+            schemaVersion = CURRENT_COMMAND_SCHEMA_VERSION,
+            commandId = idSource.nextCommandId(),
+            runId = state.runId,
+            actorId = actorId,
+            expectedSequence = state.lastSequence,
+            correlationId = correlationId,
+            payload = RevealExplorationKnowledgeCommand(causeId = stableCause, changes = normalized),
+        )
+        val validated = when (val validation = ExplorationCommandValidator.validate(
+            state = state,
+            authorization = CommandAuthorization(actorId, setOf(CommandPermission.REVEAL_EXPLORATION_KNOWLEDGE)),
+            envelope = envelope,
+            policy = ExplorationRevealPolicy(stableCause, normalized.toSet()),
+        )) {
+            is ExplorationCommandValidationResult.Valid -> validation.command
+            is ExplorationCommandValidationResult.Invalid -> return ExplorationBuildResult.Failure(
+                SessionError(SessionErrorCode.COMMAND_REJECTED, validation.error.message, validation.error.path),
+            )
+        }
+        val event = ExplorationRuleEngine.handle(validated, idSource.nextEventId())
+        return when (val reduction = reducer.reduce(state, session.definition, event)) {
+            is StateReductionResult.Success -> ExplorationBuildResult.Success(reduction.state, event)
+            is StateReductionResult.Failure -> ExplorationBuildResult.Failure(
+                SessionError(SessionErrorCode.EVENT_REJECTED, reduction.error.message, reduction.error.path),
+            )
+        }
+    }
+
+    private sealed interface ExplorationBuildResult {
+        data class Success(val state: GameState, val event: EventEnvelope?) : ExplorationBuildResult
+        data class Failure(val error: SessionError) : ExplorationBuildResult
+    }
+
     private fun reduceAll(
         initial: GameState,
         definition: ValidatedWorldDefinition,
@@ -2215,6 +2351,7 @@ class DefaultGameSession(
                         knowledge.privateText,
                         knowledge.publicSummary,
                         knowledge.revealable,
+                        knowledge.explorationReveals,
                     )
                 },
                 canSpeak = PlayableNpcCapability.SPEAK in npc.capabilities,
@@ -2317,6 +2454,7 @@ class DefaultGameSession(
         val travelRoutes = contract?.source?.temporal?.routes.orEmpty()
             .filter { it.fromSceneId == state.currentSceneId }
             .map { PresentedTravelRoute(it.id, it.label, it.toSceneId, it.durationMinutes) }
+        val exploration = contract?.let { ExplorationProjector.project(it.source, state) } ?: ExplorationPresentation()
         val guidance = contract?.let {
             GuidanceProjector.project(
                 contract = it.source,
@@ -2324,10 +2462,15 @@ class DefaultGameSession(
                 actions = scene?.actions.orEmpty(),
                 activities = activities,
                 travelRoutes = travelRoutes,
+                addressableNpcIds = scene?.addressableNpcs.orEmpty().mapTo(mutableSetOf(), PresentedNpc::id),
+                visibleKnowledgeIds = ExplorationState.known(state).keys,
+                availableItemIds = presentation.adventureState?.inventory.orEmpty()
+                    .mapTo(mutableSetOf()) { it.id },
             )
         } ?: GuidancePresentation()
         return presentation.copy(
             scene = scene,
+            exploration = exploration,
             characters = characters,
             opening = contract?.source?.opening?.let { opening ->
                 val initialScene = contract.scene(contract.source.initialSceneId)

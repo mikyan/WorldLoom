@@ -13,6 +13,7 @@ import io.worldloom.rules.AdventureStateDefinition
 import io.worldloom.rules.AdventureStatePresentation
 import io.worldloom.rules.InventoryOperation
 import io.worldloom.rules.QuestStatus
+import io.worldloom.world.packageformat.PlayableExplorationReveal
 import kotlinx.coroutines.flow.StateFlow
 
 data class PresentedField(
@@ -66,6 +67,7 @@ data class GamePresentation(
     val timelineTruncated: Boolean = false,
     val opening: PresentedOpening? = null,
     val characters: List<PresentedNpc> = emptyList(),
+    val exploration: ExplorationPresentation = ExplorationPresentation(),
 )
 
 data class PresentedOpening(
@@ -321,6 +323,7 @@ data class SessionNpcKnowledge(
     val privateText: String,
     val publicSummary: String?,
     val revealable: Boolean,
+    val explorationReveals: List<PlayableExplorationReveal> = emptyList(),
 )
 
 data class SessionRevealedKnowledge(

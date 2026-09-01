@@ -14,7 +14,7 @@
     "worldloom.core.numeric-state", "worldloom.rules.deterministic-check", "worldloom.rules.world-time",
     "worldloom.rules.activity", "worldloom.rules.travel", "worldloom.rules.inventory",
     "worldloom.rules.condition", "worldloom.rules.relationship", "worldloom.rules.quest",
-    "worldloom.rules.progress-clock"
+    "worldloom.rules.progress-clock", "worldloom.rules.scene-exploration"
   ],
   "scenes": [
     {
@@ -375,6 +375,38 @@
       {"id": "station.hint.wait-cycle", "sceneId": "station.scene.relay", "text": "如果暂时没有可靠判断，可以等待一个诊断周期，或先向在场角色核实旧签名。", "target": {"kind": "ACTIVITY", "id": "station.activity.wait-cycle"}},
       {"id": "station.hint.quarantine", "sceneId": "station.scene.quarantine", "text": "隔离不会结束游戏；只读镜像和索伦的旁路都能把失败推进到新的局面。", "target": {"kind": "ACTION", "id": "station.action.attempt-reboot"}},
       {"id": "station.hint.lifeboat", "sceneId": "station.scene.lifeboat", "text": "即使核心失守，最后能源仍可用于维持撤离窗口。", "target": {"kind": "ACTION", "id": "station.action.hold-station"}}
+    ]
+  },
+  "exploration": {
+    "schemaVersion": 1,
+    "nodes": [
+      {"id": "station.place.core", "label": "反应堆控制层", "description": "能源网格的当前控制中枢。", "sceneId": "station.scene.core"},
+      {"id": "station.place.maintenance", "label": "维护脊柱", "description": "检修无人机与冷却总线所在区域。", "sceneId": "station.scene.maintenance"},
+      {"id": "station.place.habitat", "label": "居住环避难层", "description": "乘员集中避难的低功耗舱段。", "sceneId": "station.scene.habitat"},
+      {"id": "station.place.coolant", "label": "低温冷却井", "description": "反应堆泵组与余热排放区域。", "sceneId": "station.scene.coolant"},
+      {"id": "station.place.relay", "label": "外环中继", "description": "对地通信与旧签名请求汇集处。", "sceneId": "station.scene.relay"},
+      {"id": "station.place.archive", "label": "黑匣子档案舱", "description": "保存事故前后决策记录的舱段。", "sceneId": "station.scene.archive"},
+      {"id": "station.place.quarantine", "label": "隔离网络沙箱", "description": "受限高权限系统的安全隔离区。", "sceneId": "station.scene.quarantine"},
+      {"id": "station.place.command", "label": "指挥环决策席", "description": "乘员等待最终指令的控制席。", "sceneId": "station.scene.command"},
+      {"id": "station.place.lifeboat", "label": "救生艇发射架", "description": "紧急撤离窗口所在区域。", "sceneId": "station.scene.lifeboat"}
+    ],
+    "affordances": [
+      {"id": "station.clue.energy-grid", "sceneId": "station.scene.core", "kind": "RESOURCE", "label": "三段能源网格", "description": "三条网格正争抢不足的功率。", "requiredForProgression": true}
+    ],
+    "sceneFrames": [
+      {"sceneId": "station.scene.core", "sensoryDetails": ["轨道阴影使全站能源骤降。", "三段网格同时发出功率请求。"], "objective": "在日照窗口前稳定至少一条关键系统链。", "pressure": "能源、冷却与通信不能同时获得满功率。", "question": "你要先诊断、询问莱拉，还是直接重定向能源？", "initialReveals": [{"kind": "NODE", "id": "station.place.core", "level": "VISITED"}, {"kind": "AFFORDANCE", "id": "station.clue.energy-grid", "level": "DISCOVERED"}]},
+      {"sceneId": "station.scene.maintenance", "sensoryDetails": ["检修无人机停在失压区域。"], "objective": "恢复冷却总线。", "pressure": "维护区失压且远程链路不稳定。", "question": "你要怎样调度无人机与索伦？", "initialReveals": [{"kind": "NODE", "id": "station.place.maintenance", "level": "VISITED"}]},
+      {"sceneId": "station.scene.habitat", "sensoryDetails": ["两百名乘员集中在低功耗舱段。"], "objective": "保护乘员并控制系统负载。", "pressure": "氧气与通信负载同时逼近红线。", "question": "你要优先保留哪些系统？", "initialReveals": [{"kind": "NODE", "id": "station.place.habitat", "level": "VISITED"}]},
+      {"sceneId": "station.scene.coolant", "sensoryDetails": ["冷却井读数彼此矛盾。"], "objective": "稳定反应堆余热。", "pressure": "人工复位与排热都会付出代价。", "question": "你要先验证读数还是执行复位？", "initialReveals": [{"kind": "NODE", "id": "station.place.coolant", "level": "VISITED"}]},
+      {"sceneId": "station.scene.relay", "sensoryDetails": ["中继收到使用旧签名的认证请求。"], "objective": "恢复通信并隔离未知进程。", "pressure": "开放中继可能重新暴露核心。", "question": "你要如何验证这次请求？", "initialReveals": [{"kind": "NODE", "id": "station.place.relay", "level": "VISITED"}]},
+      {"sceneId": "station.scene.archive", "sensoryDetails": ["档案显示决策模型曾被复制。"], "objective": "核验轨道与事故证据。", "pressure": "回声进程正在争夺叙事控制。", "question": "你先验证哪一组记录？", "initialReveals": [{"kind": "NODE", "id": "station.place.archive", "level": "VISITED"}]},
+      {"sceneId": "station.scene.quarantine", "sensoryDetails": ["高权限系统只剩低带宽遥测。"], "objective": "从隔离状态恢复可控能力。", "pressure": "重复失败会压缩乘员撤离时间。", "question": "你要尝试重启还是采用物理旁路？", "initialReveals": [{"kind": "NODE", "id": "station.place.quarantine", "level": "VISITED"}]},
+      {"sceneId": "station.scene.command", "sensoryDetails": ["剩余乘员等待最终指令。"], "objective": "决定空间站接下来的运行方式。", "pressure": "每个选择都会进入公开事故记录。", "question": "你愿意承担哪一种代价？", "initialReveals": [{"kind": "NODE", "id": "station.place.command", "level": "VISITED"}]},
+      {"sceneId": "station.scene.lifeboat", "sensoryDetails": ["第一批救生艇已经解锁。"], "objective": "保护仍被困住的乘员或撤离窗口。", "pressure": "最后的能源无法同时满足两者。", "question": "你要把最后能源投向哪里？", "initialReveals": [{"kind": "NODE", "id": "station.place.lifeboat", "level": "VISITED"}]}
+    ],
+    "suggestions": [
+      {"id": "station.suggestion.core-diagnose", "sceneId": "station.scene.core", "label": "先比较网格负载", "inputDraft": "我先比较三段能源网格的公开负载和连锁影响，再决定重定向顺序。", "rationale": "能源冲突已经可见，先诊断能减少盲目切换。", "groundingKnowledgeIds": ["station.place.core", "station.clue.energy-grid"], "target": {"kind": "DRAFT"}, "tier": "EXAMPLE"},
+      {"id": "station.suggestion.core-reroute", "sceneId": "station.scene.core", "label": "重定向能源", "inputDraft": "我执行受控能源重定向，优先稳定当前最危险的系统链。", "rationale": "能源网格是当前明确的规则出口。", "groundingKnowledgeIds": ["station.place.core", "station.clue.energy-grid"], "target": {"kind": "ACTION", "id": "station.action.reroute-energy"}, "tier": "EXAMPLE"}
     ]
   },
   "goldenRoutes": [

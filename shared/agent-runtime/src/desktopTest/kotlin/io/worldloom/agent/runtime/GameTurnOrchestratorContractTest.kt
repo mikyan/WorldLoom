@@ -55,15 +55,15 @@ class GameTurnOrchestratorContractTest {
         val first = assertIs<GmTurnResult.Completed>(orchestrator.submit(turnId, "我搜索附近的补给"))
         val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
 
-        assertEquals(9, ready.presentation.lastSequence)
-        assertEquals(9, first.turn.deliveredSequence)
+        assertEquals(11, ready.presentation.lastSequence)
+        assertEquals(11, first.turn.deliveredSequence)
         assertTrue(first.turn.worldChanged)
         assertEquals(2, provider.requests.size)
         assertTrue(provider.requests.first().messages.first().content.orEmpty().contains("钟楼废墟"))
         assertTrue(provider.requests.first().messages.first().content.orEmpty().contains("炮声刚停"))
         val actionTool = assertNotNull(provider.requests.first().tools.singleOrNull { it.name == PERFORM_ACTION_TOOL_ID.value })
         assertEquals(
-            listOf("war.action.search-supplies"),
+            listOf("war.action.observe-street", "war.action.search-supplies"),
             actionTool.parameters.single { it.name == "actionId" }.allowedValues,
         )
         val addressTool = assertNotNull(provider.requests.first().tools.singleOrNull { it.name == NPC_ADDRESS_TOOL_ID.value })
@@ -72,14 +72,14 @@ class GameTurnOrchestratorContractTest {
             addressTool.parameters.single { it.name == "npcId" }.allowedValues,
         )
         assertEquals(1, followUps.requests.size)
-        assertEquals(5, followUps.requests.single().afterSequence)
-        assertEquals(9, followUps.requests.single().committedThroughSequence)
+        assertEquals(6, followUps.requests.single().afterSequence)
+        assertEquals(11, followUps.requests.single().committedThroughSequence)
         assertTrue(provider.requests.last().messages.any { it.content.orEmpty().contains("foregroundResults") })
 
         val duplicate = assertIs<GmTurnResult.Completed>(orchestrator.submit(turnId, "我搜索附近的补给"))
         assertEquals(first.turn, duplicate.turn)
         assertEquals(2, provider.requests.size)
-        assertEquals(9, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertEquals(11, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
 
         val collision = assertIs<GmTurnResult.Failed>(orchestrator.submit(turnId, "改成另一件事"))
         assertTrue(collision.turn.error.orEmpty().contains("different input"))
@@ -105,8 +105,8 @@ class GameTurnOrchestratorContractTest {
         )
 
         assertEquals("你要搜索哪个区域？", result.turn.output)
-        assertEquals(5, result.turn.deliveredSequence)
-        assertEquals(5, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertEquals(6, result.turn.deliveredSequence)
+        assertEquals(6, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
         assertIs<GmTurnResult.AwaitingPlayer>(
             orchestrator.submit(TurnId("player-turn.clarify"), "我搜索一下"),
         )
@@ -133,7 +133,7 @@ class GameTurnOrchestratorContractTest {
         )
 
         val output = assertNotNull(result.turn.output)
-        assertTrue(output.contains("搜查临街药房"))
+        assertTrue(output.contains("穿过街道进入药房"))
         assertFalse(output.contains("worldloom.event"))
         assertFalse(output.contains("war.action"))
         assertFalse(output.contains("war.outcome"))
@@ -158,9 +158,9 @@ class GameTurnOrchestratorContractTest {
         val failed = assertIs<GmTurnResult.Failed>(orchestrator.submit(turnId, "搜索补给"))
 
         assertTrue(failed.turn.worldChanged)
-        assertEquals(9, failed.turn.deliveredSequence)
+        assertEquals(11, failed.turn.deliveredSequence)
         assertEquals(GameTurnStatus.FAILED, assertNotNull(store.load(failed.turn.runId, turnId)).status)
-        assertEquals(9, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertEquals(11, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
 
         val recoveredWithoutCallingProvider = GameTurnOrchestrator(
             AgentRuntime(UnusedProvider, DefaultAgentToolGateway(session)),
@@ -169,7 +169,7 @@ class GameTurnOrchestratorContractTest {
         )
         val duplicate = assertIs<GmTurnResult.Failed>(recoveredWithoutCallingProvider.submit(turnId, "搜索补给"))
         assertTrue(duplicate.turn.worldChanged)
-        assertEquals(9, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertEquals(11, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
     }
 
     @Test
@@ -190,7 +190,7 @@ class GameTurnOrchestratorContractTest {
 
         val failure = assertIs<GmTurnResult.Failed>(result)
         assertTrue(!failure.turn.worldChanged)
-        assertEquals(5, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
+        assertEquals(6, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.lastSequence)
     }
 
     @Test

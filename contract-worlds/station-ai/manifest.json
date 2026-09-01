@@ -78,6 +78,11 @@
             "id": "worldloom.rules.progress-clock",
             "version": {"major": 1, "minor": 0, "patch": 0},
             "parameters": {}
+        },
+        {
+            "id": "worldloom.rules.scene-exploration",
+            "version": {"major": 1, "minor": 0, "patch": 0},
+            "parameters": {}
         }
     ],
     "playableContractPath": "playable-world.json"

@@ -9,6 +9,7 @@ import io.worldloom.world.ActionOutcomeAppliedEvent
 import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerExitedSceneEvent
+import io.worldloom.rules.ExplorationKnowledgeRevealedEvent
 import io.worldloom.world.NpcPublicActionPublishedEvent
 import io.worldloom.world.NpcAddressedEvent
 import io.worldloom.world.NpcKnowledgeRevealedEvent
@@ -147,6 +148,7 @@ object PresentationMapper {
                     "${payload.npcId.value} 离开玩家身边"
                 }
                 is NpcKnowledgeRevealedEvent -> payload.publicSummary
+                is ExplorationKnowledgeRevealedEvent -> "地图与场景知识更新 ${payload.changes.size} 项"
 
             else -> "事件已记录"
         }
@@ -216,6 +218,7 @@ object PresentationMapper {
         is NpcAddressedEvent -> "worldloom.event.npc.addressed"
         is NpcKnowledgeRevealedEvent -> "worldloom.event.npc.knowledge-revealed"
         is NpcPresenceChangedEvent -> "worldloom.event.npc.presence-changed"
+        is ExplorationKnowledgeRevealedEvent -> "worldloom.event.exploration.revealed"
         else -> "worldloom.event.other"
     }
 

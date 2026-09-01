@@ -32,6 +32,7 @@ import io.worldloom.world.PlayerEnteredInitialSceneEvent
 import io.worldloom.world.PlayerEnteredSceneEvent
 import io.worldloom.world.PlayerEntityCreatedEvent
 import io.worldloom.world.PlayerExitedSceneEvent
+import io.worldloom.rules.ExplorationKnowledgeRevealedEvent
 import io.worldloom.world.RunLifecycleChangedEvent
 
 internal object BehaviorEventProjector {
@@ -72,6 +73,10 @@ internal object BehaviorEventProjector {
             is ActionOutcomeAppliedEvent -> DefinitionId("worldloom.event.action-outcome.applied").also {
                 values["event.actionId"] = DefinitionReferenceValue(payload.actionId)
                 values["event.outcomeId"] = DefinitionReferenceValue(payload.outcomeId)
+            }
+            is ExplorationKnowledgeRevealedEvent -> DefinitionId("worldloom.event.exploration.revealed").also {
+                values["event.causeId"] = DefinitionReferenceValue(payload.causeId)
+                values["event.changeCount"] = IntegerValue(payload.changes.size.toLong())
             }
             is WorldTimeAdvancedEvent -> DefinitionId("worldloom.event.time-advanced").also {
                 values["event.previousMinute"] = IntegerValue(payload.previousMinute)

@@ -52,13 +52,13 @@ class ContractGameSessionTest {
         )
 
         val progressed = assertIs<GameSessionUiState.Ready>(session.state.value)
-        assertEquals(9, progressed.presentation.lastSequence)
+        assertEquals(11, progressed.presentation.lastSequence)
         assertTrue(progressed.presentation.scene?.id?.value in setOf("war.scene.pharmacy", "war.scene.under-fire"))
         assertTrue(progressed.presentation.completedObjectiveIds.isNotEmpty())
         assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("行动已结算") })
         assertTrue(progressed.presentation.timeline.any { it.summary.startsWith("进入场景") })
         val authoritativeEvents = store.read(RunId("playable-action.run.1"))
-        assertEquals((1L..9L).toList(), authoritativeEvents.map(EventEnvelope::sequence))
+        assertEquals((1L..11L).toList(), authoritativeEvents.map(EventEnvelope::sequence))
 
         assertIs<SessionReplayResult.Success>(session.replay())
         assertEquals(progressed.presentation, assertIs<GameSessionUiState.Ready>(session.state.value).presentation)
@@ -66,7 +66,7 @@ class ContractGameSessionTest {
             session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
         )
         assertEquals(SessionErrorCode.COMMAND_REJECTED, rejected.error.code)
-        assertEquals(9, store.read(RunId("playable-action.run.1")).size)
+        assertEquals(11, store.read(RunId("playable-action.run.1")).size)
     }
 
     @Test
@@ -121,6 +121,8 @@ class ContractGameSessionTest {
         ).catalog
         assertEquals("contract.war-survival", catalog.entries.first().id.value)
         assertEquals(100, catalog.entries.first().priority)
+        assertTrue(catalog.entries.all { !it.premise.isNullOrBlank() })
+        assertTrue(catalog.entries.all { !it.objective.isNullOrBlank() })
 
         catalog.entries.forEach { entry ->
             val session = DefaultGameSession(
@@ -145,7 +147,7 @@ class ContractGameSessionTest {
             )
             val resolved = assertIs<GameSessionUiState.Ready>(session.state.value)
 
-            assertEquals(6, resolved.presentation.lastSequence)
+            assertEquals(7, resolved.presentation.lastSequence)
             assertTrue(resolved.presentation.timeline.any { it.summary.contains("检定") })
             assertIs<SessionReplayResult.Success>(session.replay())
             assertEquals(resolved.presentation, assertIs<GameSessionUiState.Ready>(session.state.value).presentation)

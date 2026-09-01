@@ -28,6 +28,16 @@ import io.worldloom.provider.api.ProviderToolDefinition
 import io.worldloom.provider.api.ProviderToolCall
 import io.worldloom.provider.api.ProviderTurn
 import io.worldloom.provider.api.ProviderUsage
+import io.worldloom.rules.DiceRandomRequest
+import io.worldloom.rules.RANDOM_ALGORITHM_VERSION
+import io.worldloom.rules.RandomRecord
+import io.worldloom.rules.RandomRecordId
+import io.worldloom.rules.RandomRequest
+import io.worldloom.rules.RandomRestoreResult
+import io.worldloom.rules.RandomServiceError
+import io.worldloom.rules.RandomServiceErrorCode
+import io.worldloom.rules.RandomServiceResult
+import io.worldloom.rules.RestorableRandomService
 import io.worldloom.world.RunId
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -44,6 +54,97 @@ import kotlin.time.TimeSource
 
 /** Release-authoritative journey: every objective fact still enters through the typed world pipeline. */
 class AlphaJourneySystemTest {
+    @Test
+    fun tenTurnNovicePharmacyJourneySurvivesRestartAndReplayWithoutInternalCodes() = runTest {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        WorldloomDatabase.Schema.create(driver).value
+        val catalog = catalog()
+        val worldId = DefinitionId("contract.war-survival")
+        val dice = List(10) { 6 }
+        val provider = GuidedOpeningFakeProvider()
+        val firstDatabase = WorldloomDatabase(driver)
+        val first = DefaultGameSession(
+            catalog = catalog,
+            eventStore = SqlDelightEventStore(firstDatabase),
+            idSource = SequentialSessionIdSource("guided-before"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            randomServiceFactory = { RestorableScriptedRandomService(dice) },
+            snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(firstDatabase),
+            behaviorWorkStore = SqlDelightBehaviorWorkStore(firstDatabase),
+        )
+        assertIs<LoadResult.Success>(first.load(worldId))
+        assertIs<ActionResult.Success>(first.confirmCharacter())
+        val runId = assertNotNull(first.currentRunId)
+        val firstTurns = SqlDelightGameTurnStore(firstDatabase)
+        val firstGm = GameTurnOrchestrator(
+            AgentRuntime(
+                provider,
+                DefaultAgentToolGateway(first),
+                SqlDelightAgentSessionStore(firstDatabase, runId),
+            ),
+            first,
+            firstTurns,
+        )
+        val inputs = listOf(
+            "先观察街道",
+            "询问玛拉伤势",
+            "冒险进入药房",
+            "检查服务门",
+            "请玛拉辨认药品",
+            "取出急救箱并撤离",
+            "比较排水渠两条路线",
+            "询问玛拉路线",
+            "询问托马斯路线",
+            "选择避难所方向",
+        )
+
+        inputs.take(7).forEach { input ->
+            val result = assertIs<GmTurnResult.Completed>(firstGm.submit(firstTurns.nextTurnId(runId), input))
+            assertTrue(result.turn.output.orEmpty().let { "war." !in it && "worldloom." !in it })
+        }
+        val beforeRestart = ready(first).presentation
+        assertEquals(DefinitionId("war.scene.drainage"), beforeRestart.scene?.id)
+        assertTrue(beforeRestart.exploration.connections.any { it.id == DefinitionId("war.path.pharmacy-drainage") })
+
+        val resumedDatabase = WorldloomDatabase(driver)
+        val resumed = DefaultGameSession(
+            catalog = catalog,
+            eventStore = SqlDelightEventStore(resumedDatabase),
+            idSource = SequentialSessionIdSource("guided-after"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            randomServiceFactory = { RestorableScriptedRandomService(dice) },
+            snapshotInterval = 1,
+            characterDraftStore = SqlDelightCharacterCreationDraftStore(resumedDatabase),
+            behaviorWorkStore = SqlDelightBehaviorWorkStore(resumedDatabase),
+        )
+        assertIs<LoadResult.Success>(resumed.resume(worldId, runId))
+        assertEquals(beforeRestart, ready(resumed).presentation)
+        val resumedTurns = SqlDelightGameTurnStore(resumedDatabase)
+        val resumedGm = GameTurnOrchestrator(
+            AgentRuntime(
+                provider,
+                DefaultAgentToolGateway(resumed),
+                SqlDelightAgentSessionStore(resumedDatabase, runId),
+            ),
+            resumed,
+            resumedTurns,
+        )
+        inputs.drop(7).forEach { input ->
+            val result = assertIs<GmTurnResult.Completed>(resumedGm.submit(resumedTurns.nextTurnId(runId), input))
+            assertTrue(result.turn.output.orEmpty().let { "war." !in it && "worldloom." !in it })
+        }
+
+        val completedOpening = ready(resumed).presentation
+        assertEquals(DefinitionId("war.scene.shelter"), completedOpening.scene?.id)
+        assertEquals(10, resumedTurns.history(runId, limit = 20).let {
+            assertIs<GameTurnHistoryResult.Success>(it).page.entries.size
+        })
+        assertIs<SessionReplayResult.Success>(resumed.replay())
+        assertEquals(completedOpening, ready(resumed).presentation)
+        driver.close()
+    }
+
     @Test
     fun fakeGmHostsBuiltInJourneyAcrossNpcBehaviorRestartEndingAndPublicReplay() = runTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
@@ -211,7 +312,7 @@ class AlphaJourneySystemTest {
                 )
             }
             request.tools.firstOrNull { it.name == PERFORM_ACTION_TOOL_ID.value }?.let { tool ->
-                val actionId = tool.parameters.single { it.name == "actionId" }.allowedValues.first()
+                val actionId = tool.parameters.single { it.name == "actionId" }.allowedValues.last()
                 gmToolCalls += 1
                 return ProviderResult.Success(
                     ProviderTurn(
@@ -242,6 +343,82 @@ class AlphaJourneySystemTest {
                 )
             }
             return ProviderResult.Success(ProviderTurn("局势暂时稳定。", usage = ProviderUsage(4, 2)))
+        }
+    }
+
+    private class GuidedOpeningFakeProvider : LanguageModelProvider {
+        override val capabilities = ProviderCapabilities(toolCalling = true, streaming = false, structuredOutput = false)
+        private var callOrdinal = 0
+
+        override suspend fun complete(request: ProviderRequest): ProviderResult {
+            callOrdinal += 1
+            if (request.messages.last().role == ProviderMessageRole.TOOL) {
+                return ProviderResult.Success(
+                    ProviderTurn("眼前的局势已经按你的选择发生变化。", usage = ProviderUsage(10, 6)),
+                )
+            }
+            val input = request.messages.lastOrNull { it.role == ProviderMessageRole.USER }?.content.orEmpty()
+            val call = when {
+                "观察街道" in input -> action("war.action.observe-street")
+                "询问玛拉伤势" in input -> address("war.npc.mara", "你的伤还能撑住吗？北街安全吗？")
+                "进入药房" in input -> action("war.action.search-supplies")
+                "检查服务门" in input -> action("war.action.inspect-service-door")
+                "玛拉辨认药品" in input -> address("war.npc.mara", "请帮我辨认值得带走的药品。")
+                "取出急救箱" in input -> action("war.action.secure-medicine")
+                "询问玛拉路线" in input -> address("war.npc.mara", "为什么你想先去避难所？")
+                "询问托马斯路线" in input -> address("war.npc.tomas", "为什么你认为水塔值得冒险？")
+                "选择避难所" in input -> action("war.action.follow-mara")
+                else -> null
+            }
+            return ProviderResult.Success(
+                if (call == null) {
+                    ProviderTurn("两条路线各有代价，你仍可以自由追问或选择。", usage = ProviderUsage(12, 8))
+                } else {
+                    ProviderTurn(toolCalls = listOf(call), usage = ProviderUsage(12, 4))
+                },
+            )
+        }
+
+        private fun action(actionId: String) = ProviderToolCall(
+            id = "guided-action-$callOrdinal",
+            name = PERFORM_ACTION_TOOL_ID.value,
+            arguments = buildJsonObject { put("actionId", actionId) },
+        )
+
+        private fun address(npcId: String, content: String) = ProviderToolCall(
+            id = "guided-address-$callOrdinal",
+            name = NPC_ADDRESS_TOOL_ID.value,
+            arguments = buildJsonObject {
+                put("npcId", npcId)
+                put("content", content)
+                put("audience", "NEARBY_GROUP")
+            },
+        )
+    }
+
+    private class RestorableScriptedRandomService(values: List<Int>) : RestorableRandomService {
+        private val scripted = values.toList()
+        private var consumed = 0
+
+        override fun resolve(request: RandomRequest, recordId: RandomRecordId): RandomServiceResult {
+            val dice = request as? DiceRandomRequest ?: return RandomServiceResult.Failure(
+                RandomServiceError(RandomServiceErrorCode.INVALID_REQUEST, "Only dice requests are supported"),
+            )
+            if (consumed + dice.count > scripted.size) return RandomServiceResult.Failure(
+                RandomServiceError(RandomServiceErrorCode.INVALID_REQUEST, "Scripted journey ran out of dice"),
+            )
+            val results = scripted.subList(consumed, consumed + dice.count)
+            consumed += dice.count
+            return RandomServiceResult.Success(RandomRecord(recordId, RANDOM_ALGORITHM_VERSION, request, results))
+        }
+
+        override fun restore(records: List<RandomRecord>): RandomRestoreResult {
+            val recorded = records.flatMap(RandomRecord::results)
+            if (recorded != scripted.take(recorded.size)) {
+                return RandomRestoreResult.Failure("Recorded dice do not match scripted journey")
+            }
+            consumed = recorded.size
+            return RandomRestoreResult.Success
         }
     }
 

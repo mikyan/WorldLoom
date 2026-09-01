@@ -62,6 +62,9 @@ private fun GamePresentation.playerFacingLabels(): Map<String, String> = buildMa
         put(currentScene.id.value, currentScene.label)
         currentScene.actions.forEach { put(it.id.value, it.label) }
     }
+    exploration.nodes.forEach { put(it.id.value, it.label) }
+    exploration.connections.forEach { put(it.id.value, it.label) }
+    exploration.affordances.forEach { put(it.id.value, it.label) }
     characters.forEach { character ->
         put(character.id.value, character.displayName)
         put(character.entityId.value, character.displayName)

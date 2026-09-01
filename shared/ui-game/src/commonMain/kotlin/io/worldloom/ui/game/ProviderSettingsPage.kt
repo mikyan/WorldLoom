@@ -44,6 +44,7 @@ internal fun ProviderSettingsPage(
     sources: List<OpenAiSubscriptionSource>,
     credentialConfigurations: Map<ProviderConfigurationId, CredentialConfiguration>,
     onBack: () -> Unit,
+    onConfigurationSaved: () -> Unit = {},
 ) {
     var configurations by remember(center) { mutableStateOf(emptyList<ProviderConfiguration>()) }
     var selectedConfigurationId by remember(center) { mutableStateOf<ProviderConfigurationId?>(null) }
@@ -134,6 +135,7 @@ internal fun ProviderSettingsPage(
                             .plus(updated)
                             .sortedBy { it.id.value }
                         selectedConfigurationId = updated.id
+                        onConfigurationSaved()
                     },
                 )
             }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -55,6 +56,7 @@ import io.worldloom.application.GamePresentation
 import io.worldloom.application.GuidanceTargetKind
 import io.worldloom.application.PresentedNpc
 import io.worldloom.application.PresentedGuidanceSuggestion
+import io.worldloom.rules.ExplorationKnowledgeLevel
 import io.worldloom.application.SessionError
 import io.worldloom.definition.DefinitionId
 import io.worldloom.ui.game.generated.resources.Res
@@ -76,7 +78,7 @@ private val PlayerBubble = Color(0xDD6E5329)
 private val MutedText = Color(0xFFB9B7B0)
 private const val PM_MEMBER_ID = "worldloom.member.pm"
 
-private data class ComposerPrefill(val text: String, val token: Int)
+private enum class GuidanceStrength(val label: String) { NEWCOMER("新手"), STANDARD("标准"), IMMERSIVE("沉浸") }
 
 @Composable
 internal fun GameplayPage(
@@ -93,6 +95,10 @@ internal fun GameplayPage(
     onWait: (Long) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
 ) {
+    var mapOpen by remember(runKey) { mutableStateOf(false) }
+    var composerDraft by remember(runKey) { mutableStateOf("") }
+    var sendOrdinal by remember(historyKey) { mutableIntStateOf(0) }
+    val conversationListState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
         GameBackdrop(presentation.scene?.backgroundAssetId ?: presentation.opening?.backgroundAssetId)
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -107,6 +113,13 @@ internal fun GameplayPage(
                     historyKey,
                     onExit,
                     onNpcBusyChanged,
+                    mapOpen,
+                    { mapOpen = it },
+                    composerDraft,
+                    { composerDraft = it },
+                    sendOrdinal,
+                    { sendOrdinal += 1 },
+                    conversationListState,
                 )
             } else {
                 LandscapeGameplay(
@@ -122,7 +135,27 @@ internal fun GameplayPage(
                     onCheck,
                     onWait,
                     onNpcBusyChanged,
+                    mapOpen,
+                    { mapOpen = it },
+                    composerDraft,
+                    { composerDraft = it },
+                    sendOrdinal,
+                    { sendOrdinal += 1 },
+                    conversationListState,
                 )
+            }
+        }
+        if (mapOpen) {
+            BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+                if (maxHeight > maxWidth) {
+                    Box(Modifier.fillMaxSize().background(Color(0xF20B0E10)).padding(10.dp)) {
+                        SceneMapPanel(
+                            presentation = presentation,
+                            modifier = Modifier.fillMaxSize(),
+                            onClose = { mapOpen = false },
+                        )
+                    }
+                }
             }
         }
     }
@@ -171,15 +204,27 @@ private fun LandscapeGameplay(
     onCheck: (DefinitionId) -> Unit,
     onWait: (Long) -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
+    mapOpen: Boolean,
+    onMapOpenChanged: (Boolean) -> Unit,
+    composerDraft: String,
+    onComposerDraftChanged: (String) -> Unit,
+    sendOrdinal: Int,
+    onSendOrdinalConsumed: () -> Unit,
+    conversationListState: LazyListState,
 ) {
-    var composerPrefill by remember { mutableStateOf<ComposerPrefill?>(null) }
-    var prefillToken by remember { mutableIntStateOf(0) }
     Row(
         modifier = Modifier.fillMaxSize().padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (mapOpen) {
+            SceneMapPanel(
+                presentation = presentation,
+                modifier = Modifier.width(300.dp).fillMaxHeight(),
+                onClose = { onMapOpenChanged(false) },
+            )
+        }
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-            GameTopBar(presentation, onExit)
+            GameTopBar(presentation, onExit, onMap = { onMapOpenChanged(!mapOpen) })
             Spacer(Modifier.height(8.dp))
             GameConversation(
                 presentation = presentation,
@@ -190,11 +235,11 @@ private fun LandscapeGameplay(
                 historyKey = historyKey,
                 modifier = Modifier.weight(1f),
                 onNpcBusyChanged = onNpcBusyChanged,
-                composerPrefill = composerPrefill,
-                onComposerPrefillConsumed = { composerPrefill = null },
-                onSuggestionSelected = { draft ->
-                    composerPrefill = ComposerPrefill(draft, prefillToken++)
-                },
+                composerDraft = composerDraft,
+                onComposerDraftChanged = onComposerDraftChanged,
+                sendOrdinal = sendOrdinal,
+                onSendOrdinalConsumed = onSendOrdinalConsumed,
+                listState = conversationListState,
             )
         }
         WorldHud(
@@ -205,7 +250,7 @@ private fun LandscapeGameplay(
             onAdjust = onAdjust,
             onCheck = onCheck,
             onWait = onWait,
-            onChatPrefix = { prefix -> composerPrefill = ComposerPrefill(prefix, prefillToken++) },
+            onChatPrefix = onComposerDraftChanged,
         )
     }
 }
@@ -220,11 +265,16 @@ private fun PortraitGameplay(
     historyKey: String,
     onExit: () -> Unit,
     onNpcBusyChanged: (Boolean) -> Unit,
+    mapOpen: Boolean,
+    onMapOpenChanged: (Boolean) -> Unit,
+    composerDraft: String,
+    onComposerDraftChanged: (String) -> Unit,
+    sendOrdinal: Int,
+    onSendOrdinalConsumed: () -> Unit,
+    conversationListState: LazyListState,
 ) {
-    var composerPrefill by remember { mutableStateOf<ComposerPrefill?>(null) }
-    var prefillToken by remember { mutableIntStateOf(0) }
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 8.dp)) {
-        GameTopBar(presentation, onExit, compact = true)
+        GameTopBar(presentation, onExit, compact = true, onMap = { onMapOpenChanged(!mapOpen) })
         Spacer(Modifier.height(6.dp))
         presentation.opening?.objective?.let { objective ->
             Text(
@@ -238,7 +288,7 @@ private fun PortraitGameplay(
         }
         CharacterMemberPanel(
             presentation.characters,
-            onChatPrefix = { prefix -> composerPrefill = ComposerPrefill(prefix, prefillToken++) },
+            onChatPrefix = onComposerDraftChanged,
         )
         Spacer(Modifier.height(6.dp))
         GameConversation(
@@ -250,11 +300,11 @@ private fun PortraitGameplay(
             historyKey = historyKey,
             modifier = Modifier.weight(1f),
             onNpcBusyChanged = onNpcBusyChanged,
-            composerPrefill = composerPrefill,
-            onComposerPrefillConsumed = { composerPrefill = null },
-            onSuggestionSelected = { draft ->
-                composerPrefill = ComposerPrefill(draft, prefillToken++)
-            },
+            composerDraft = composerDraft,
+            onComposerDraftChanged = onComposerDraftChanged,
+            sendOrdinal = sendOrdinal,
+            onSendOrdinalConsumed = onSendOrdinalConsumed,
+            listState = conversationListState,
         )
     }
 }
@@ -264,6 +314,7 @@ private fun GameTopBar(
     presentation: GamePresentation,
     onExit: () -> Unit,
     compact: Boolean = false,
+    onMap: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -288,11 +339,22 @@ private fun GameTopBar(
                 maxLines = 1,
             )
             Text(
-                presentation.scene?.let { "${it.label} · 群聊进行中" } ?: "故事进行中",
+                presentation.scene?.let {
+                    val exits = presentation.exploration.knownExitCount
+                    "${it.label} · ${exits} 个已知去处"
+                } ?: "故事进行中",
                 color = Color.White.copy(alpha = 0.62f),
                 fontSize = 11.sp,
                 maxLines = 1,
             )
+        }
+        if (presentation.exploration.situation != null) {
+            Button(
+                onClick = onMap,
+                modifier = Modifier.height(34.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 11.dp, vertical = 0.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = PmAccent.copy(alpha = 0.2f), contentColor = PmAccent),
+            ) { Text(if (compact) "地图" else "地图与目标", fontSize = 12.sp) }
         }
         Button(
             onClick = onExit,
@@ -301,6 +363,95 @@ private fun GameTopBar(
             colors = ButtonDefaults.buttonColors(backgroundColor = GlassStrong, contentColor = Color.White),
         ) { Text(if (compact) "退出" else "世界与存档", fontSize = 12.sp) }
     }
+}
+
+@Composable
+private fun SceneMapPanel(
+    presentation: GamePresentation,
+    modifier: Modifier,
+    onClose: () -> Unit,
+) {
+    val exploration = presentation.exploration
+    Column(
+        modifier = modifier.background(GlassStrong, RoundedCornerShape(16.dp))
+            .border(1.dp, FineBorder, RoundedCornerShape(16.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("场景与地图", color = PmAccent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(presentation.scene?.label ?: "当前位置", color = MutedText, fontSize = 11.sp)
+            }
+            Button(
+                onClick = onClose,
+                modifier = Modifier.height(36.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD5464B45), contentColor = Color.White),
+            ) { Text("关闭", fontSize = 12.sp) }
+        }
+        exploration.situation?.let { situation ->
+            Column(
+                Modifier.fillMaxWidth().background(PmAccent.copy(alpha = 0.09f), RoundedCornerShape(10.dp)).padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text("当前目标", color = PmAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(situation.objective, color = Color.White, fontSize = 13.sp)
+                Text("压力 · ${situation.pressure}", color = Color(0xFFFFBE8A), fontSize = 12.sp)
+                Text(situation.question, color = Color.White.copy(alpha = 0.76f), fontSize = 12.sp)
+            }
+        }
+        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            if (exploration.nodes.isNotEmpty()) {
+                item("map-heading") { Text("已知地点", color = MutedText, fontSize = 11.sp) }
+                items(exploration.nodes, key = { it.id.value }) { node ->
+                    val accent = explorationLevelColor(node.level)
+                    Row(
+                        Modifier.fillMaxWidth().background(accent.copy(alpha = 0.12f), RoundedCornerShape(9.dp))
+                            .border(1.dp, accent.copy(alpha = 0.42f), RoundedCornerShape(9.dp)).padding(9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(Modifier.size(10.dp).background(accent, CircleShape))
+                        Column(Modifier.weight(1f)) {
+                            Text((if (node.current) "当前位置 · " else "") + node.label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(node.description, color = MutedText, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(explorationLevelLabel(node.level), color = accent, fontSize = 10.sp)
+                    }
+                }
+            }
+            if (exploration.connections.isNotEmpty()) {
+                item("route-heading") { Text("已知路线", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp)) }
+                items(exploration.connections, key = { it.id.value }) { route ->
+                    Column(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp)).padding(9.dp)) {
+                        Text(route.label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        val detail = listOfNotNull(route.directionSummary, route.travelMinutes?.let { "约 $it 分钟" }, route.riskSummary).joinToString(" · ")
+                        if (detail.isNotBlank()) Text(detail, color = MutedText, fontSize = 11.sp)
+                    }
+                }
+            }
+            if (exploration.affordances.isNotEmpty()) {
+                item("affordance-heading") { Text("眼前可互动", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp)) }
+                items(exploration.affordances, key = { it.id.value }) { affordance ->
+                    Text("• ${affordance.label} · ${affordance.description}", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+private fun explorationLevelLabel(level: ExplorationKnowledgeLevel): String = when (level) {
+    ExplorationKnowledgeLevel.VISITED -> "到过"
+    ExplorationKnowledgeLevel.DISCOVERED -> "已发现"
+    ExplorationKnowledgeLevel.RUMORED -> "传闻"
+    ExplorationKnowledgeLevel.BLOCKED -> "封锁"
+}
+
+private fun explorationLevelColor(level: ExplorationKnowledgeLevel): Color = when (level) {
+    ExplorationKnowledgeLevel.VISITED -> PmAccent
+    ExplorationKnowledgeLevel.DISCOVERED -> NpcAccent
+    ExplorationKnowledgeLevel.RUMORED -> Color(0xFFAAA4C8)
+    ExplorationKnowledgeLevel.BLOCKED -> Color(0xFFE47D6D)
 }
 
 @Composable
@@ -313,16 +464,17 @@ private fun GameConversation(
     historyKey: String,
     modifier: Modifier,
     onNpcBusyChanged: (Boolean) -> Unit,
-    composerPrefill: ComposerPrefill?,
-    onComposerPrefillConsumed: () -> Unit,
-    onSuggestionSelected: (String) -> Unit,
+    composerDraft: String,
+    onComposerDraftChanged: (String) -> Unit,
+    sendOrdinal: Int,
+    onSendOrdinalConsumed: () -> Unit,
+    listState: LazyListState,
 ) {
     val agentState = controller?.state?.collectAsState()?.value ?: GameAgentState.Idle
     val history = controller?.history?.collectAsState()?.value
         ?: io.worldloom.agent.runtime.GameAgentHistoryState()
     val messages = remember(presentation, history) { buildGameChatMessages(presentation, history) }
     val hasPlayedMessages = history.items.isNotEmpty() || presentation.timeline.any { it.chatMessage != null }
-    val listState = rememberLazyListState()
     LaunchedEffect(controller, runKey) { controller?.recoverInterruptedHistory() }
     LaunchedEffect(messages.size, (agentState as? GameAgentState.Running)?.partialText) {
         val extra = if (agentState is GameAgentState.Running) 1 else 0
@@ -368,7 +520,7 @@ private fun GameConversation(
         SceneSuggestions(
             presentation = presentation,
             enabled = interactive && controller != null && agentState !is GameAgentState.Running,
-            onSuggestionSelected = onSuggestionSelected,
+            onSuggestionSelected = onComposerDraftChanged,
         )
         Spacer(Modifier.height(6.dp))
         ChatComposer(
@@ -377,8 +529,10 @@ private fun GameConversation(
             historyKey = historyKey,
             enabled = interactive && agentState !is GameAgentState.Running,
             onNpcBusyChanged = onNpcBusyChanged,
-            prefill = composerPrefill,
-            onPrefillConsumed = onComposerPrefillConsumed,
+            input = composerDraft,
+            onInputChanged = onComposerDraftChanged,
+            sendOrdinal = sendOrdinal,
+            onSendOrdinalConsumed = onSendOrdinalConsumed,
         )
     }
 }
@@ -439,10 +593,31 @@ private fun SceneSuggestions(
     enabled: Boolean,
     onSuggestionSelected: (String) -> Unit,
 ) {
-    val suggestions = gameplaySuggestions(presentation)
-    if (suggestions.isEmpty()) return
+    var strength by remember(presentation.worldId) { mutableStateOf(GuidanceStrength.NEWCOMER) }
+    var hintRequested by remember(presentation.worldId, presentation.scene?.id) { mutableStateOf(false) }
+    val authored = gameplaySuggestions(presentation)
+    val suggestions = when (strength) {
+        GuidanceStrength.NEWCOMER -> authored
+        GuidanceStrength.STANDARD -> authored.take(2)
+        GuidanceStrength.IMMERSIVE -> emptyList()
+    }
+    val hint = presentation.guidance.hints.firstOrNull()?.suggestion
+    if (authored.isEmpty() && hint == null) return
     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        item { Text("可尝试", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp)) }
+        item {
+            Button(
+                onClick = {
+                    strength = when (strength) {
+                        GuidanceStrength.NEWCOMER -> GuidanceStrength.STANDARD
+                        GuidanceStrength.STANDARD -> GuidanceStrength.IMMERSIVE
+                        GuidanceStrength.IMMERSIVE -> GuidanceStrength.NEWCOMER
+                    }
+                },
+                modifier = Modifier.height(32.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xB92B302E), contentColor = MutedText),
+            ) { Text("引导·${strength.label}", fontSize = 10.sp) }
+        }
         items(suggestions, key = { "${it.targetKind}:${it.targetId.value}" }) { suggestion ->
             Button(
                 onClick = { onSuggestionSelected(suggestion.inputDraft) },
@@ -451,6 +626,33 @@ private fun SceneSuggestions(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD5464B45), contentColor = Color.White),
             ) { Text(suggestion.label, fontSize = 11.sp) }
+        }
+        if (hint != null) {
+            item("request-hint") {
+                Button(
+                    onClick = { hintRequested = !hintRequested },
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = PmAccent.copy(alpha = 0.18f), contentColor = PmAccent),
+                ) { Text(if (hintRequested) "收起提示" else "需要提示", fontSize = 11.sp) }
+            }
+            if (hintRequested) {
+                item("hint-draft-${hint.targetId.value}") {
+                    Button(
+                        onClick = { onSuggestionSelected(hint.inputDraft) },
+                        enabled = enabled,
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xD65B4D36), contentColor = Color.White),
+                    ) { Text(hint.label, fontSize = 11.sp) }
+                }
+            }
+        }
+    }
+    if (strength == GuidanceStrength.NEWCOMER) {
+        suggestions.firstOrNull()?.let { suggestion ->
+            val detail = listOfNotNull(suggestion.rationale, suggestion.tradeoff).joinToString(" · ")
+            if (detail.isNotBlank()) Text(detail, color = MutedText, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -475,26 +677,19 @@ private fun ChatComposer(
     historyKey: String,
     enabled: Boolean,
     onNpcBusyChanged: (Boolean) -> Unit,
-    prefill: ComposerPrefill?,
-    onPrefillConsumed: () -> Unit,
+    input: String,
+    onInputChanged: (String) -> Unit,
+    sendOrdinal: Int,
+    onSendOrdinalConsumed: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var input by remember { mutableStateOf("") }
     var sendingNpc by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
-    var sendOrdinal by remember(historyKey) { mutableIntStateOf(0) }
     val canInput = enabled && controller != null && !sendingNpc
-    LaunchedEffect(prefill?.token) {
-        prefill?.let {
-            input = it.text
-            status = null
-            onPrefillConsumed()
-        }
-    }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(
             value = input,
-            onValueChange = { if (it.length <= 2_000) input = it },
+            onValueChange = { if (it.length <= 2_000) onInputChanged(it) },
             modifier = Modifier.weight(1f),
             label = { Text("行动 / @公开 / #私聊", fontSize = 12.sp) },
             enabled = canInput,
@@ -510,14 +705,15 @@ private fun ChatComposer(
                 when (val parsed = parseChatInput(submitted, characters)) {
                     is ParsedChatInput.Invalid -> status = parsed.message
                     is ParsedChatInput.ToPm -> {
-                        input = ""
+                        onInputChanged("")
                         scope.launch { controller?.send(parsed.content) }
                     }
                     is ParsedChatInput.ToNpc -> {
-                        input = ""
+                        onInputChanged("")
                         sendingNpc = true
                         onNpcBusyChanged(true)
-                        val idempotencyKey = "ui:$historyKey:${parsed.npc.id.value}:${sendOrdinal++}"
+                        val idempotencyKey = "ui:$historyKey:${parsed.npc.id.value}:$sendOrdinal"
+                        onSendOrdinalConsumed()
                         scope.launch {
                             try {
                                 status = when (

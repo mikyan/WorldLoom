@@ -27,14 +27,81 @@ import io.worldloom.rules.module.registry.ModuleRegistrationResult
 import io.worldloom.rules.module.registry.StandardRuleModules
 import io.worldloom.rules.ActivityDefinition
 import io.worldloom.rules.ActivityResolutionDefinition
+import io.worldloom.rules.ExplorationKnowledgeKind
+import io.worldloom.rules.ExplorationKnowledgeLevel
 import io.worldloom.rules.TemporalAdventureDefinition
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlayableWorldContractTest {
+    @Test
+    fun legacyContractWithoutExplorationStillDecodesWithCapabilityDisabled() {
+        val source = PlayableWorldContractCodec.encode(fixture().contract)
+
+        assertFalse(source.contains("\"exploration\""))
+        val decoded = assertIs<PlayableWorldContractDecodeResult.Success>(
+            PlayableWorldContractCodec.decode(source),
+        ).contract
+        assertNull(decoded.exploration)
+    }
+
+    @Test
+    fun futureExplorationSchemaReportsPreciseDiagnostic() {
+        val fixture = fixture()
+        val invalid = fixture.contract.copy(
+            exploration = minimalExploration(schemaVersion = CURRENT_PLAYABLE_EXPLORATION_SCHEMA_VERSION + 1),
+        )
+
+        val problems = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(invalid, fixture.definition, fixture.modules, emptyMap()),
+        ).problems
+
+        assertTrue(problems.any {
+            it.code == PlayableWorldProblemCode.EXPLORATION_INVALID &&
+                it.path == "exploration.schemaVersion" &&
+                it.message.contains("Unsupported exploration schema")
+        })
+    }
+
+    @Test
+    fun explorationRevealKindMustMatchItsDeclaredKnowledgeKind() {
+        val fixture = fixture()
+        val exploration = minimalExploration().let { definition ->
+            definition.copy(
+                sceneFrames = definition.sceneFrames.map { frame ->
+                    frame.copy(
+                        initialReveals = listOf(
+                            PlayableExplorationReveal(
+                                ExplorationKnowledgeKind.AFFORDANCE,
+                                id("test.place.start"),
+                                ExplorationKnowledgeLevel.VISITED,
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val problems = assertIs<PlayableWorldValidationResult.Invalid>(
+            PlayableWorldValidator.validate(
+                fixture.contract.copy(exploration = exploration),
+                fixture.definition,
+                fixture.modules,
+                emptyMap(),
+            ),
+        ).problems
+
+        assertTrue(problems.any {
+            it.code == PlayableWorldProblemCode.EXPLORATION_INVALID &&
+                it.path.endsWith("initialReveals[0].kind")
+        })
+    }
+
     @Test
     fun remoteCommunicationRejectsUnknownOrSinglePartyParticipants() {
         val fixture = fixture()
@@ -359,6 +426,36 @@ class PlayableWorldContractTest {
                 id("test.route.golden"),
                 listOf(PlayableRouteStep(id("test.action.escape"))),
                 id("test.ending.success"),
+            ),
+        ),
+    )
+
+    private fun minimalExploration(
+        schemaVersion: Int = CURRENT_PLAYABLE_EXPLORATION_SCHEMA_VERSION,
+    ) = PlayableExplorationDefinition(
+        schemaVersion = schemaVersion,
+        nodes = listOf(
+            PlayableExplorationNode(
+                id = id("test.place.start"),
+                label = "Start",
+                description = "The visible starting place.",
+                sceneId = id("test.scene.start"),
+            ),
+        ),
+        sceneFrames = listOf(
+            PlayableSceneFrame(
+                sceneId = id("test.scene.start"),
+                sensoryDetails = listOf("A clear exit is visible."),
+                objective = "Escape.",
+                pressure = "Time is limited.",
+                question = "What do you do?",
+                initialReveals = listOf(
+                    PlayableExplorationReveal(
+                        ExplorationKnowledgeKind.NODE,
+                        id("test.place.start"),
+                        ExplorationKnowledgeLevel.VISITED,
+                    ),
+                ),
             ),
         ),
     )

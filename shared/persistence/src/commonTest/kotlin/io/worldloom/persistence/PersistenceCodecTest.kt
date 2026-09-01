@@ -21,6 +21,10 @@ import io.worldloom.rules.ProgressClockAdvancedEvent
 import io.worldloom.rules.QuestAdvancedEvent
 import io.worldloom.rules.QuestStatus
 import io.worldloom.rules.RelationshipAdjustedEvent
+import io.worldloom.rules.ExplorationKnowledgeChange
+import io.worldloom.rules.ExplorationKnowledgeKind
+import io.worldloom.rules.ExplorationKnowledgeLevel
+import io.worldloom.rules.ExplorationKnowledgeRevealedEvent
 import io.worldloom.world.CommandId
 import io.worldloom.world.CURRENT_EVENT_SCHEMA_VERSION
 import io.worldloom.world.EventEnvelope
@@ -35,6 +39,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class PersistenceCodecTest {
+    @Test
+    fun roundTripsExplorationRevealEvent() {
+        val event = EventEnvelope(
+            schemaVersion = CURRENT_EVENT_SCHEMA_VERSION,
+            eventId = EventId("event.exploration.1"),
+            runId = RunId("run.exploration"),
+            sequence = 1,
+            causationId = CommandId("command.exploration.1"),
+            correlationId = "turn.exploration.1",
+            payload = ExplorationKnowledgeRevealedEvent(
+                causeId = DefinitionId("test.cause.observe"),
+                changes = listOf(
+                    ExplorationKnowledgeChange(
+                        ExplorationKnowledgeKind.NODE,
+                        DefinitionId("test.place.bridge"),
+                        ExplorationKnowledgeLevel.DISCOVERED,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            event,
+            assertIs<PersistenceDecodeResult.Success<EventEnvelope>>(
+                PersistenceCodec.decodeEvent(PersistenceCodec.encodeEvent(event)),
+            ).value,
+        )
+    }
+
     @Test
     fun roundTripsDirectedNpcDialogueEvent() {
         val event = EventEnvelope(

@@ -26,6 +26,70 @@ import kotlin.test.assertTrue
 
 class BuiltInWarScenarioTest {
     @Test
+    fun inspectingThePharmacyExitCommitsAndReplaysTheDrainageRoute() = runTest {
+        val catalog = catalog()
+        val session = DefaultGameSession(
+            catalog = catalog,
+            idSource = SequentialSessionIdSource("war-pharmacy-map"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            randomServiceFactory = { ScriptedRandomService(listOf(6, 6, 6, 6)) },
+        )
+        assertIs<LoadResult.Success>(session.load(catalog.entries.single().id))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
+        )
+        val pharmacy = presentation(session)
+        assertEquals(DefinitionId("war.scene.pharmacy"), pharmacy.scene?.id)
+        assertTrue(pharmacy.exploration.nodes.none { it.id == DefinitionId("war.place.drainage") })
+
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.inspect-service-door"))),
+        )
+        val inspected = presentation(session)
+        assertTrue(inspected.exploration.nodes.any { it.id == DefinitionId("war.place.drainage") })
+        assertTrue(inspected.exploration.connections.any { it.id == DefinitionId("war.path.pharmacy-drainage") })
+        assertIs<SessionReplayResult.Success>(session.replay())
+        assertEquals(inspected.exploration, presentation(session).exploration)
+    }
+
+    @Test
+    fun failedStreetCrossingUsesSpoilerSafeUnderFireGuidanceAndReachesDrainage() = runTest {
+        val catalog = catalog()
+        val session = DefaultGameSession(
+            catalog = catalog,
+            idSource = SequentialSessionIdSource("war-under-fire"),
+            workerDispatcher = StandardTestDispatcher(testScheduler),
+            randomServiceFactory = { ScriptedRandomService(listOf(1, 1, 6, 6)) },
+        )
+        assertIs<LoadResult.Success>(session.load(catalog.entries.single().id))
+        assertIs<ActionResult.Success>(session.confirmCharacter())
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
+        )
+
+        val underFire = presentation(session)
+        assertEquals(DefinitionId("war.scene.under-fire"), underFire.scene?.id)
+        assertTrue(underFire.guidance.suggestions.size >= 3)
+        val publicCopy = buildList {
+            underFire.exploration.situation?.let { addAll(it.sensoryDetails + it.objective + it.pressure + it.question) }
+            addAll(underFire.exploration.nodes.flatMap { listOf(it.label, it.description) })
+            addAll(underFire.exploration.affordances.flatMap { listOf(it.label, it.description) })
+            addAll(underFire.guidance.suggestions.flatMap { listOf(it.label, it.inputDraft, it.rationale.orEmpty(), it.tradeoff.orEmpty()) })
+        }.joinToString("\n")
+        assertTrue(!publicCopy.contains("急救箱"))
+        assertTrue(!publicCopy.contains("涵洞"))
+        assertTrue(!publicCopy.contains("检查站"))
+        assertTrue(!publicCopy.contains("ending"))
+        assertTrue(!publicCopy.contains("war."))
+
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.escape-patrol"))),
+        )
+        assertEquals(DefinitionId("war.scene.drainage"), presentation(session).scene?.id)
+    }
+
+    @Test
     fun allAuthoredRoutesReachTheirEndingAndReplayExactly() = runTest {
         val catalog = catalog()
         val entry = catalog.entries.single()

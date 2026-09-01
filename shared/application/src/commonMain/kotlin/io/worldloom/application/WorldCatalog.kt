@@ -26,6 +26,8 @@ data class WorldCatalogEntry(
     val priority: Int = 0,
     val contentVersion: Int = 1,
     val estimatedPlayMinutes: Int? = null,
+    val premise: String? = null,
+    val objective: String? = null,
 )
 
 data class LoadedWorldPackage(
@@ -71,6 +73,8 @@ class StaticWorldCatalog private constructor(
                 priority = loaded.playableContract?.source?.catalogPriority ?: 0,
                 contentVersion = loaded.playableContract?.source?.contentVersion ?: 1,
                 estimatedPlayMinutes = loaded.playableContract?.source?.estimatedPlayMinutes,
+                premise = loaded.playableContract?.source?.opening?.premise,
+                objective = loaded.playableContract?.source?.opening?.objective,
             )
         }
         .sortedWith(compareByDescending<WorldCatalogEntry> { it.priority }.thenBy { it.id.value })

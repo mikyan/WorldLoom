@@ -286,6 +286,27 @@ object GmContextProjector {
             presentation.scene?.let { scene ->
                 appendLine("当前场景：${scene.label}")
                 scene.description?.let { appendLine("场景描述：$it") }
+                presentation.exploration.situation?.let { situation ->
+                    appendLine("玩家可见局面：")
+                    situation.sensoryDetails.forEach { appendLine("- $it") }
+                    appendLine("当前目标：${situation.objective}")
+                    appendLine("公开压力：${situation.pressure}")
+                    appendLine("收尾问题：${situation.question}")
+                }
+                if (presentation.exploration.affordances.isNotEmpty()) {
+                    appendLine("当前可见对象与出口：")
+                    presentation.exploration.affordances.forEach { appendLine("- ${it.label}：${it.description}") }
+                }
+                if (presentation.exploration.nodes.isNotEmpty()) {
+                    appendLine("玩家已知地点（未列出的地点完全未知，不得提及）：")
+                    presentation.exploration.nodes.forEach { appendLine("- ${it.label}：${it.description}（${it.level.name}）") }
+                }
+                if (presentation.guidance.suggestions.isNotEmpty()) {
+                    appendLine("合法的温和引导范例；只能作为选择，不得替玩家行动：")
+                    presentation.guidance.suggestions.forEach { suggestion ->
+                        appendLine("- ${suggestion.label}：${suggestion.inputDraft}")
+                    }
+                }
                 if (scene.actions.isNotEmpty()) {
                     appendLine("当前可用行动（箭头右侧为内部工具参数，不得写进回复）：")
                     scene.actions.forEach { appendLine("- ${it.label} → actionId=${it.id.value}") }

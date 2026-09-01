@@ -194,7 +194,7 @@ class ContractAgentToolTest {
             assertIs<AgentRunResult.Completed>(result)
             assertTrue(provider.requests.first().tools.any { it.name == RESOLVE_CHECK_TOOL_ID.value })
             val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
-            assertEquals(6, ready.presentation.lastSequence)
+            assertEquals(7, ready.presentation.lastSequence)
             assertTrue(ready.presentation.timeline.isNotEmpty())
         }
     }

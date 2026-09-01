@@ -2,6 +2,7 @@ package io.worldloom.ui.game
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -74,6 +75,7 @@ import io.worldloom.provider.api.ProviderConfigurationCenter
 import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.openai.OpenAiSubscriptionSource
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val WorldloomColors = darkColors(
@@ -107,11 +109,16 @@ fun WorldloomApp(
     val state by session.state.collectAsState()
     val agentState = agentController?.state?.collectAsState()
     val scope = rememberCoroutineScope()
-    val gameContentAvailable = state !is GameSessionUiState.Idle && state !is GameSessionUiState.Failed
-    var showSetup by remember(gameContentAvailable) { mutableStateOf(!gameContentAvailable) }
+    var showGameplay by remember { mutableStateOf(false) }
+    var homePane by remember { mutableStateOf(HomePane.MENU) }
+    var selectedDreamIndex by remember { mutableStateOf(0) }
     var showProviderSettings by remember { mutableStateOf(false) }
+    var tokenGateActive by remember { mutableStateOf(false) }
+    var tokenAccepted by remember { mutableStateOf(false) }
+    var pendingEntry by remember { mutableStateOf<PendingDreamEntry?>(null) }
+    var enteringDream by remember { mutableStateOf(false) }
+    var homeError by remember { mutableStateOf<String?>(null) }
     var npcDialogueBusy by remember(agentController) { mutableStateOf(false) }
-    val gameplayInteractionBusy = agentState?.value is GameAgentState.Running || npcDialogueBusy
     val gameplayPresentation = when (val current = state) {
         is GameSessionUiState.Ready -> current.presentation
         is GameSessionUiState.Ended -> current.presentation
@@ -125,207 +132,206 @@ fun WorldloomApp(
     val gameplayInteractive = state is GameSessionUiState.Ready
     LaunchedEffect(saveCoordinator, state) { saveCoordinator?.refresh() }
 
+    suspend fun providerIsReady(): Boolean {
+        val center = providerConfigurationCenter ?: return true
+        val selectedId = center.selectedConfigurationId()
+        val credentialConfiguration = selectedId?.let(providerCredentialConfigurations::get)
+        credentialConfiguration?.refresh()
+        return providerEntryReady(selectedId, credentialConfiguration?.state?.value)
+    }
+
+    suspend fun enterPendingDream(entry: PendingDreamEntry) {
+        enteringDream = true
+        homeError = null
+        if (!reduceMotion) delay(220)
+        val loaded = when (entry) {
+            is PendingDreamEntry.NewDream -> if (saveCoordinator == null) {
+                session.load(entry.world.id) is LoadResult.Success
+            } else {
+                saveCoordinator.create(entry.world.id) is io.worldloom.application.SaveOperationResult.Success
+            }
+
+            PendingDreamEntry.QuickContinue -> saveCoordinator?.quickContinue() is
+                io.worldloom.application.SaveOperationResult.Success
+
+            is PendingDreamEntry.Continue -> saveCoordinator?.continueRun(entry.runId) is
+                io.worldloom.application.SaveOperationResult.Success
+        }
+        if (loaded) {
+            agentController?.reset()
+            if (!reduceMotion) delay(520)
+            showGameplay = true
+            homePane = HomePane.MENU
+        } else {
+            homeError = "这个梦境暂时无法展开，请检查存档或世界内容。"
+        }
+        enteringDream = false
+    }
+
+    fun requestDreamEntry(entry: PendingDreamEntry) {
+        if (enteringDream) return
+        scope.launch {
+            if (providerIsReady()) {
+                enterPendingDream(entry)
+            } else {
+                pendingEntry = entry
+                tokenAccepted = false
+                tokenGateActive = true
+                showProviderSettings = true
+            }
+        }
+    }
+
+    fun closeProviderSettings() {
+        showProviderSettings = false
+        if (tokenGateActive) {
+            tokenGateActive = false
+            tokenAccepted = false
+            pendingEntry = null
+        }
+    }
+
+    fun handleProviderSaved() {
+        if (!tokenGateActive) return
+        scope.launch {
+            if (!providerIsReady()) return@launch
+            val entry = pendingEntry ?: return@launch
+            showProviderSettings = false
+            tokenGateActive = false
+            tokenAccepted = true
+            if (!reduceMotion) delay(720)
+            pendingEntry = null
+            tokenAccepted = false
+            enterPendingDream(entry)
+        }
+    }
+
     MaterialTheme(colors = WorldloomColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
-            if (!showSetup && !showProviderSettings && gameplayPresentation != null) {
-                GameplayPage(
-                    presentation = gameplayPresentation,
-                    notice = gameplayNotice,
-                    agentController = agentController.takeIf { gameplayInteractive },
-                    interactive = gameplayInteractive,
-                    runKey = session.currentRunId?.value.orEmpty(),
-                    historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
-                    onExit = { showSetup = true },
-                    onReplay = { scope.launch { session.replay() } },
-                    onAdjust = { presentationId ->
-                        scope.launch { session.perform(GameSessionAction.AdjustPresentedField(presentationId)) }
-                    },
-                    onCheck = { presentationId ->
-                        scope.launch { session.perform(GameSessionAction.ResolvePresentedCheck(presentationId)) }
-                    },
-                    onWait = { minutes ->
-                        scope.launch { session.perform(GameSessionAction.AdvanceWorldTime(minutes)) }
-                    },
-                    onNpcBusyChanged = { npcDialogueBusy = it },
-                )
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    AppHeader()
-                    Spacer(Modifier.weight(1f))
-                    if (!showProviderSettings && gameContentAvailable) {
-                        Button(
-                            onClick = {
-                                showSetup = !showSetup
-                                showProviderSettings = false
-                            },
-                            enabled = !gameplayInteractionBusy,
-                            colors = ButtonDefaults.buttonColors(
-                                backgroundColor = if (showSetup) {
-                                    MaterialTheme.colors.primary
-                                } else {
-                                    MaterialTheme.colors.secondary
-                                },
-                            ),
-                        ) {
-                            Text(
-                                when {
-                                    gameplayInteractionBusy -> "主持处理中…"
-                                    showSetup -> "返回冒险"
-                                    else -> "世界、存档与服务"
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (showProviderSettings && providerConfigurationCenter != null) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        ProviderSettingsPage(
-                            center = providerConfigurationCenter,
-                            sources = providerSources,
-                            credentialConfigurations = providerCredentialConfigurations,
-                            onBack = {
-                                showProviderSettings = false
-                                showSetup = true
-                            },
-                        )
-                    }
-                } else if (showSetup) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = MaterialTheme.colors.surface,
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text("世界与服务", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "选择世界、管理存档并配置主持模型。进入游戏后这里会收起，为冒险内容留出完整空间。",
-                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
-                                )
-                            }
-                        }
-                        if (providerConfigurationCenter != null && providerSources.isNotEmpty()) {
-                            Button(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = { showProviderSettings = true },
-                            ) {
-                                Text("配置订阅与模型")
-                            }
-                        }
-                        WorldSelector(
-                            worlds = session.availableWorlds,
-                            onSelected = { world ->
-                                scope.launch {
-                                    val loaded = if (saveCoordinator == null) {
-                                        session.load(world.id) is LoadResult.Success
-                                    } else {
-                                        saveCoordinator.create(world.id) is
-                                            io.worldloom.application.SaveOperationResult.Success
-                                    }
-                                    if (loaded) agentController?.reset()
-                                }
-                            },
-                        )
-                        saveCoordinator?.let { coordinator ->
-                            SaveLibraryPanel(coordinator) { agentController?.reset() }
-                        }
-                        recognitionWorkspace?.let { workspace ->
-                            RecognitionWorkspacePanel(
-                                workspace = workspace,
-                                onCancel = onCancelRecognition,
-                                onResume = onResumeRecognition,
-                                onSelectCandidate = onSelectRecognitionCandidate,
-                            )
-                        }
-                        if (state is GameSessionUiState.Idle) {
-                            EmptyState("选择一个契约世界，开始你的冒险。")
-                        }
-                        if (state is GameSessionUiState.Failed) {
-                            EmptyState((state as GameSessionUiState.Failed).error.message, isError = true)
-                        }
-                    }
-                } else {
-                    when (val current = state) {
-                        GameSessionUiState.Idle -> EmptyState("选择一个契约世界，开始你的冒险。")
-                        is GameSessionUiState.Loading -> LoadingState(reduceMotion)
-                        is GameSessionUiState.Ready -> ReadyState(
-                            presentation = current.presentation,
-                            notice = current.notice,
-                            onAdjust = { presentationId ->
-                                scope.launch {
-                                    session.perform(GameSessionAction.AdjustPresentedField(presentationId))
-                                }
-                            },
-                            onCheck = { presentationId ->
-                                scope.launch {
-                                    session.perform(GameSessionAction.ResolvePresentedCheck(presentationId))
+            if (showGameplay) {
+                when (val current = state) {
+                    is GameSessionUiState.Ready,
+                    is GameSessionUiState.Ended,
+                    -> if (gameplayPresentation != null) {
+                        GameplayPage(
+                            presentation = gameplayPresentation,
+                            notice = gameplayNotice,
+                            agentController = agentController.takeIf { gameplayInteractive },
+                            interactive = gameplayInteractive,
+                            runKey = session.currentRunId?.value.orEmpty(),
+                            historyKey = "${session.currentRunId?.value}:${gameplayPresentation.lastSequence}",
+                            onExit = {
+                                if (agentState?.value !is GameAgentState.Running && !npcDialogueBusy) {
+                                    showGameplay = false
+                                    homePane = HomePane.MENU
                                 }
                             },
                             onReplay = { scope.launch { session.replay() } },
-                            onAction = { actionId ->
-                                scope.launch { session.perform(GameSessionAction.PerformAvailableAction(actionId)) }
+                            onAdjust = { presentationId ->
+                                scope.launch { session.perform(GameSessionAction.AdjustPresentedField(presentationId)) }
+                            },
+                            onCheck = { presentationId ->
+                                scope.launch { session.perform(GameSessionAction.ResolvePresentedCheck(presentationId)) }
                             },
                             onWait = { minutes ->
                                 scope.launch { session.perform(GameSessionAction.AdvanceWorldTime(minutes)) }
                             },
-                            onActivity = { activityId ->
-                                scope.launch { session.perform(GameSessionAction.PerformActivity(activityId)) }
-                            },
-                            onTravel = { routeId ->
-                                scope.launch { session.perform(GameSessionAction.Travel(routeId)) }
-                            },
-                            agentController = agentController,
-                            saveCoordinator = saveCoordinator,
-                            agentHistoryKey = "${session.currentRunId?.value}:${current.presentation.lastSequence}",
-                            guidanceRunKey = session.currentRunId?.value.orEmpty(),
-                            replayInspector = session as? ReplayInspector,
-                            reduceMotion = reduceMotion,
                             onNpcBusyChanged = { npcDialogueBusy = it },
                         )
+                    }
 
-                        is GameSessionUiState.CharacterCreation -> CharacterCreationState(
+                    is GameSessionUiState.CharacterCreation -> Box(
+                        Modifier.fillMaxSize().safeDrawingPadding().padding(20.dp),
+                    ) {
+                        CharacterCreationState(
                             presentation = current.presentation,
                             onUpdate = { request -> scope.launch { session.updateCharacter(request) } },
                             onConfirm = { scope.launch { session.confirmCharacter() } },
                         )
+                    }
 
-                        is GameSessionUiState.Ended -> ReadyState(
-                            presentation = current.presentation,
-                            notice = current.notice,
-                            onAdjust = {},
-                            onCheck = {},
-                            onReplay = { scope.launch { session.replay() } },
-                            onAction = {},
-                            onWait = {},
-                            onActivity = {},
-                            onTravel = {},
-                            agentController = null,
-                            saveCoordinator = saveCoordinator,
-                            interactive = false,
-                            replayInspector = session as? ReplayInspector,
-                            reduceMotion = reduceMotion,
-                        )
+                    is GameSessionUiState.Loading -> LoadingState(reduceMotion)
+                    is GameSessionUiState.Failed -> Box(
+                        Modifier.fillMaxSize().safeDrawingPadding().padding(20.dp),
+                    ) {
+                        EmptyState(current.error.message, isError = true)
+                    }
 
-                        is GameSessionUiState.Failed -> EmptyState(current.error.message, isError = true)
+                    GameSessionUiState.Idle -> Box(
+                        Modifier.fillMaxSize().safeDrawingPadding().padding(20.dp),
+                    ) {
+                        EmptyState("梦境尚未展开，请返回首页重新选择。")
                     }
                 }
+            } else {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val compact = maxWidth < 720.dp
+                    val speech = when {
+                        tokenAccepted -> "我收下了。"
+                        tokenGateActive -> "献上你的 token 吧。"
+                        homePane == HomePane.MENU -> "旅人，准备好进入梦境了吗？"
+                        homePane == HomePane.DREAMS -> "挑选一个梦茧，我会替你剪开入口。"
+                        else -> "旧梦没有消失，它们只是睡着了。"
+                    }
+                    HomeExperiencePage(
+                        worlds = session.availableWorlds,
+                        pane = homePane,
+                        selectedDreamIndex = selectedDreamIndex,
+                        speechText = speech,
+                        reduceMotion = reduceMotion,
+                        transitioning = enteringDream,
+                        errorMessage = homeError,
+                        onPaneChanged = { pane ->
+                            homeError = null
+                            homePane = pane
+                        },
+                        onDreamIndexChanged = { selectedDreamIndex = it },
+                        onEnterDream = { requestDreamEntry(PendingDreamEntry.NewDream(it)) },
+                        onOpenSettings = {
+                            if (providerConfigurationCenter == null || providerSources.isEmpty()) {
+                                homeError = "当前平台没有可用的订阅源配置。"
+                            } else {
+                                tokenGateActive = false
+                                showProviderSettings = true
+                            }
+                        },
+                        saveContent = {
+                            saveCoordinator?.let { coordinator ->
+                                SaveLibraryPanel(
+                                    coordinator = coordinator,
+                                    onQuickContinueRequested = {
+                                        requestDreamEntry(PendingDreamEntry.QuickContinue)
+                                    },
+                                    onContinueRequested = { runId ->
+                                        requestDreamEntry(PendingDreamEntry.Continue(runId))
+                                    },
+                                )
+                            } ?: Text("当前平台没有可用的存档目录。")
+                        },
+                    )
+
+                    if (showProviderSettings && providerConfigurationCenter != null) {
+                        ProviderSettingsOverlay(
+                            compact = compact,
+                            onDismiss = ::closeProviderSettings,
+                        ) {
+                            ProviderSettingsPage(
+                                center = providerConfigurationCenter,
+                                sources = providerSources,
+                                credentialConfigurations = providerCredentialConfigurations,
+                                onBack = ::closeProviderSettings,
+                                onConfigurationSaved = ::handleProviderSaved,
+                            )
+                            recognitionWorkspace?.let { workspace ->
+                                RecognitionWorkspacePanel(
+                                    workspace = workspace,
+                                    onCancel = onCancelRecognition,
+                                    onResume = onResumeRecognition,
+                                    onSelectCandidate = onSelectRecognitionCandidate,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -335,7 +341,8 @@ fun WorldloomApp(
 @Composable
 private fun SaveLibraryPanel(
     coordinator: SaveCoordinator,
-    onSessionChanged: () -> Unit,
+    onQuickContinueRequested: () -> Unit,
+    onContinueRequested: (io.worldloom.world.RunId) -> Unit,
 ) {
     val state by coordinator.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -348,13 +355,7 @@ private fun SaveLibraryPanel(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("继续游戏", color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
                     library.quickContinueRunId?.let {
-                        Button(onClick = {
-                            scope.launch {
-                                if (coordinator.quickContinue() is io.worldloom.application.SaveOperationResult.Success) {
-                                    onSessionChanged()
-                                }
-                            }
-                        }) { Text("快速继续最近一局") }
+                        Button(onClick = onQuickContinueRequested) { Text("快速继续最近一局") }
                     }
                     library.operationError?.let { Text(it.message, color = MaterialTheme.colors.error) }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -397,13 +398,9 @@ private fun SaveLibraryPanel(
                                     }
                                     run.diagnostic?.let { Text(it, color = MaterialTheme.colors.error, fontSize = 12.sp) }
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Button(onClick = {
-                                            scope.launch {
-                                                if (coordinator.continueRun(run.runId) is
-                                                    io.worldloom.application.SaveOperationResult.Success
-                                                ) onSessionChanged()
-                                            }
-                                        }) { Text(if (run.lifecycle.name == "COMPLETED") "查看" else "继续") }
+                                        Button(onClick = { onContinueRequested(run.runId) }) {
+                                            Text(if (run.lifecycle.name == "COMPLETED") "查看" else "继续")
+                                        }
                                         Button(onClick = { scope.launch { coordinator.rename(run.runId, name) } }) {
                                             Text("重命名")
                                         }

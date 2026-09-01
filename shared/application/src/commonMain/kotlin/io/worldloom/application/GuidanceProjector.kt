@@ -4,15 +4,20 @@ import io.worldloom.definition.DefinitionId
 import io.worldloom.world.packageformat.PlayableGuidanceTarget
 import io.worldloom.world.packageformat.PlayableGuidanceTargetKind
 import io.worldloom.world.packageformat.PlayableTutorialTriggerKind
+import io.worldloom.world.packageformat.PlayableSuggestionTargetKind
+import io.worldloom.world.packageformat.PlayableSuggestionTier
 import io.worldloom.world.packageformat.PlayableWorldContract
 
-enum class GuidanceTargetKind { ACTION, ACTIVITY, TRAVEL }
+enum class GuidanceTargetKind { ACTION, ACTIVITY, TRAVEL, NPC, DRAFT }
 
 data class PresentedGuidanceSuggestion(
     val targetKind: GuidanceTargetKind,
     val targetId: DefinitionId,
     val label: String,
     val inputDraft: String,
+    val rationale: String? = null,
+    val tradeoff: String? = null,
+    val tier: PlayableSuggestionTier = PlayableSuggestionTier.EXAMPLE,
 )
 
 data class PresentedTutorialStep(
@@ -43,6 +48,9 @@ object GuidanceProjector {
         actions: List<PresentedAction>,
         activities: List<PresentedActivity>,
         travelRoutes: List<PresentedTravelRoute>,
+        addressableNpcIds: Set<DefinitionId> = emptySet(),
+        visibleKnowledgeIds: Set<DefinitionId> = emptySet(),
+        availableItemIds: Set<DefinitionId> = emptySet(),
     ): GuidancePresentation {
         if (currentSceneId == null) return GuidancePresentation()
         val targets = buildMap {
@@ -93,14 +101,44 @@ object GuidanceProjector {
             if (hint.sceneId != currentSceneId) return@mapNotNull null
             targets[hint.target.key()]?.let { PresentedSceneHint(hint.id, hint.text, it) }
         }
-        val progressOptions = targets.values.toList()
-        val suggestions = (hints.map(PresentedSceneHint::suggestion) + progressOptions)
-            .distinctBy { it.targetKind to it.targetId }
-            .take(4)
-        val playable = progressOptions.isNotEmpty()
+        val authored = contract.exploration?.suggestions.orEmpty().mapNotNull { suggestion ->
+            if (
+                suggestion.sceneId != currentSceneId ||
+                suggestion.groundingKnowledgeIds.any { it !in visibleKnowledgeIds } ||
+                suggestion.requiredItemIds.any { it !in availableItemIds }
+            ) {
+                return@mapNotNull null
+            }
+            val projectedTarget = when (suggestion.target.kind) {
+                PlayableSuggestionTargetKind.ACTION -> suggestion.target.id?.let { targets[TargetKey(PlayableGuidanceTargetKind.ACTION, it)] }
+                PlayableSuggestionTargetKind.ACTIVITY -> suggestion.target.id?.let { targets[TargetKey(PlayableGuidanceTargetKind.ACTIVITY, it)] }
+                PlayableSuggestionTargetKind.TRAVEL -> suggestion.target.id?.let { targets[TargetKey(PlayableGuidanceTargetKind.TRAVEL, it)] }
+                PlayableSuggestionTargetKind.NPC -> suggestion.target.id?.takeIf { it in addressableNpcIds }?.let {
+                    PresentedGuidanceSuggestion(GuidanceTargetKind.NPC, it, suggestion.label, suggestion.inputDraft)
+                }
+                PlayableSuggestionTargetKind.DRAFT -> PresentedGuidanceSuggestion(
+                    GuidanceTargetKind.DRAFT,
+                    suggestion.id,
+                    suggestion.label,
+                    suggestion.inputDraft,
+                )
+            } ?: return@mapNotNull null
+            projectedTarget.copy(
+                label = suggestion.label,
+                inputDraft = suggestion.inputDraft,
+                rationale = suggestion.rationale,
+                tradeoff = suggestion.tradeoff?.takeIf { suggestion.tradeoffEvidenceIds.all(visibleKnowledgeIds::contains) },
+                tier = suggestion.tier,
+            )
+        }
+        val suggestions = authored.filter { it.tier == PlayableSuggestionTier.EXAMPLE }.take(4)
+        val authoredHints = authored.filter { it.tier != PlayableSuggestionTier.EXAMPLE }.map { suggestion ->
+            PresentedSceneHint(suggestion.targetId, suggestion.rationale ?: suggestion.label, suggestion)
+        }
+        val playable = targets.isNotEmpty()
         return GuidancePresentation(
             tutorials = tutorials,
-            hints = hints,
+            hints = (hints + authoredHints).distinctBy(PresentedSceneHint::id),
             suggestions = suggestions,
             playable = playable,
             diagnostic = if (playable) null else {

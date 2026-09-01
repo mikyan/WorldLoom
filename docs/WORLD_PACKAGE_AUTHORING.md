@@ -31,6 +31,48 @@ behaviors/               # 契约引用 Behavior 时按需提供
 
 ## playable-world/v1
 
+### 可选的场景探索与温和引导
+
+需要地图的世界必须在 manifest 与 `requiredModuleIds` 启用 `worldloom.rules.scene-exploration`，并在 `playable-world.json` 声明版本化 `exploration`。旧世界可以完全省略该字段，Runtime 会保留原场景体验且不会伪造发现。
+
+```json
+{
+  "exploration": {
+    "schemaVersion": 1,
+    "nodes": [
+      {"id": "demo.place.square", "label": "旧广场", "description": "钟楼前的开阔地。", "sceneId": "demo.scene.square"}
+    ],
+    "connections": [],
+    "affordances": [
+      {"id": "demo.clue.sign", "sceneId": "demo.scene.square", "kind": "LANDMARK", "label": "诊所招牌", "description": "肉眼可见的蓝色招牌。", "requiredForProgression": true}
+    ],
+    "sceneFrames": [{
+      "sceneId": "demo.scene.square",
+      "sensoryDetails": ["蓝色诊所招牌在雨里摇晃。"],
+      "objective": "找到避雨和治疗伤口的地方。",
+      "pressure": "天色正在变暗。",
+      "question": "你要先观察、询问同伴，还是走向诊所？",
+      "initialReveals": [
+        {"kind": "NODE", "id": "demo.place.square", "level": "VISITED"},
+        {"kind": "AFFORDANCE", "id": "demo.clue.sign", "level": "DISCOVERED"}
+      ]
+    }],
+    "suggestions": [{
+      "id": "demo.suggestion.observe",
+      "sceneId": "demo.scene.square",
+      "label": "先观察招牌",
+      "inputDraft": "我留在屋檐下，先看清诊所招牌和入口周围。",
+      "rationale": "招牌是已经公开的感官事实。",
+      "groundingKnowledgeIds": ["demo.place.square", "demo.clue.sign"],
+      "target": {"kind": "DRAFT"},
+      "tier": "EXAMPLE"
+    }]
+  }
+}
+```
+
+`groundingKnowledgeIds` 中任一条尚未公开时，该建议不会进入 Presentation。需要消耗或使用公开物品的方案还可声明 `requiredItemIds`，物品数量归零后建议自动隐藏。`tradeoff` 必须把公开证据列在 `tradeoffEvidenceIds`；不要写隐藏 DC、伏兵、结局概率或 NPC 私有知识。`ACTION`、`ACTIVITY`、`TRAVEL`、`NPC` 目标必须在对应场景当前合法，`DRAFT` 不带目标 ID。悬空端点、未知 Reveal、场景外目标、未启用模块、未来 Schema 版本和没有失败推进保障的核心线索都会返回带 JSON 路径的诊断。
+
 契约必须包含：
 
 - `character`：`profilePath` 或 `prebuiltPlayerEntityId` 二选一；使用 Profile 时还必须提供指向 `initialEntities` 模板的稳定 `playerEntityId`；

@@ -13,6 +13,7 @@ import io.worldloom.definition.WorldDefinitionDecodeResult
 import io.worldloom.rules.module.api.WorldManifestCodec
 import io.worldloom.rules.module.api.WorldManifestDecodeResult
 import io.worldloom.rules.module.registry.StandardRuleModules
+import io.worldloom.rules.ExplorationKnowledgeLevel
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,9 +32,13 @@ class GuidanceContractTest {
             actions = listOf(PresentedAction(DefinitionId("war.action.search-supplies"), "搜查临街药房")),
             activities = emptyList(),
             travelRoutes = emptyList(),
+            addressableNpcIds = setOf(DefinitionId("war.npc.mara"), DefinitionId("war.npc.tomas")),
+            visibleKnowledgeIds = war.exploration!!.sceneFrames.single { it.sceneId == war.initialSceneId }
+                .initialReveals.mapTo(mutableSetOf()) { it.id },
         )
         assertEquals(DefinitionId("war.tutorial.describe-action"), warProjection.tutorials.single().id)
         assertEquals(GuidanceTargetKind.ACTION, warProjection.suggestions.first().targetKind)
+        assertTrue(warProjection.suggestions.any { it.targetKind == GuidanceTargetKind.ACTION })
 
         val station = assertNotNull(load("station-ai").playableContract).source
         val stationProjection = GuidanceProjector.project(
@@ -42,10 +47,12 @@ class GuidanceContractTest {
             actions = listOf(PresentedAction(DefinitionId("station.action.reroute-energy"), "重新分配能源")),
             activities = listOf(PresentedActivity(DefinitionId("station.activity.recharge"), "低功率充能", 60)),
             travelRoutes = emptyList(),
+            visibleKnowledgeIds = station.exploration!!.sceneFrames.single { it.sceneId == station.initialSceneId }
+                .initialReveals.mapTo(mutableSetOf()) { it.id },
         )
         assertEquals(DefinitionId("station.hint.recharge"), stationProjection.hints.single().id)
-        assertEquals(GuidanceTargetKind.ACTIVITY, stationProjection.suggestions.first().targetKind)
-        assertTrue(stationProjection.suggestions.first().inputDraft.contains("低功率充能"))
+        assertEquals(GuidanceTargetKind.DRAFT, stationProjection.suggestions.first().targetKind)
+        assertTrue(stationProjection.suggestions.none { it.targetKind == GuidanceTargetKind.ACTIVITY })
     }
 
     @Test
@@ -66,6 +73,32 @@ class GuidanceContractTest {
     }
 
     @Test
+    fun resourceDependentSuggestionDisappearsWhenItsPublicItemIsUnavailable() {
+        val contract = assertNotNull(load("war-survival").playableContract).source
+        val sceneId = DefinitionId("war.scene.under-fire")
+        val visibleKnowledge = assertNotNull(contract.exploration).sceneFrames
+            .single { it.sceneId == sceneId }.initialReveals.mapTo(mutableSetOf()) { it.id }
+
+        fun project(items: Set<DefinitionId>) = GuidanceProjector.project(
+            contract = contract,
+            currentSceneId = sceneId,
+            actions = listOf(PresentedAction(DefinitionId("war.action.escape-patrol"), "冲向排水渠缺口")),
+            activities = emptyList(),
+            travelRoutes = emptyList(),
+            addressableNpcIds = setOf(DefinitionId("war.npc.tomas")),
+            visibleKnowledgeIds = visibleKnowledge,
+            availableItemIds = items,
+        )
+
+        assertTrue(project(setOf(DefinitionId("war.item.bandage"))).suggestions.any {
+            it.targetId == DefinitionId("war.suggestion.fire-bandage")
+        })
+        assertTrue(project(emptySet()).suggestions.none {
+            it.targetId == DefinitionId("war.suggestion.fire-bandage")
+        })
+    }
+
+    @Test
     fun sessionEnrichesInitialPresentationWithGuidanceWithoutAddingEvents() = runTest {
         val source = packageSource("war-survival")
         val catalog = assertIs<StaticWorldCatalogResult.Success>(
@@ -76,9 +109,25 @@ class GuidanceContractTest {
         assertIs<ActionResult.Success>(session.confirmCharacter())
 
         val ready = assertIs<GameSessionUiState.Ready>(session.state.value)
-        assertEquals(5, ready.presentation.lastSequence)
+        assertEquals(6, ready.presentation.lastSequence)
         assertEquals(DefinitionId("war.tutorial.describe-action"), ready.presentation.guidance.tutorials.single().id)
-        assertEquals(5, ready.presentation.lastSequence)
+        assertEquals(ExplorationKnowledgeLevel.VISITED, ready.presentation.exploration.nodes.single { it.current }.level)
+        assertEquals(1, ready.presentation.exploration.knownExitCount)
+        assertTrue(ready.presentation.guidance.suggestions.any { it.inputDraft.contains("药房") })
+        assertTrue(ready.presentation.exploration.nodes.any { it.id == DefinitionId("war.place.pharmacy") })
+        assertTrue(ready.presentation.exploration.nodes.none { it.id == DefinitionId("war.place.drainage") })
+        assertTrue(ready.presentation.exploration.affordances.none { it.id == DefinitionId("war.clue.emergency-kit") })
+
+        assertIs<ActionResult.Success>(
+            session.perform(GameSessionAction.PerformAvailableAction(DefinitionId("war.action.search-supplies"))),
+        )
+        val progressed = assertIs<GameSessionUiState.Ready>(session.state.value).presentation
+        if (progressed.scene?.id == DefinitionId("war.scene.pharmacy")) {
+            assertTrue(progressed.exploration.affordances.any { it.id == DefinitionId("war.clue.emergency-kit") })
+        }
+        assertTrue(progressed.exploration.nodes.none { it.id == DefinitionId("war.place.checkpoint") })
+        assertIs<SessionReplayResult.Success>(session.replay())
+        assertEquals(progressed.exploration, assertIs<GameSessionUiState.Ready>(session.state.value).presentation.exploration)
     }
 
     private fun load(directory: String): LoadedWorldPackage {

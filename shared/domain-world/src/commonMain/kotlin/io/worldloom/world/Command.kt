@@ -142,6 +142,7 @@ enum class CommandPermission {
     ADDRESS_NPC,
     MANAGE_NPC_PRESENCE,
     REVEAL_NPC_KNOWLEDGE,
+    REVEAL_EXPLORATION_KNOWLEDGE,
 }
 
 data class CommandAuthorization(

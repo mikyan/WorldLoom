@@ -14,28 +14,28 @@
         "worldloom.core.numeric-state", "worldloom.rules.random-check", "worldloom.rules.world-time",
         "worldloom.rules.activity", "worldloom.rules.travel", "worldloom.rules.inventory",
         "worldloom.rules.condition", "worldloom.rules.relationship", "worldloom.rules.quest",
-        "worldloom.rules.progress-clock"
+        "worldloom.rules.progress-clock", "worldloom.rules.scene-exploration"
     ],
     "scenes": [
         {
             "id": "war.scene.ruins", "label": "钟楼废墟",
-            "description": "上午八点，炮声刚停。你、玛拉和托马斯躲在倒塌钟楼的阴影里，必须在巡逻队返回前找到水、药品和离城路线。",
+            "description": "上午八点，炮声刚停。钟楼对街一块裂开的绿色十字招牌标出被洗劫的药房，向东的旧路牌仍指着水塔。玛拉手臂渗血，托马斯正盯着北街；履带声正在废墟后逼近。你们要在巡逻队转回来前找到药品和下一条安全路线。",
             "backgroundAssetId": "worldloom.background.war-ruins",
-            "actionIds": ["war.action.search-supplies"], "participantEntityIds": ["npc-mara", "npc-tomas"]
+            "actionIds": ["war.action.observe-street", "war.action.search-supplies"], "participantEntityIds": ["npc-mara", "npc-tomas"]
         },
         {
             "id": "war.scene.pharmacy", "label": "被洗劫的药房",
-            "description": "碎玻璃铺满地面，药柜后仍有一只上锁的急救箱。街口传来车辆怠速声，留给你们的时间不多。",
-            "actionIds": ["war.action.secure-medicine"], "participantEntityIds": ["npc-mara"]
+            "description": "碎玻璃铺满地面，翻倒药柜后露出一只上锁的急救箱，后墙还有半掩的服务门。玛拉能辨认药品，但街口车辆怠速声越来越近；撬锁会快却可能制造噪声，先检查柜台和后门更稳妥却会耗时。",
+            "actionIds": ["war.action.inspect-service-door", "war.action.secure-medicine"], "participantEntityIds": ["npc-mara"]
         },
         {
             "id": "war.scene.under-fire", "label": "巡逻队火力下",
-            "description": "曳光弹切过街面。托马斯发现一条通向排水渠的缺口，但必须穿过一段没有掩护的路。",
+            "description": "北街亮起枪口火光，翻倒的电车挡住第一轮射击。托马斯在车轮后发现通往排水渠的破口；左侧烟尘能遮住视线，但绕过去会多花时间。药房已无法安全靠近。",
             "actionIds": ["war.action.escape-patrol"], "participantEntityIds": ["npc-tomas"]
         },
         {
             "id": "war.scene.drainage", "label": "旧排水渠岔口",
-            "description": "潮湿的岔口把道路分成两条：玛拉坚持先去避难所救人，托马斯则相信水塔里的旧地图能避开检查站。",
+            "description": "潮湿渠洞分成两条：左侧白布条通向学校避难所，右侧锈管延伸到旧水塔方向。玛拉想先照顾避难所伤员，托马斯坚持水塔里的旧地图可能帮大家绕路；两边都各有筹码和未知风险。",
             "actionIds": ["war.action.follow-mara", "war.action.follow-tomas"], "participantEntityIds": ["npc-mara", "npc-tomas"]
         },
         {
@@ -71,26 +71,42 @@
     ],
     "actions": [
         {
-            "id": "war.action.search-supplies", "sceneId": "war.scene.ruins", "label": "搜查临街药房", "checkProfileId": "war.check.survive",
+            "id": "war.action.observe-street", "sceneId": "war.scene.ruins", "label": "从钟楼阴影观察街道", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"]}},
-                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"]}},
-                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.under-fire", "objectiveIds": ["war.objective.escape-danger"]}}
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"objectiveIds": ["war.objective.assess-street"], "explorationReveals": [{"kind": "AFFORDANCE", "id": "war.clue.safe-crossing", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"objectiveIds": ["war.objective.assess-street"], "explorationReveals": [{"kind": "AFFORDANCE", "id": "war.clue.safe-crossing", "level": "RUMORED"}]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"objectiveIds": ["war.objective.assess-street"]}}
+            ]
+        },
+        {
+            "id": "war.action.search-supplies", "sceneId": "war.scene.ruins", "label": "穿过街道进入药房", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.ruins-pharmacy", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.pharmacy", "objectiveIds": ["war.objective.leave-ruins"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.ruins-pharmacy", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.under-fire", "objectiveIds": ["war.objective.escape-danger"], "explorationReveals": [{"kind": "NODE", "id": "war.place.north-street", "level": "BLOCKED"}, {"kind": "CONNECTION", "id": "war.path.ruins-pharmacy", "level": "BLOCKED"}]}}
+            ]
+        },
+        {
+            "id": "war.action.inspect-service-door", "sceneId": "war.scene.pharmacy", "label": "检查药房服务门", "checkProfileId": "war.check.survive",
+            "resolutions": [
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"objectiveIds": ["war.objective.inspect-exit"], "explorationReveals": [{"kind": "NODE", "id": "war.place.drainage", "level": "DISCOVERED"}, {"kind": "CONNECTION", "id": "war.path.pharmacy-drainage", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"objectiveIds": ["war.objective.inspect-exit"], "explorationReveals": [{"kind": "NODE", "id": "war.place.drainage", "level": "RUMORED"}, {"kind": "CONNECTION", "id": "war.path.pharmacy-drainage", "level": "RUMORED"}]}},
+                {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"objectiveIds": ["war.objective.inspect-exit"]}}
             ]
         },
         {
             "id": "war.action.secure-medicine", "sceneId": "war.scene.pharmacy", "label": "取出急救箱后撤离", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"]}},
-                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"]}},
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.pharmacy-drainage", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.find-medicine"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.pharmacy-drainage", "level": "DISCOVERED"}]}},
                 {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.ration-line", "objectiveIds": ["war.objective.find-medicine"]}}
             ]
         },
         {
             "id": "war.action.escape-patrol", "sceneId": "war.scene.under-fire", "label": "冲向排水渠缺口", "checkProfileId": "war.check.survive",
             "resolutions": [
-                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"]}},
-                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"]}},
+                {"outcomeId": "war.outcome.success", "kind": "SUCCESS", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.fire-drainage", "level": "DISCOVERED"}]}},
+                {"outcomeId": "war.outcome.cost", "kind": "COST", "progression": {"nextSceneId": "war.scene.drainage", "objectiveIds": ["war.objective.escape-danger"], "explorationReveals": [{"kind": "CONNECTION", "id": "war.path.fire-drainage", "level": "DISCOVERED"}]}},
                 {"outcomeId": "war.outcome.failure", "kind": "FAILURE", "progression": {"nextSceneId": "war.scene.detention"}}
             ]
         },
@@ -168,6 +184,8 @@
         }
     ],
     "objectives": [
+        {"id": "war.objective.assess-street", "label": "判断街面移动时机"},
+        {"id": "war.objective.inspect-exit", "label": "确认药房后方退路"},
         {"id": "war.objective.leave-ruins", "label": "离开钟楼废墟"},
         {"id": "war.objective.find-medicine", "label": "取得可用药品", "presentationId": "war.presentation.primary-status"},
         {"id": "war.objective.escape-danger", "label": "摆脱巡逻队"},
@@ -298,7 +316,11 @@
                 "id": "war.knowledge.mara.north-blockade",
                 "privateText": "北侧道路已经被巡逻队封锁；避难所守门人掌握车队的旧无线电频率。",
                 "publicSummary": "玛拉确认北侧道路已被巡逻队封锁，并提到避难所守门人掌握旧无线电频率。",
-                "revealable": true
+                "revealable": true,
+                "explorationReveals": [
+                    {"kind": "NODE", "id": "war.place.north-street", "level": "BLOCKED"},
+                    {"kind": "NODE", "id": "war.place.shelter", "level": "RUMORED"}
+                ]
             }],
             "capabilities": ["SPEAK", "ACT"],
             "publicActionIds": ["war.npc-action.check-wounds", "war.npc-action.calm-survivors"]
@@ -314,7 +336,8 @@
                 "id": "war.knowledge.tomas.culvert-map",
                 "privateText": "旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图；你担心说出来后玛拉会禁止冒险。",
                 "publicSummary": "托马斯透露旧水塔检修盒里藏着一张标出河堤涵洞的残缺地图。",
-                "revealable": true
+                "revealable": true,
+                "explorationReveals": [{"kind": "NODE", "id": "war.place.water-tower", "level": "DISCOVERED"}]
             }],
             "capabilities": ["SPEAK", "ACT"],
             "publicActionIds": ["war.npc-action.scout-cover", "war.npc-action.mark-route"]
@@ -356,6 +379,86 @@
                 "text": "失败没有让游戏停住；换岗和破损围栏仍提供一次推进机会。",
                 "target": {"kind": "ACTION", "id": "war.action.escape-detention"}
             }
+        ]
+    },
+    "exploration": {
+        "schemaVersion": 1,
+        "nodes": [
+            {"id": "war.place.ruins", "label": "钟楼废墟", "description": "队伍醒来的临时掩体。", "sceneId": "war.scene.ruins"},
+            {"id": "war.place.pharmacy", "label": "临街药房", "description": "对街绿色十字招牌下的药房。", "sceneId": "war.scene.pharmacy"},
+            {"id": "war.place.north-street", "label": "北街", "description": "能听见巡逻履带声的街道。"},
+            {"id": "war.place.fire-zone", "label": "巡逻火力区", "description": "电车残骸与烟尘间的危险街面。", "sceneId": "war.scene.under-fire"},
+            {"id": "war.place.drainage", "label": "旧排水渠", "description": "能避开街面视线的潮湿渠洞。", "sceneId": "war.scene.drainage"},
+            {"id": "war.place.shelter", "label": "学校避难所", "description": "玛拉关心的伤员避难处。", "sceneId": "war.scene.shelter"},
+            {"id": "war.place.water-tower", "label": "旧水塔", "description": "东边路牌所指的地标。", "sceneId": "war.scene.water-tower"},
+            {"id": "war.place.ration-line", "label": "废弃配给站", "description": "幸存者占据的旧补给点。", "sceneId": "war.scene.ration-line"},
+            {"id": "war.place.checkpoint", "label": "河堤检查站", "description": "通往撤离区前的封锁点。", "sceneId": "war.scene.checkpoint"},
+            {"id": "war.place.detention", "label": "临时拘留棚", "description": "巡逻队关押平民的铁丝网棚。", "sceneId": "war.scene.detention"},
+            {"id": "war.place.convoy", "label": "撤离车队外缘", "description": "发动机声与雾气交叠的撤离点。", "sceneId": "war.scene.convoy"}
+        ],
+        "connections": [
+            {"id": "war.path.ruins-pharmacy", "fromNodeId": "war.place.ruins", "toNodeId": "war.place.pharmacy", "label": "穿过对街", "directionSummary": "钟楼东南侧", "travelMinutes": 10, "publicRisk": {"level": "HIGH", "summary": "街面暴露，巡逻队正在接近。"}},
+            {"id": "war.path.pharmacy-drainage", "fromNodeId": "war.place.pharmacy", "toNodeId": "war.place.drainage", "label": "药房服务门", "directionSummary": "后巷下方", "travelMinutes": 10, "publicRisk": {"level": "MODERATE", "summary": "门轴和杂物可能制造噪声。"}},
+            {"id": "war.path.fire-drainage", "fromNodeId": "war.place.fire-zone", "toNodeId": "war.place.drainage", "label": "电车后的排水缺口", "directionSummary": "北街路面下", "travelMinutes": 15, "publicRisk": {"level": "HIGH", "summary": "需要越过受火力控制的街面。"}},
+            {"id": "war.path.drainage-shelter", "fromNodeId": "war.place.drainage", "toNodeId": "war.place.shelter", "label": "白布条岔路", "directionSummary": "渠洞左侧", "travelMinutes": 35, "publicRisk": {"level": "MODERATE", "summary": "可能遇到伤员并消耗药品与时间。"}},
+            {"id": "war.path.drainage-water", "fromNodeId": "war.place.drainage", "toNodeId": "war.place.water-tower", "label": "锈管岔路", "directionSummary": "渠洞右侧", "travelMinutes": 30, "publicRisk": {"level": "MODERATE", "summary": "路线较短，但水塔周边情况未知。"}}
+        ],
+        "affordances": [
+            {"id": "war.clue.pharmacy-sign", "sceneId": "war.scene.ruins", "kind": "LANDMARK", "label": "绿色十字招牌", "description": "裂开的招牌明确标出对街药房。", "requiredForProgression": true},
+            {"id": "war.clue.tower-sign", "sceneId": "war.scene.ruins", "kind": "LANDMARK", "label": "水塔路牌", "description": "旧路牌只给出东边的大致方向。"},
+            {"id": "war.clue.patrol-sound", "sceneId": "war.scene.ruins", "kind": "HAZARD", "label": "逼近的履带声", "description": "巡逻队会压缩观察和移动时间。"},
+            {"id": "war.clue.ruins-cover", "sceneId": "war.scene.ruins", "kind": "COVER", "label": "倒塌钟楼阴影", "description": "当前安全，但无法长期停留。"},
+            {"id": "war.clue.safe-crossing", "sceneId": "war.scene.ruins", "kind": "CLUE", "label": "短暂火力间隙", "description": "观察后确认的一段可用移动时机。"},
+            {"id": "war.clue.emergency-kit", "sceneId": "war.scene.pharmacy", "kind": "RESOURCE", "label": "上锁急救箱", "description": "翻倒药柜后仍留着一只完整箱子。", "requiredForProgression": true},
+            {"id": "war.clue.service-door", "sceneId": "war.scene.pharmacy", "kind": "EXIT", "label": "半掩服务门", "description": "后墙出口需要检查才能确认去向。"},
+            {"id": "war.clue.pharmacy-noise", "sceneId": "war.scene.pharmacy", "kind": "HAZARD", "label": "街口怠速声", "description": "撬锁和翻找可能引来巡逻。"},
+            {"id": "war.clue.overturned-tram", "sceneId": "war.scene.under-fire", "kind": "COVER", "label": "翻倒电车", "description": "挡住当前射线的坚硬掩体。", "requiredForProgression": true},
+            {"id": "war.clue.drainage-breach", "sceneId": "war.scene.under-fire", "kind": "EXIT", "label": "排水渠破口", "description": "托马斯在车轮后看见的撤离口。", "requiredForProgression": true},
+            {"id": "war.clue.smoke-cover", "sceneId": "war.scene.under-fire", "kind": "COVER", "label": "左侧烟尘", "description": "能遮住视线，但绕行更慢。"},
+            {"id": "war.clue.shelter-mark", "sceneId": "war.scene.drainage", "kind": "EXIT", "label": "白布条", "description": "学校避难所留下的方向标记。", "requiredForProgression": true},
+            {"id": "war.clue.water-pipe", "sceneId": "war.scene.drainage", "kind": "EXIT", "label": "锈蚀水管", "description": "沿管道可向旧水塔方向前进。", "requiredForProgression": true}
+        ],
+        "sceneFrames": [
+            {"sceneId": "war.scene.ruins", "sensoryDetails": ["炮声刚停，细灰从钟楼残墙上落下。", "对街裂开的绿色十字招牌仍清楚可辨。", "东边水塔路牌后方传来逐渐接近的履带声。"], "objective": "在巡逻队返回前取得药品，并找到能离开街面的路线。", "pressure": "街面暴露，时间越久巡逻风险越高。", "question": "你要先观察街道、询问同伴，还是冒险穿向药房？", "initialReveals": [
+                {"kind": "NODE", "id": "war.place.ruins", "level": "VISITED"}, {"kind": "NODE", "id": "war.place.pharmacy", "level": "DISCOVERED"}, {"kind": "NODE", "id": "war.place.water-tower", "level": "RUMORED"}, {"kind": "NODE", "id": "war.place.north-street", "level": "RUMORED"},
+                {"kind": "CONNECTION", "id": "war.path.ruins-pharmacy", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.pharmacy-sign", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.tower-sign", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.patrol-sound", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.ruins-cover", "level": "DISCOVERED"}
+            ]},
+            {"sceneId": "war.scene.pharmacy", "sensoryDetails": ["碎玻璃和空药盒铺满地面。", "翻倒药柜后露出一只上锁急救箱。", "半掩服务门旁能听见街口车辆怠速。"], "objective": "判断药品价值并从后方撤离。", "pressure": "撬锁会制造噪声，谨慎搜索会消耗时间。", "question": "你要先检查后门、请玛拉辨认药品，还是快速撬箱？", "initialReveals": [
+                {"kind": "NODE", "id": "war.place.pharmacy", "level": "VISITED"}, {"kind": "AFFORDANCE", "id": "war.clue.emergency-kit", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.service-door", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.pharmacy-noise", "level": "DISCOVERED"}
+            ]},
+            {"sceneId": "war.scene.under-fire", "sensoryDetails": ["枪口火光压住北街。", "翻倒电车挡住了第一轮射击。", "车轮后有通向排水渠的破口，左侧烟尘可供绕行。"], "objective": "摆脱火力并离开街面。", "pressure": "快速冲刺风险高，借烟尘绕行更慢。", "question": "你要冲向破口、借烟尘迂回，还是先让托马斯判断火力间隙？", "initialReveals": [
+                {"kind": "NODE", "id": "war.place.fire-zone", "level": "VISITED"}, {"kind": "NODE", "id": "war.place.north-street", "level": "BLOCKED"}, {"kind": "NODE", "id": "war.place.drainage", "level": "DISCOVERED"}, {"kind": "CONNECTION", "id": "war.path.fire-drainage", "level": "DISCOVERED"},
+                {"kind": "AFFORDANCE", "id": "war.clue.overturned-tram", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.drainage-breach", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.smoke-cover", "level": "DISCOVERED"}
+            ]},
+            {"sceneId": "war.scene.drainage", "sensoryDetails": ["厚重井盖隔开了街上的脚步。", "左侧白布条指向学校避难所。", "右侧锈管延伸到旧水塔方向。"], "objective": "比较同伴的目标，选择下一条穿城路线。", "pressure": "避难所可能消耗药品，水塔周边情况未知。", "question": "你要继续追问、检查岔路痕迹，还是相信其中一人？", "initialReveals": [
+                {"kind": "NODE", "id": "war.place.drainage", "level": "VISITED"}, {"kind": "NODE", "id": "war.place.shelter", "level": "DISCOVERED"}, {"kind": "NODE", "id": "war.place.water-tower", "level": "DISCOVERED"}, {"kind": "CONNECTION", "id": "war.path.drainage-shelter", "level": "DISCOVERED"}, {"kind": "CONNECTION", "id": "war.path.drainage-water", "level": "DISCOVERED"},
+                {"kind": "AFFORDANCE", "id": "war.clue.shelter-mark", "level": "DISCOVERED"}, {"kind": "AFFORDANCE", "id": "war.clue.water-pipe", "level": "DISCOVERED"}
+            ]},
+            {"sceneId": "war.scene.shelter", "sensoryDetails": ["地下室里挤着伤员和孩子。"], "objective": "帮助避难所稳定局面。", "pressure": "伤员需要药品和时间。", "question": "你愿意提供怎样的帮助？", "initialReveals": [{"kind": "NODE", "id": "war.place.shelter", "level": "VISITED"}]},
+            {"sceneId": "war.scene.water-tower", "sensoryDetails": ["锈蚀楼梯在风里摇晃。"], "objective": "确认水塔里是否仍有可用路线情报。", "pressure": "附近留下了新鲜脚印。", "question": "你要怎样接近检修盒？", "initialReveals": [{"kind": "NODE", "id": "war.place.water-tower", "level": "VISITED"}]},
+            {"sceneId": "war.scene.ration-line", "sensoryDetails": ["饥饿幸存者守着最后一箱罐头。"], "objective": "换取情报或通行。", "pressure": "交易可能消耗有限补给。", "question": "你准备拿什么交换？", "initialReveals": [{"kind": "NODE", "id": "war.place.ration-line", "level": "VISITED"}]},
+            {"sceneId": "war.scene.checkpoint", "sensoryDetails": ["检查站横在撤离方向前。"], "objective": "越过河堤封锁。", "pressure": "守卫警惕，巡逻仍在逼近。", "question": "你要交涉还是寻找隐蔽路线？", "initialReveals": [{"kind": "NODE", "id": "war.place.checkpoint", "level": "VISITED"}]},
+            {"sceneId": "war.scene.detention", "sensoryDetails": ["铁丝网后的换岗声越来越近。"], "objective": "抓住唯一的逃离机会。", "pressure": "换岗结束后破损围栏会被发现。", "question": "你要怎样制造空当？", "initialReveals": [{"kind": "NODE", "id": "war.place.detention", "level": "VISITED"}]},
+            {"sceneId": "war.scene.convoy", "sensoryDetails": ["雾里的发动机声近在咫尺。"], "objective": "让车队确认你们的身份并接走同伴。", "pressure": "巡逻队正在逼近。", "question": "你要怎样发出可信信号？", "initialReveals": [{"kind": "NODE", "id": "war.place.convoy", "level": "VISITED"}]}
+        ],
+        "suggestions": [
+            {"id": "war.suggestion.ruins-observe", "sceneId": "war.scene.ruins", "label": "先观察街道", "inputDraft": "我先利用钟楼阴影观察药房和巡逻队之间的街面，找一段更安全的移动时机。", "rationale": "先确认公开危险和掩体，不会把未知地点当成事实。", "tradeoff": "更稳妥，但会消耗巡逻队接近前的时间。", "groundingKnowledgeIds": ["war.place.ruins", "war.place.pharmacy", "war.clue.patrol-sound", "war.clue.ruins-cover"], "tradeoffEvidenceIds": ["war.clue.patrol-sound"], "target": {"kind": "ACTION", "id": "war.action.observe-street"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.ruins-cross", "sceneId": "war.scene.ruins", "label": "冒险穿向药房", "inputDraft": "我抓住炮声后的空当，沿可见掩护快速穿过街道进入药房。", "rationale": "药房招牌已经可见，那里可能有急需的补给。", "tradeoff": "速度快，但暴露在正在接近的巡逻风险下。", "groundingKnowledgeIds": ["war.place.pharmacy", "war.path.ruins-pharmacy", "war.clue.pharmacy-sign", "war.clue.patrol-sound"], "tradeoffEvidenceIds": ["war.path.ruins-pharmacy", "war.clue.patrol-sound"], "target": {"kind": "ACTION", "id": "war.action.search-supplies"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.ruins-mara", "sceneId": "war.scene.ruins", "label": "问玛拉的判断", "inputDraft": "@玛拉 你的伤还能撑住吗？你觉得我们该先找药，还是先确认哪条街不能走？", "rationale": "玛拉就在身边，并且能判断伤势。", "groundingKnowledgeIds": ["war.place.ruins", "war.clue.pharmacy-sign"], "target": {"kind": "NPC", "id": "war.npc.mara"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.ruins-hint", "sceneId": "war.scene.ruins", "label": "利用招牌与阴影", "inputDraft": "我不直接冲出去，先从钟楼阴影比较药房入口和巡逻声的方向。", "rationale": "已知地点和现成掩体可以先帮助你建立行动路线。", "groundingKnowledgeIds": ["war.clue.pharmacy-sign", "war.clue.ruins-cover", "war.clue.patrol-sound"], "target": {"kind": "DRAFT"}, "tier": "HINT"},
+
+            {"id": "war.suggestion.pharmacy-door", "sceneId": "war.scene.pharmacy", "label": "先检查服务门", "inputDraft": "我先安静检查半掩的服务门，确认它通向哪里以及会不会发出太大声音。", "rationale": "先确认撤离口可避免拿到药后被堵住。", "tradeoff": "更安全，但会消耗时间。", "groundingKnowledgeIds": ["war.place.pharmacy", "war.clue.service-door", "war.clue.pharmacy-noise"], "tradeoffEvidenceIds": ["war.clue.pharmacy-noise"], "target": {"kind": "ACTION", "id": "war.action.inspect-service-door"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.pharmacy-kit", "sceneId": "war.scene.pharmacy", "label": "快速撬开急救箱", "inputDraft": "我利用手边工具尽快撬开急救箱，拿到能带走的药品后立刻撤离。", "rationale": "急救箱已经公开可见，是当前最明确的补给目标。", "tradeoff": "速度快，但噪声可能引来巡逻。", "groundingKnowledgeIds": ["war.clue.emergency-kit", "war.clue.pharmacy-noise"], "tradeoffEvidenceIds": ["war.clue.pharmacy-noise"], "target": {"kind": "ACTION", "id": "war.action.secure-medicine"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.pharmacy-mara", "sceneId": "war.scene.pharmacy", "label": "请玛拉辨认药品", "inputDraft": "@玛拉 帮我看看急救箱和柜台里哪些药最值得带走，我们时间不多。", "rationale": "玛拉在场且具备医护经验。", "groundingKnowledgeIds": ["war.clue.emergency-kit", "war.clue.pharmacy-noise"], "target": {"kind": "NPC", "id": "war.npc.mara"}, "tier": "EXAMPLE"},
+
+            {"id": "war.suggestion.fire-smoke", "sceneId": "war.scene.under-fire", "label": "借烟尘迂回", "inputDraft": "我贴着翻倒电车移动，借左侧烟尘绕向排水渠破口。", "rationale": "烟尘和电车都是当前可见掩护。", "tradeoff": "更慢，但能减少直接暴露。", "groundingKnowledgeIds": ["war.clue.overturned-tram", "war.clue.smoke-cover", "war.clue.drainage-breach"], "tradeoffEvidenceIds": ["war.clue.smoke-cover"], "target": {"kind": "DRAFT"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.fire-run", "sceneId": "war.scene.under-fire", "label": "冲向排水缺口", "inputDraft": "我等火力短暂停顿，立即冲向电车后的排水渠破口。", "rationale": "排水口已经被托马斯发现。", "tradeoff": "最快，但需要穿过受火力控制的街面。", "groundingKnowledgeIds": ["war.path.fire-drainage", "war.clue.drainage-breach", "war.clue.overturned-tram"], "tradeoffEvidenceIds": ["war.path.fire-drainage"], "target": {"kind": "ACTION", "id": "war.action.escape-patrol"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.fire-bandage", "sceneId": "war.scene.under-fire", "label": "用绷带避免走散", "inputDraft": "我牺牲一段随身绷带，把自己和托马斯的手腕松松连住，再借烟尘一起移向排水渠破口。", "rationale": "烟尘能遮挡视线，但也容易让同伴走散；现有绷带可以换取更稳定的协同行动。", "tradeoff": "会消耗一份医疗资源。", "groundingKnowledgeIds": ["war.clue.smoke-cover", "war.clue.drainage-breach"], "requiredItemIds": ["war.item.bandage"], "tradeoffEvidenceIds": ["war.clue.smoke-cover"], "target": {"kind": "DRAFT"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.fire-tomas", "sceneId": "war.scene.under-fire", "label": "让托马斯看时机", "inputDraft": "@托马斯 你熟悉这种街面，帮我判断火力间隙和到破口的路线。", "rationale": "托马斯就在身边且发现了破口。", "groundingKnowledgeIds": ["war.clue.drainage-breach", "war.clue.overturned-tram"], "target": {"kind": "NPC", "id": "war.npc.tomas"}, "tier": "EXAMPLE"},
+
+            {"id": "war.suggestion.drainage-ask", "sceneId": "war.scene.drainage", "label": "先听两人的理由", "inputDraft": "我让玛拉和托马斯分别说清楚想去避难所和水塔的理由，以及他们真正确定的风险。", "rationale": "两条公开路线没有标准答案，先理解动机有助于作出价值选择。", "groundingKnowledgeIds": ["war.path.drainage-shelter", "war.path.drainage-water", "war.clue.shelter-mark", "war.clue.water-pipe"], "target": {"kind": "DRAFT"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.drainage-shelter", "sceneId": "war.scene.drainage", "label": "走避难所方向", "inputDraft": "我决定沿白布条去学校避难所，先帮助那里的伤员。", "rationale": "玛拉的目标和白布条方向都已公开。", "tradeoff": "可能换来幸存者的帮助，也可能消耗药品和时间。", "groundingKnowledgeIds": ["war.place.shelter", "war.path.drainage-shelter", "war.clue.shelter-mark"], "tradeoffEvidenceIds": ["war.path.drainage-shelter"], "target": {"kind": "ACTION", "id": "war.action.follow-mara"}, "tier": "EXAMPLE"},
+            {"id": "war.suggestion.drainage-water", "sceneId": "war.scene.drainage", "label": "走水塔方向", "inputDraft": "我决定沿锈管前往旧水塔，调查托马斯说的路线情报。", "rationale": "水塔方向已确认，但周边情况仍未知。", "tradeoff": "路线较短，潜在情报有价值，但并不保证安全。", "groundingKnowledgeIds": ["war.place.water-tower", "war.path.drainage-water", "war.clue.water-pipe"], "tradeoffEvidenceIds": ["war.path.drainage-water"], "target": {"kind": "ACTION", "id": "war.action.follow-tomas"}, "tier": "EXAMPLE"}
         ]
     },
     "goldenRoutes": [

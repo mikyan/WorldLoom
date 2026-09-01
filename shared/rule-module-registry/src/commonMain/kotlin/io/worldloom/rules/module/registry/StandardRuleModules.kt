@@ -152,6 +152,16 @@ object StandardRuleModules {
         ),
     )
 
+    val sceneExploration: RuleModule = descriptorModule(
+        id = DefinitionId("worldloom.rules.scene-exploration"),
+        capabilities = listOf(
+            capability("worldloom.schema.scene-exploration", RuleCapabilityKind.SCHEMA),
+            capability("worldloom.command.exploration.reveal", RuleCapabilityKind.COMMAND),
+            capability("worldloom.event.exploration.revealed", RuleCapabilityKind.EVENT),
+            capability("worldloom.projection.scene-exploration", RuleCapabilityKind.PROJECTION),
+        ),
+    )
+
     val all: List<RuleModule> = listOf(
         numericState,
         randomCheck,
@@ -164,6 +174,7 @@ object StandardRuleModules {
         relationship,
         quest,
         progressClock,
+        sceneExploration,
     )
 
     fun registry(): RuleModuleRegistry = RuleModuleRegistry(all)

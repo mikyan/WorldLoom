@@ -48,6 +48,7 @@ kotlin {
             implementation(projects.shared.providerApi)
             implementation(projects.shared.providerOpenai)
             implementation(projects.platform.secureVault)
+            implementation(libs.compose.animation)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material)
             implementation(libs.compose.runtime)

@@ -30,6 +30,9 @@ import io.worldloom.rules.INVENTORY_MODULE_ID
 import io.worldloom.rules.PROGRESS_CLOCK_MODULE_ID
 import io.worldloom.rules.QUEST_MODULE_ID
 import io.worldloom.rules.RELATIONSHIP_MODULE_ID
+import io.worldloom.rules.EXPLORATION_SCHEMA_CAPABILITY_ID
+import io.worldloom.rules.ExplorationKnowledgeKind
+import io.worldloom.rules.ExplorationKnowledgeLevel
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -38,6 +41,7 @@ import kotlinx.serialization.json.Json
 
 const val PLAYABLE_WORLD_CONTRACT_SCHEMA_V1: String = "worldloom.playable-world/v1"
 const val CURRENT_PLAYABLE_GUIDANCE_SCHEMA_VERSION: Int = 1
+const val CURRENT_PLAYABLE_EXPLORATION_SCHEMA_VERSION: Int = 1
 
 private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.run-lifecycle.changed"),
@@ -51,6 +55,7 @@ private val CORE_BEHAVIOR_EVENT_TYPES = setOf(
     DefinitionId("worldloom.event.npc.addressed"),
     DefinitionId("worldloom.event.npc.knowledge-revealed"),
     DefinitionId("worldloom.event.npc.presence-changed"),
+    DefinitionId("worldloom.event.exploration.revealed"),
 )
 
 @Serializable
@@ -89,6 +94,8 @@ data class PlayableProgression(
     val objectiveIds: List<DefinitionId> = emptyList(),
     val endingId: DefinitionId? = null,
     val retryAllowed: Boolean = false,
+    /** Public discoveries committed atomically with this outcome. */
+    val explorationReveals: List<PlayableExplorationReveal> = emptyList(),
 )
 
 @Serializable
@@ -139,6 +146,8 @@ data class PlayableNpcKnowledgeDefinition(
     val privateText: String,
     val publicSummary: String? = null,
     val revealable: Boolean = false,
+    /** Exploration facts this authored knowledge is allowed to publish with its reveal event. */
+    val explorationReveals: List<PlayableExplorationReveal> = emptyList(),
 )
 
 /** Declarative NPC identity and least-authority perception/tool boundary for one fixed world. */
@@ -221,6 +230,105 @@ data class PlayableGuidanceDefinition(
     val hints: List<PlayableSceneHint> = emptyList(),
 )
 
+@Serializable
+data class PlayableExplorationReveal(
+    val kind: ExplorationKnowledgeKind,
+    val id: DefinitionId,
+    val level: ExplorationKnowledgeLevel,
+)
+
+@Serializable
+enum class PlayableAffordanceKind { OBJECT, EXIT, COVER, HAZARD, CLUE, RESOURCE, LANDMARK }
+
+@Serializable
+enum class PlayablePublicRiskLevel { LOW, MODERATE, HIGH, EXTREME }
+
+@Serializable
+data class PlayablePublicRisk(
+    val level: PlayablePublicRiskLevel,
+    val summary: String,
+)
+
+@Serializable
+data class PlayableExplorationNode(
+    val id: DefinitionId,
+    val label: String,
+    val description: String,
+    /** A node may correspond to a playable scene; rumored landmarks need not. */
+    val sceneId: DefinitionId? = null,
+)
+
+@Serializable
+data class PlayableExplorationConnection(
+    val id: DefinitionId,
+    val fromNodeId: DefinitionId,
+    val toNodeId: DefinitionId,
+    val label: String,
+    val directionSummary: String? = null,
+    val travelMinutes: Long? = null,
+    val publicRisk: PlayablePublicRisk? = null,
+)
+
+@Serializable
+data class PlayableExplorationAffordance(
+    val id: DefinitionId,
+    val sceneId: DefinitionId,
+    val kind: PlayableAffordanceKind,
+    val label: String,
+    val description: String,
+    /** Core clues must be visible on entry or revealed on every fail-forward outcome. */
+    val requiredForProgression: Boolean = false,
+)
+
+@Serializable
+data class PlayableSceneFrame(
+    val sceneId: DefinitionId,
+    val sensoryDetails: List<String>,
+    val objective: String,
+    val pressure: String,
+    val question: String,
+    val initialReveals: List<PlayableExplorationReveal>,
+)
+
+@Serializable
+enum class PlayableSuggestionTier { EXAMPLE, HINT, NUDGE }
+
+@Serializable
+enum class PlayableSuggestionTargetKind { ACTION, ACTIVITY, TRAVEL, NPC, DRAFT }
+
+@Serializable
+data class PlayableSuggestionTarget(
+    val kind: PlayableSuggestionTargetKind,
+    val id: DefinitionId? = null,
+)
+
+@Serializable
+data class PlayableGuidanceSuggestion(
+    val id: DefinitionId,
+    val sceneId: DefinitionId,
+    val label: String,
+    val inputDraft: String,
+    val rationale: String? = null,
+    val tradeoff: String? = null,
+    val groundingKnowledgeIds: List<DefinitionId>,
+    /** Optional public inventory prerequisites; the suggestion is hidden when any item is unavailable. */
+    val requiredItemIds: List<DefinitionId> = emptyList(),
+    /** Risk or cost copy is projected only while every one of these facts is public. */
+    val tradeoffEvidenceIds: List<DefinitionId> = emptyList(),
+    val target: PlayableSuggestionTarget = PlayableSuggestionTarget(PlayableSuggestionTargetKind.DRAFT),
+    val tier: PlayableSuggestionTier = PlayableSuggestionTier.EXAMPLE,
+)
+
+@Serializable
+data class PlayableExplorationDefinition(
+    val schemaVersion: Int = CURRENT_PLAYABLE_EXPLORATION_SCHEMA_VERSION,
+    val nodes: List<PlayableExplorationNode>,
+    val connections: List<PlayableExplorationConnection> = emptyList(),
+    val affordances: List<PlayableExplorationAffordance> = emptyList(),
+    val sceneFrames: List<PlayableSceneFrame>,
+    val suggestions: List<PlayableGuidanceSuggestion> = emptyList(),
+)
+
 /** Minimum topic-neutral content graph required before a package may claim to be playable. */
 @Serializable
 data class PlayableWorldContract(
@@ -243,6 +351,7 @@ data class PlayableWorldContract(
     val npcs: List<PlayableNpcProfile> = emptyList(),
     val remoteCommunicationMethods: List<PlayableRemoteCommunicationMethod> = emptyList(),
     val guidance: PlayableGuidanceDefinition? = null,
+    val exploration: PlayableExplorationDefinition? = null,
     val goldenRoutes: List<PlayableRouteFixture>,
 )
 
@@ -309,6 +418,10 @@ enum class PlayableWorldProblemCode {
     GUIDANCE_REFERENCE_UNKNOWN,
     GUIDANCE_TARGET_NOT_VISIBLE,
     GUIDANCE_DYNAMIC_DEAD_END,
+    EXPLORATION_INVALID,
+    EXPLORATION_REFERENCE_UNKNOWN,
+    EXPLORATION_GROUNDING_HIDDEN,
+    EXPLORATION_FAIL_FORWARD_MISSING,
     DEAD_END_SCENE,
     ENDING_UNREACHABLE,
     ROUTE_EMPTY,
@@ -437,6 +550,7 @@ object PlayableWorldValidator {
         validateRemoteCommunication(contract, definition, problems)
         validateTemporal(contract, definition, scenes.keys, problems)
         validateGuidance(contract, scenes, actions, problems)
+        validateExploration(contract, scenes, actions, modules, problems)
         validateAdventureState(contract, definition, problems)
         validateActions(contract, definition, scenes, actions, objectives, endings, problems)
         validatePresentation(contract, definition, problems)
@@ -696,6 +810,176 @@ object PlayableWorldValidator {
         }
 
         validateDynamicGuidanceDeadEnds(contract, scenes, actions, problems)
+    }
+
+    private fun validateExploration(
+        contract: PlayableWorldContract,
+        scenes: Map<DefinitionId, PlayableScene>,
+        actions: Map<DefinitionId, PlayableAction>,
+        modules: RegisteredWorldModules,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        val exploration = contract.exploration ?: return
+        if (exploration.schemaVersion != CURRENT_PLAYABLE_EXPLORATION_SCHEMA_VERSION) {
+            problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_INVALID,
+                "exploration.schemaVersion",
+                "Unsupported exploration schema: ${exploration.schemaVersion}",
+            )
+            return
+        }
+        if (modules.capability(EXPLORATION_SCHEMA_CAPABILITY_ID) == null) {
+            problems += problem(
+                PlayableWorldProblemCode.REQUIRED_MODULE_MISSING,
+                "exploration",
+                "Exploration content requires the manifest-gated scene exploration capability",
+            )
+        }
+        val nodeIds = exploration.nodes.map(PlayableExplorationNode::id).toSet()
+        val connectionIds = exploration.connections.map(PlayableExplorationConnection::id).toSet()
+        val affordanceIds = exploration.affordances.map(PlayableExplorationAffordance::id).toSet()
+        val knowledgeIds = nodeIds + connectionIds + affordanceIds
+        val itemIds = contract.adventureState?.items.orEmpty().mapTo(mutableSetOf()) { it.id }
+        val knowledgeKinds = buildMap {
+            nodeIds.forEach { put(it, ExplorationKnowledgeKind.NODE) }
+            connectionIds.forEach { put(it, ExplorationKnowledgeKind.CONNECTION) }
+            affordanceIds.forEach { put(it, ExplorationKnowledgeKind.AFFORDANCE) }
+        }
+        duplicateIds(
+            exploration.nodes.map(PlayableExplorationNode::id) +
+                exploration.connections.map(PlayableExplorationConnection::id) +
+                exploration.affordances.map(PlayableExplorationAffordance::id) +
+                exploration.suggestions.map(PlayableGuidanceSuggestion::id),
+            "exploration",
+            problems,
+        )
+        exploration.nodes.forEachIndexed { index, node ->
+            if (node.label.isBlank() || node.description.isBlank() || node.label.length > 100 || node.description.length > 500) {
+                problems += problem(PlayableWorldProblemCode.EXPLORATION_INVALID, "exploration.nodes[$index]", "Exploration node copy is blank or too long")
+            }
+            if (node.sceneId != null && node.sceneId !in scenes) {
+                problems += problem(PlayableWorldProblemCode.EXPLORATION_REFERENCE_UNKNOWN, "exploration.nodes[$index].sceneId", "Exploration node references an unknown scene")
+            }
+        }
+        exploration.connections.forEachIndexed { index, connection ->
+            if (connection.fromNodeId !in nodeIds || connection.toNodeId !in nodeIds || connection.fromNodeId == connection.toNodeId) {
+                problems += problem(PlayableWorldProblemCode.EXPLORATION_REFERENCE_UNKNOWN, "exploration.connections[$index]", "Exploration connection endpoints must reference two declared nodes")
+            }
+            if (connection.label.isBlank() || connection.publicRisk?.summary?.isBlank() == true ||
+                connection.travelMinutes?.let { it <= 0 } == true
+            ) problems += problem(PlayableWorldProblemCode.EXPLORATION_INVALID, "exploration.connections[$index]", "Exploration connection copy or duration is invalid")
+        }
+        exploration.affordances.forEachIndexed { index, affordance ->
+            if (affordance.sceneId !in scenes) problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_REFERENCE_UNKNOWN,
+                "exploration.affordances[$index].sceneId",
+                "Exploration affordance references an unknown scene",
+            )
+            if (affordance.label.isBlank() || affordance.description.isBlank()) problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_INVALID,
+                "exploration.affordances[$index]",
+                "Exploration affordance copy must not be blank",
+            )
+        }
+        duplicateIds(exploration.sceneFrames.map(PlayableSceneFrame::sceneId), "exploration.sceneFrames", problems)
+        val frameByScene = exploration.sceneFrames.associateBy(PlayableSceneFrame::sceneId)
+        scenes.keys.forEach { sceneId ->
+            if (sceneId !in frameByScene) problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_REFERENCE_UNKNOWN,
+                "exploration.sceneFrames",
+                "Exploration-enabled scene is missing a structured frame: $sceneId",
+            )
+        }
+        exploration.sceneFrames.forEachIndexed { index, frame ->
+            val path = "exploration.sceneFrames[$index]"
+            if (frame.sceneId !in scenes || frame.sensoryDetails.isEmpty() || frame.sensoryDetails.size > 3 ||
+                frame.sensoryDetails.any { it.isBlank() || it.length > 500 } || frame.objective.isBlank() ||
+                frame.pressure.isBlank() || frame.question.isBlank()
+            ) problems += problem(PlayableWorldProblemCode.EXPLORATION_INVALID, path, "Scene frame must contain a scene, one to three sensory details, objective, pressure, and question")
+            validateExplorationReveals(frame.initialReveals, knowledgeKinds, "$path.initialReveals", problems)
+            val sceneNodeIds = exploration.nodes.filter { it.sceneId == frame.sceneId }.map(PlayableExplorationNode::id).toSet()
+            if (frame.initialReveals.none { it.kind == ExplorationKnowledgeKind.NODE && it.id in sceneNodeIds && it.level == ExplorationKnowledgeLevel.VISITED }) {
+                problems += problem(PlayableWorldProblemCode.EXPLORATION_INVALID, "$path.initialReveals", "Scene entry must mark its mapped node VISITED")
+            }
+            exploration.affordances.filter { it.sceneId == frame.sceneId && it.requiredForProgression }.forEach { affordance ->
+                val visibleOnEntry = frame.initialReveals.any { it.kind == ExplorationKnowledgeKind.AFFORDANCE && it.id == affordance.id }
+                val everyOutcomeReveals = scenes[frame.sceneId].orEmptyActionIds(actions).flatMap { it.resolutions }.isNotEmpty() &&
+                    scenes[frame.sceneId].orEmptyActionIds(actions).flatMap { it.resolutions }.all { resolution ->
+                        resolution.progression.explorationReveals.any { it.kind == ExplorationKnowledgeKind.AFFORDANCE && it.id == affordance.id }
+                    }
+                if (!visibleOnEntry && !everyOutcomeReveals) problems += problem(
+                    PlayableWorldProblemCode.EXPLORATION_FAIL_FORWARD_MISSING,
+                    path,
+                    "Core affordance ${affordance.id} must be visible on entry or revealed on every outcome",
+                )
+            }
+        }
+        contract.actions.forEachIndexed { actionIndex, action ->
+            action.resolutions.forEachIndexed { resolutionIndex, resolution ->
+                validateExplorationReveals(
+                    resolution.progression.explorationReveals,
+                    knowledgeKinds,
+                    "actions[$actionIndex].resolutions[$resolutionIndex].progression.explorationReveals",
+                    problems,
+                )
+            }
+        }
+        contract.npcs.forEachIndexed { npcIndex, npc ->
+            npc.knowledge.forEachIndexed { knowledgeIndex, knowledge ->
+                validateExplorationReveals(
+                    knowledge.explorationReveals,
+                    knowledgeKinds,
+                    "npcs[$npcIndex].knowledge[$knowledgeIndex].explorationReveals",
+                    problems,
+                )
+            }
+        }
+        exploration.suggestions.forEachIndexed { index, suggestion ->
+            val path = "exploration.suggestions[$index]"
+            if (suggestion.sceneId !in scenes || suggestion.label.isBlank() || suggestion.inputDraft.isBlank() ||
+                suggestion.groundingKnowledgeIds.isEmpty() || suggestion.groundingKnowledgeIds.distinct().size != suggestion.groundingKnowledgeIds.size ||
+                suggestion.groundingKnowledgeIds.any { it !in knowledgeIds } || suggestion.tradeoffEvidenceIds.any { it !in knowledgeIds } ||
+                suggestion.requiredItemIds.distinct().size != suggestion.requiredItemIds.size || suggestion.requiredItemIds.any { it !in itemIds }
+            ) problems += problem(PlayableWorldProblemCode.EXPLORATION_GROUNDING_HIDDEN, path, "Suggestion must have valid visible grounding and non-blank copy")
+            val target = suggestion.target
+            val targetValid = when (target.kind) {
+                PlayableSuggestionTargetKind.DRAFT -> target.id == null
+                PlayableSuggestionTargetKind.ACTION -> target.id?.let(actions::get)?.sceneId == suggestion.sceneId
+                PlayableSuggestionTargetKind.ACTIVITY -> contract.temporal?.activities.orEmpty().any { it.id == target.id && suggestion.sceneId in it.availableSceneIds }
+                PlayableSuggestionTargetKind.TRAVEL -> contract.temporal?.routes.orEmpty().any { it.id == target.id && it.fromSceneId == suggestion.sceneId }
+                PlayableSuggestionTargetKind.NPC -> contract.npcs.any { it.id == target.id && it.entityId in scenes[suggestion.sceneId]?.participantEntityIds.orEmpty() }
+            }
+            if (!targetValid) problems += problem(PlayableWorldProblemCode.GUIDANCE_TARGET_NOT_VISIBLE, "$path.target", "Suggestion target is not legal in its scene")
+        }
+    }
+
+    private fun PlayableScene?.orEmptyActionIds(actions: Map<DefinitionId, PlayableAction>): List<PlayableAction> =
+        this?.actionIds.orEmpty().mapNotNull(actions::get)
+
+    private fun validateExplorationReveals(
+        reveals: List<PlayableExplorationReveal>,
+        knowledgeKinds: Map<DefinitionId, ExplorationKnowledgeKind>,
+        path: String,
+        problems: MutableList<PlayableWorldProblem>,
+    ) {
+        if (reveals.map(PlayableExplorationReveal::id).distinct().size != reveals.size) problems += problem(
+            PlayableWorldProblemCode.EXPLORATION_INVALID,
+            path,
+            "Exploration reveals must use unique knowledge IDs",
+        )
+        reveals.forEachIndexed { index, reveal ->
+            val declaredKind = knowledgeKinds[reveal.id]
+            if (declaredKind == null) problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_REFERENCE_UNKNOWN,
+                "$path[$index].id",
+                "Exploration reveal references unknown knowledge: ${reveal.id}",
+            )
+            else if (declaredKind != reveal.kind) problems += problem(
+                PlayableWorldProblemCode.EXPLORATION_INVALID,
+                "$path[$index].kind",
+                "Exploration reveal kind ${reveal.kind} does not match declared kind $declaredKind",
+            )
+        }
     }
 
     private fun validateDynamicGuidanceDeadEnds(
