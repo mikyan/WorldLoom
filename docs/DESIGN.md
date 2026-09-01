@@ -941,7 +941,7 @@ Behavior Runtime ────┘
 
 ## 9. 模型供应商与安全
 
-系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前共享 UI 将订阅与模型拆成独立配置页，并同时保存多个来源：`OpenCode Go`、`MiMo Token Plan CN`、`OpenAI API`、`OpenRouter`、`DeepSeek`、`GroqCloud`、`Mistral AI`、`SiliconFlow 中国站` 与 `xAI` 使用固定 HTTPS Base URL，用户只需填写各自独立的 API Key；`自定义 OpenAI-compatible` 额外允许填写 Base URL。动态 Provider 路由在每次请求前读取当前选中配置。
+系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前共享设置以独立的“提供者”和“模型”选项卡分离连接管理与运行时选择：提供者页按纵向可展开列表分别配置连接地址与 API Key，模型页再按 Provider → Model 的顺序选择默认模型，只有明确应用后才切换动态 Provider 路由。系统同时保存多个来源：`OpenCode Go`、`MiMo Token Plan CN`、`OpenAI API`、`OpenRouter`、`DeepSeek`、`GroqCloud`、`Mistral AI`、`SiliconFlow 中国站` 与 `xAI` 使用固定 HTTPS Base URL，用户只需填写各自独立的 API Key；`自定义 OpenAI-compatible` 额外允许填写 Base URL。动态 Provider 路由在每次请求前读取当前选中配置。
 
 所有来源使用稳定且互不相同的 Provider Configuration ID 与 Vault Key。平台启动时只补充缺失的预设，不覆盖用户已经选择的 Model ID、自定义配置或当前来源；旧版 `openai.primary` 与 `openai.api-key` 继续映射到自定义来源，因此升级不需要迁移或重新输入原密钥。预设只属于 Provider/UI 组装层，不进入 Runtime、世界包、存档或 EventLog。
 

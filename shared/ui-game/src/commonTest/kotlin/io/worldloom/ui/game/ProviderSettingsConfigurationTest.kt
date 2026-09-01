@@ -6,6 +6,20 @@ import kotlin.test.assertEquals
 
 class ProviderSettingsConfigurationTest {
     @Test
+    fun providerSettingsKeepModelSelectionSeparate() {
+        val source = OpenAiSubscriptionSources.Custom
+        val stored = source.defaultConfiguration().copy(modelId = "chosen-model")
+
+        val updated = source.configurationWithProviderSettings(
+            storedConfiguration = stored,
+            customBaseUrl = " https://gateway.example/v1/ ",
+        )
+
+        assertEquals("https://gateway.example/v1/", updated.baseUrl)
+        assertEquals("chosen-model", updated.modelId)
+    }
+
+    @Test
     fun builtInSourceKeepsEndpointAndPersistsSelectedModel() {
         val source = OpenAiSubscriptionSources.MiMoTokenPlanCn
         val stored = source.defaultConfiguration().copy(
