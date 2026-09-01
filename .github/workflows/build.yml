@@ -79,8 +79,14 @@ jobs:
           apksigner="$build_tools/apksigner"
           test -x "$apksigner"
           "$apksigner" verify --verbose "$apk"
-          actual="$($apksigner verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          certificate_pem="$RUNNER_TEMP/worldloom-android-release.pem"
+          "$apksigner" verify --print-certs-pem "$apk" \
+            | sed -n '/^-----BEGIN CERTIFICATE-----$/,/^-----END CERTIFICATE-----$/p' \
+            > "$certificate_pem"
+          test -s "$certificate_pem"
+          actual="$(openssl x509 -in "$certificate_pem" -outform DER | sha256sum | awk '{print $1}')"
           expected="$(tr -d '[:space:]' < release/android-signing-cert.sha256)"
+          echo "Android release certificate SHA-256: $actual"
           if [[ -z "$actual" || "$actual" != "$expected" ]]; then
             echo "Android release signing certificate does not match the pinned fingerprint" >&2
             exit 1
