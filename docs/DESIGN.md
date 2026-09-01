@@ -712,7 +712,7 @@ platform/
 
 ### 7.1 当前仓库状态
 
-当前仓库已完成三十五轮工程基线并发布 `0.0.1`，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
+当前仓库已完成三十五轮工程基线并发布 `0.0.2`，包含 KMP/Compose 工程骨架、Definition 与 TypedValue、Command/Event、Reducer、回放、application session、共享 UI，以及 Android、iOS 和 Desktop 平台入口。
 
 已实现的共享能力包括 manifest 驱动的 `rule-module-api`/Registry、确定性与可审计随机判定、SQLDelight EventLog/快照/迁移、供应商无关的 Provider API、受预算和权限约束的 Agent Runtime、Tool Gateway，以及 OpenAI Chat Completions 流式适配器。Provider 设置中心支持非秘密 Base URL、Model ID、连接测试、模型发现和运行时切换；配置只保存 Vault 引用。Agent 会话、Turn、结构化记忆和压缩检查点已进入持久化边界，NPC 通过稳定角色 ID、私有上下文与权限按事件调度。`war-survival` 与 `station-ai` 通过同一 Runtime 完成模块加载、Profile 驱动建角、Tool 注册、状态更新、持久化、回放和 UI 投影，并通过同一个 `playable-world/v1` 加载器验证角色入口、场景、失败推进、结局和黄金路线，不在生产 Runtime 中引入题材分支。
 
@@ -924,13 +924,13 @@ Behavior Runtime ────┘
 
 ## 9. 模型供应商与安全
 
-系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前共享 UI 将订阅与模型拆成独立配置页，并同时保存多个订阅源：内置 `OpenCode Go` 与 `MiMo Token Plan CN` 固定经过实测的 Base URL 和默认模型，用户选择后只需填写各自独立的 API Key；`自定义 OpenAI-compatible` 允许填写 Base URL、Model ID 和 API Key，并可选发现模型。动态 Provider 路由在每次请求前读取当前选中配置。
+系统采用 BYOK。Provider Configuration Center 保存供应商中立的 Base URL、Model ID、输出限制、计费参数与 Vault 凭据引用，支持运行时选择、连接测试和模型发现；非秘密设置由 SQLDelight 持久化。当前共享 UI 将订阅与模型拆成独立配置页，并同时保存多个来源：`OpenCode Go`、`MiMo Token Plan CN`、`OpenAI API`、`OpenRouter`、`DeepSeek`、`GroqCloud`、`Mistral AI`、`SiliconFlow 中国站` 与 `xAI` 使用固定 HTTPS Base URL，用户只需填写各自独立的 API Key；`自定义 OpenAI-compatible` 额外允许填写 Base URL。动态 Provider 路由在每次请求前读取当前选中配置。
 
-三个初始来源使用稳定且互不相同的 Provider Configuration ID 与 Vault Key。平台启动时只补充缺失的预设，不覆盖用户已经修改的自定义配置或当前选择；旧版 `openai.primary` 与 `openai.api-key` 继续映射到自定义来源，因此升级不需要迁移或重新输入原密钥。预设只属于 Provider/UI 组装层，不进入 Runtime、世界包、存档或 EventLog。
+所有来源使用稳定且互不相同的 Provider Configuration ID 与 Vault Key。平台启动时只补充缺失的预设，不覆盖用户已经选择的 Model ID、自定义配置或当前来源；旧版 `openai.primary` 与 `openai.api-key` 继续映射到自定义来源，因此升级不需要迁移或重新输入原密钥。预设只属于 Provider/UI 组装层，不进入 Runtime、世界包、存档或 EventLog。
 
-Base URL 可以显式使用 HTTP 或 HTTPS，以支持只监听明文 HTTP 的本地兼容代理；移动端入口相应允许明文传输。HTTP 不提供传输加密，用户应只为自己信任的本机或局域网代理配置该协议，公网服务仍应使用 HTTPS。连接测试直接向用户填写的 Model ID 发起最小 Chat Completions 请求，模型发现是独立的可选操作，不能作为连接测试或使用模型的前置能力。
+Base URL 可以显式使用 HTTP 或 HTTPS，以支持只监听明文 HTTP 的本地兼容代理；移动端入口相应允许明文传输。HTTP 不提供传输加密，用户应只为自己信任的本机或局域网代理配置该协议，公网服务仍应使用 HTTPS。连接测试直接向当前 Model ID 发起最小 Chat Completions 请求。模型发现独立调用带 Bearer 凭据的 `GET <baseUrl>/models`，接受标准 `{ data: [...] }`、部分兼容服务的顶层数组或 `{ models: [...] }` 响应；返回列表可筛选并选择，选择结果立即持久化，但模型出现在列表中不等同于它支持文本 Chat Completions 或 Tool Calling，用户仍应运行连接测试。
 
-当前已实现 OpenAI Chat Completions 兼容协议，包括 SSE 文本增量、分片 `tool_calls`、工具结果和最终用量；Anthropic Messages 仍是下一 Adapter。Agent Loop、工具调度、预算、上下文构建和会话隔离属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。适配实现依据 [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling) 与 [Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)，并始终在 Tool Gateway 本地重新校验模型参数。
+当前已实现 OpenAI Chat Completions 兼容协议，包括 SSE 文本增量、分片 `tool_calls`、工具结果和最终用量；这些预设复用 Worldloom 的 Ktor 适配器，仓库当前没有引入供应商 SDK。原生 Anthropic Messages、Google Gemini、Azure、Bedrock 与 OAuth/签名认证仍需要独立 Adapter，不能仅凭相似模型名称冒充 OpenAI-compatible 接入。Agent Loop、工具调度、预算、上下文构建和会话隔离属于 Worldloom Runtime，不依赖供应商提供的 Agent 框架。适配实现依据 [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)、[Chat Completions API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 与 [Models API](https://platform.openai.com/docs/api-reference/models)，并始终在 Tool Gateway 本地重新校验模型参数。
 
 语音属于后续特性。`provider-api` 保留 `SpeechToTextProvider` 与 `TextToSpeechProvider` 扩展边界，具体服务、模型、音色和交互在文本游戏闭环稳定后确定。
 

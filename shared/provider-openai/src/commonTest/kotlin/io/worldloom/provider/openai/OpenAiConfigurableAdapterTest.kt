@@ -45,6 +45,63 @@ class OpenAiConfigurableAdapterTest {
     }
 
     @Test
+    fun discoversModelsFromBareArraysAndPreservesUsefulMetadata() = runTest {
+        val vault = SessionCredentialVault()
+        vault.write(CredentialKey("openai.test"), SecretValue.create("test-secret"))
+        val engine = MockEngine {
+            respond(
+                content = """[{"id":"mistral-large","name":"Mistral Large","max_context_length":131072}]""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = HttpClient(engine)
+        val adapter = OpenAiConfigurableAdapter(client, vault)
+
+        val discovery = assertIs<ProviderModelDiscoveryResult.Success>(adapter.discoverModels(configuration()))
+
+        assertEquals(1, discovery.models.size)
+        assertEquals("mistral-large", discovery.models.single().id)
+        assertEquals("Mistral Large", discovery.models.single().displayName)
+        assertEquals(131_072L, discovery.models.single().contextWindowTokens)
+        client.close()
+    }
+
+    @Test
+    fun openCodeAndMiMoDiscoverThroughTheirModelsEndpoints() = runTest {
+        val vault = SessionCredentialVault()
+        val requestedUrls = mutableListOf<String>()
+        listOf(OpenAiSubscriptionSources.OpenCodeGo, OpenAiSubscriptionSources.MiMoTokenPlanCn)
+            .forEach { source ->
+                vault.write(source.credentialKey, SecretValue.create("test-secret"))
+            }
+        val engine = MockEngine { request ->
+            requestedUrls += request.url.toString()
+            respond(
+                content = """{"data":[{"id":"available-model"}]}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = HttpClient(engine)
+        val adapter = OpenAiConfigurableAdapter(client, vault)
+
+        val openCode = adapter.discoverModels(OpenAiSubscriptionSources.OpenCodeGo.defaultConfiguration())
+        val miMo = adapter.discoverModels(OpenAiSubscriptionSources.MiMoTokenPlanCn.defaultConfiguration())
+
+        assertIs<ProviderModelDiscoveryResult.Success>(openCode)
+        assertIs<ProviderModelDiscoveryResult.Success>(miMo)
+        assertEquals(
+            listOf(
+                "https://opencode.ai/zen/go/v1/models",
+                "https://token-plan-cn.xiaomimimo.com/v1/models",
+            ),
+            requestedUrls,
+        )
+        client.close()
+    }
+
+    @Test
     fun testsConfiguredModelWithoutUsingDiscoveryEndpoint() = runTest {
         val vault = SessionCredentialVault()
         vault.write(CredentialKey("openai.test"), SecretValue.create("test-secret"))

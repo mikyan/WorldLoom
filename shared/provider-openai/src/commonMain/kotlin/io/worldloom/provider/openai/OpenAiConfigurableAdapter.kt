@@ -22,9 +22,11 @@ import io.worldloom.provider.api.ProviderRequest
 import io.worldloom.provider.api.ProviderResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 
 const val OPENAI_ADAPTER_ID: String = "openai-chat-completions"
 
@@ -66,13 +68,7 @@ class OpenAiConfigurableAdapter(
                     return@withCredential failureForStatus(response.status)
                 }
                 val models = try {
-                    Json.parseToJsonElement(response.bodyAsText())
-                        .jsonObject.getValue("data")
-                        .jsonArray
-                        .map { element -> element.jsonObject.getValue("id").jsonPrimitive.content }
-                        .distinct()
-                        .sorted()
-                        .map(::ProviderModelDescriptor)
+                    decodeModelList(response.bodyAsText())
                 } catch (_: Exception) {
                     return@withCredential ProviderModelDiscoveryResult.Failure(
                         ProviderFailureCode.INVALID_RESPONSE,
@@ -150,3 +146,40 @@ class OpenAiConfigurableAdapter(
         )
     }
 }
+
+private fun decodeModelList(body: String): List<ProviderModelDescriptor> {
+    val root = Json.parseToJsonElement(body)
+    val entries = when (root) {
+        is JsonArray -> root
+        is JsonObject -> listOf("data", "models")
+            .firstNotNullOfOrNull { field -> root[field] as? JsonArray }
+            ?: error("Model discovery response has no model collection")
+        else -> error("Model discovery response must be an object or array")
+    }
+    return entries.mapNotNull { entry ->
+        val model = entry as? JsonObject ?: return@mapNotNull null
+        val id = model.string("id")
+            ?: model.string("model")
+            ?: return@mapNotNull null
+        if (id.isBlank()) return@mapNotNull null
+        val displayName = model.string("name")
+            ?.takeIf(String::isNotBlank)
+            ?: model.string("display_name")
+                ?.takeIf(String::isNotBlank)
+            ?: id
+        val contextWindow = listOf("context_window", "context_length", "max_context_length")
+            .firstNotNullOfOrNull { field -> model.long(field) }
+            ?.takeIf { it > 0 }
+        ProviderModelDescriptor(
+            id = id,
+            displayName = displayName,
+            contextWindowTokens = contextWindow,
+        )
+    }.distinctBy(ProviderModelDescriptor::id).sortedBy(ProviderModelDescriptor::id)
+}
+
+private fun JsonObject.string(field: String): String? =
+    (this[field] as? JsonPrimitive)?.contentOrNull
+
+private fun JsonObject.long(field: String): Long? =
+    (this[field] as? JsonPrimitive)?.longOrNull

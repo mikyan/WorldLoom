@@ -36,7 +36,6 @@ import io.worldloom.provider.api.ProviderConfigurationId
 import io.worldloom.provider.api.ProviderConnectionTestResult
 import io.worldloom.provider.api.ProviderModelDiscoveryResult
 import io.worldloom.provider.openai.OpenAiSubscriptionSource
-import io.worldloom.provider.openai.OpenAiSubscriptionSourceKind
 import kotlinx.coroutines.launch
 
 @Composable
@@ -161,6 +160,7 @@ private fun ProviderSourceEditor(
         mutableStateOf(storedConfiguration?.modelId ?: source.modelId)
     }
     var discoveredModels by remember(source.configurationId) { mutableStateOf(emptyList<String>()) }
+    var modelFilter by remember(source.configurationId) { mutableStateOf("") }
     var status by remember(source.configurationId) {
         mutableStateOf(if (selected) "当前正在使用此订阅源" else "尚未启用")
     }
@@ -184,23 +184,35 @@ private fun ProviderSourceEditor(
                     status = "API Key 保存失败"
                     return@launch
                 }
-                val baseline = storedConfiguration ?: source.defaultConfiguration()
-                val updated = if (source.customEndpoint) {
-                    baseline.copy(
-                        displayName = source.displayName,
-                        baseUrl = baseUrl.trim(),
-                        modelId = modelId.trim(),
-                        credentialKey = source.credentialKey.value,
-                    )
-                } else {
-                    source.defaultConfiguration()
-                }
+                val updated = source.configurationWithSelection(storedConfiguration, baseUrl, modelId)
                 center.upsert(updated)
                 center.select(updated.id)
                 onSaved(updated)
                 block(updated)
             } catch (error: IllegalArgumentException) {
                 status = error.message ?: "订阅源配置无效"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun activateModel(selectedModel: String) {
+        modelId = selectedModel
+        loading = true
+        scope.launch {
+            try {
+                val updated = source.configurationWithSelection(
+                    storedConfiguration = storedConfiguration,
+                    customBaseUrl = baseUrl,
+                    modelId = selectedModel,
+                )
+                center.upsert(updated)
+                center.select(updated.id)
+                onSaved(updated)
+                status = "已切换到模型 $selectedModel"
+            } catch (error: IllegalArgumentException) {
+                status = error.message ?: "模型配置无效"
             } finally {
                 loading = false
             }
@@ -216,7 +228,7 @@ private fun ProviderSourceEditor(
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(source.displayName, color = MaterialTheme.colors.primary, fontWeight = FontWeight.SemiBold)
                     Text(
-                        sourceDescription(source.kind),
+                        source.description,
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
                         fontSize = 12.sp,
                     )
@@ -241,18 +253,18 @@ private fun ProviderSourceEditor(
                     singleLine = true,
                     enabled = !loading,
                 )
-                OutlinedTextField(
-                    value = modelId,
-                    onValueChange = { modelId = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Model ID（可通过发现模型选择）") },
-                    singleLine = true,
-                    enabled = !loading,
-                )
             } else {
                 Text("服务地址：${source.baseUrl}", color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
-                Text("默认模型：${source.modelId}", color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f))
             }
+
+            OutlinedTextField(
+                value = modelId,
+                onValueChange = { modelId = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Model ID（可从服务端模型列表选择）") },
+                singleLine = true,
+                enabled = !loading,
+            )
 
             OutlinedTextField(
                 value = credential,
@@ -297,31 +309,26 @@ private fun ProviderSourceEditor(
                         },
                     ) { Text("保存并测试") }
                 }
-                if (source.customEndpoint) {
-                    item {
-                        Button(
-                            enabled = !loading,
-                            onClick = {
-                                saveThen { updated ->
-                                    when (val result = center.discoverModels(updated.id)) {
-                                        is ProviderModelDiscoveryResult.Success -> {
-                                            discoveredModels = result.models.map { it.id }
-                                            val discoveredModel = discoveredModels.firstOrNull()
-                                            if (discoveredModel != null && modelId !in discoveredModels) {
-                                                modelId = discoveredModel
-                                                val discoveredConfiguration = updated.copy(modelId = discoveredModel)
-                                                center.upsert(discoveredConfiguration)
-                                                center.select(discoveredConfiguration.id)
-                                                onSaved(discoveredConfiguration)
-                                            }
-                                            status = "发现 ${discoveredModels.size} 个模型"
+                item {
+                    Button(
+                        enabled = !loading,
+                        onClick = {
+                            saveThen { updated ->
+                                when (val result = center.discoverModels(updated.id)) {
+                                    is ProviderModelDiscoveryResult.Success -> {
+                                        discoveredModels = result.models.map { it.id }
+                                        modelFilter = ""
+                                        status = if (modelId in discoveredModels || discoveredModels.isEmpty()) {
+                                            "从 Models API 获取到 ${discoveredModels.size} 个模型"
+                                        } else {
+                                            "获取到 ${discoveredModels.size} 个模型；当前 Model ID 不在列表中，请重新选择"
                                         }
-                                        is ProviderModelDiscoveryResult.Failure -> status = result.message
                                     }
+                                    is ProviderModelDiscoveryResult.Failure -> status = result.message
                                 }
-                            },
-                        ) { Text("发现模型") }
-                    }
+                            }
+                        },
+                    ) { Text("获取模型列表") }
                 }
                 if (credentialState is CredentialConfigurationState.Configured) {
                     item {
@@ -343,9 +350,25 @@ private fun ProviderSourceEditor(
 
             Text(status, color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f), fontSize = 12.sp)
             if (discoveredModels.isNotEmpty()) {
+                OutlinedTextField(
+                    value = modelFilter,
+                    onValueChange = { modelFilter = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("筛选模型") },
+                    singleLine = true,
+                    enabled = !loading,
+                )
+                val visibleModels = discoveredModels
+                    .filter { model -> modelFilter.isBlank() || model.contains(modelFilter, ignoreCase = true) }
+                    .take(MAX_VISIBLE_MODELS)
+                Text(
+                    "显示 ${visibleModels.size} / ${discoveredModels.size}，点击后立即启用",
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.62f),
+                    fontSize = 12.sp,
+                )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(discoveredModels, key = { it }) { model ->
-                        Button(onClick = { modelId = model }, enabled = !loading) { Text(model) }
+                    items(visibleModels, key = { it }) { model ->
+                        Button(onClick = { activateModel(model) }, enabled = !loading) { Text(model) }
                     }
                 }
             }
@@ -353,11 +376,16 @@ private fun ProviderSourceEditor(
     }
 }
 
-private fun sourceDescription(kind: OpenAiSubscriptionSourceKind): String = when (kind) {
-    OpenAiSubscriptionSourceKind.OPENCODE_GO -> "OpenCode Go 预设，使用 OpenAI-compatible Chat Completions。"
-    OpenAiSubscriptionSourceKind.MIMO_TOKEN_PLAN_CN -> "小米 MiMo Token Plan 中国区预设。"
-    OpenAiSubscriptionSourceKind.CUSTOM -> "填写自有 OpenAI-compatible 服务地址；模型列表发现是可选能力。"
-}
+internal fun OpenAiSubscriptionSource.configurationWithSelection(
+    storedConfiguration: ProviderConfiguration?,
+    customBaseUrl: String,
+    modelId: String,
+): ProviderConfiguration = (storedConfiguration ?: defaultConfiguration()).copy(
+    displayName = displayName,
+    baseUrl = if (customEndpoint) customBaseUrl.trim() else baseUrl,
+    modelId = modelId.trim(),
+    credentialKey = credentialKey.value,
+)
 
 private fun credentialStatus(state: CredentialConfigurationState): String = when (state) {
     CredentialConfigurationState.Unknown -> "尚未检查"
@@ -366,3 +394,5 @@ private fun credentialStatus(state: CredentialConfigurationState): String = when
     CredentialConfigurationState.NotConfigured -> "密钥未配置"
     is CredentialConfigurationState.Failed -> state.message
 }
+
+private const val MAX_VISIBLE_MODELS = 50

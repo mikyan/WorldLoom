@@ -4,7 +4,7 @@ Worldloom 是一款面向 Android、iOS 与桌面端、由 AI 主持的单人数
 
 卡片、面板和时间线用于展示世界包定义的角色状态、世界信息、模块内容与判定结果；自然语言行动、规则判定和持续演化的世界共同构成游戏体验。
 
-> 项目已经完成三十五轮工程迭代并发布 `0.0.1`：两个约 60 分钟的内置短剧本共用主持、NPC、规则、存档和回放管线；TXT/EPUB 草稿只有通过聚合可玩性验证后才能进入隔离试玩并原子安装。
+> 项目已经完成三十五轮工程迭代并发布 `0.0.2`：两个约 60 分钟的内置短剧本共用主持、NPC、规则、存档和回放管线；TXT/EPUB 草稿只有通过聚合可玩性验证后才能进入隔离试玩并原子安装。
 
 ## 产品方向
 
@@ -89,7 +89,7 @@ docs/
 └── decisions/
 ```
 
-当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool/Behavior → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI 适配器支持流式文本与工具调用，Provider 设置可在运行时切换并持久化，但供应商 DTO 不进入领域层。
+当前竖切从两个 JSON 契约世界加载 manifest 与动态 Definition，经模块能力、类型和引用验证后，执行 `Intent/Tool/Behavior → Command → Event → SQLDelight EventLog/Reducer → GameState`，再通过表现绑定生成共享 Compose UI。Agent Runtime 对步骤、工具、超时、Token、费用、权限和循环进行限制；OpenAI-compatible 适配器支持流式文本、工具调用和 Models API 动态发现，Provider 设置可在运行时切换并持久化，但供应商 DTO 不进入领域层。
 
 选择内置世界后，新 Run 会经过 `CREATED → CHARACTER_CREATION → ACTIVE`：战争契约使用固定角色，空间站契约使用点数分配，同一共享 UI 从 Profile 生成表单。角色确认以一个原子 Event 批次创建玩家 Entity、初始组件和开局场景；未确认草稿独立持久化，可在重启后继续，且不会提前成为世界事实。
 

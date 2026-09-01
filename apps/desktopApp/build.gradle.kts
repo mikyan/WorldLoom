@@ -43,7 +43,7 @@ compose.desktop {
             // module detection does not discover that transitive runtime requirement.
             modules("java.sql")
             packageName = "Worldloom"
-            packageVersion = "0.0.1"
+            packageVersion = "0.0.2"
             description = "AI-hosted single-player digital tabletop RPG"
             vendor = "Worldloom"
             windows {

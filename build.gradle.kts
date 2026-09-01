@@ -12,7 +12,7 @@ plugins {
 
 allprojects {
     group = "io.worldloom"
-    version = "0.0.1"
+    version = "0.0.2"
 }
 
 tasks.named("check") {
